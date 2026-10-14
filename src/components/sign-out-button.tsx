@@ -9,7 +9,10 @@ export function SignOutButton({ className }: { className?: string }) {
       type="button"
       variant="ghost"
       className={className}
-      onClick={() => signOut({ callbackUrl: "/login" })}
+      onClick={async () => {
+        await signOut({ redirect: false });
+        window.location.assign("/login");
+      }}
     >
       Sign out
     </Button>
