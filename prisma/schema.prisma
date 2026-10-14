@@ -1,0 +1,43 @@
+// Nexus — Prisma schema (S0: User + auth)
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Clearance {
+  USER
+  MANAGER
+  DIRECTOR
+  MASTER
+}
+
+model User {
+  id                 String     @id @default(cuid())
+  email              String     @unique
+  name               String
+  passwordHash       String
+  clearance          Clearance
+  /** Required for USER and MANAGER; null for DIRECTOR / MASTER */
+  department         String?
+  mustChangePassword Boolean    @default(true)
+  /** Per-door block | view | edit. Null uses the kind defaults. */
+  access             Json?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+}
+
+/**
+ * Shared Nexus workspace blob (contracts, tasks, invoices, payments, catalog).
+ * Survives tunnel URL changes — not tied to browser localStorage origin.
+ * Full relational tables come later; this keeps testing data durable now.
+ */
+model WorkspaceStore {
+  id        String   @id @default("default")
+  data      Json
+  updatedAt DateTime @updatedAt
+}

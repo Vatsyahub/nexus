@@ -1,0 +1,561 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-body);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-display);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  color-scheme: light;
+  --fh-bg: #eef1f4;
+  --fh-ink: #14232e;
+  --fh-muted: #5c6b76;
+  --fh-steel: #1b3a4b;
+  --fh-accent: #e3a008;
+  --fh-brand: #f3b48a;
+  --fh-line: #d5dde4;
+  --fh-panel: #ffffff;
+  --fh-ok: #0f766e;
+  --fh-bg-end: #e6ebf0;
+  --fh-glow: rgba(227, 160, 8, 0.12);
+  --fh-wash: rgba(27, 58, 75, 0.08);
+  /* Cost-centre profit percent. Calm teal, antique gold, brick — not neon. */
+  --fh-profit-green: #0f766e;
+  --fh-profit-green-tint: #e3f1ec;
+  --fh-profit-yellow: #8a6412;
+  --fh-profit-yellow-tint: #f6efd6;
+  --fh-profit-red: var(--destructive);
+  --fh-profit-red-tint: #f8ebe8;
+
+  --background: #eef1f4;
+  --foreground: #14232e;
+  --card: #ffffff;
+  --card-foreground: #14232e;
+  --popover: #ffffff;
+  --popover-foreground: #14232e;
+  --primary: #1b3a4b;
+  --primary-foreground: #f7fafc;
+  --secondary: #e8eef2;
+  --secondary-foreground: #14232e;
+  --muted: #e8eef2;
+  --muted-foreground: #5c6b76;
+  --accent: #e3a008;
+  --accent-foreground: #14232e;
+  --destructive: #b42318;
+  --border: #d5dde4;
+  --input: #d5dde4;
+  --ring: #1b3a4b;
+  --chart-1: #1b3a4b;
+  --chart-2: #e3a008;
+  --chart-3: #0f766e;
+  --chart-4: #5c6b76;
+  --chart-5: #94a3b8;
+  --radius: 0.5rem;
+  --sidebar: #1b3a4b;
+  --sidebar-foreground: #f7fafc;
+  --sidebar-primary: #e3a008;
+  --sidebar-primary-foreground: #14232e;
+  --sidebar-accent: #244a5e;
+  --sidebar-accent-foreground: #f7fafc;
+  --sidebar-border: #2a4f63;
+  --sidebar-ring: #e3a008;
+}
+
+/* Flat wordmark — light setting-sun */
+.nexus-wordmark {
+  letter-spacing: -0.02em;
+  color: var(--fh-brand);
+  -webkit-text-fill-color: var(--fh-brand);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 100% -20%, var(--fh-glow), transparent),
+      radial-gradient(ellipse 60% 40% at 0% 100%, var(--fh-wash), transparent),
+      linear-gradient(180deg, var(--fh-bg) 0%, var(--fh-bg-end) 100%);
+    background-attachment: fixed;
+    height: 100dvh;
+    overflow: hidden;
+  }
+  html {
+    height: 100dvh;
+    overflow: hidden;
+  }
+}
+
+/* Coloured hubs stay in the same layout as Default. Pages are a pale wash,
+   sidebars and headings are a muted tint of the family, and gold stays on the wordmark. */
+html[data-theme="red"] {
+  color-scheme: light;
+  --fh-bg: #f4f1f0;
+  --fh-ink: #2a2426;
+  --fh-muted: #6d5d60;
+  --fh-steel: #72464d;
+  --fh-accent: #c48b86;
+  --fh-brand: #f3b48a;
+  --fh-line: #e2d6d4;
+  --fh-panel: #fffcfb;
+  --fh-ok: #0f766e;
+  --fh-bg-end: #ebe4e2;
+  --fh-glow: rgba(196, 139, 134, 0.1);
+  --fh-wash: rgba(114, 70, 77, 0.05);
+  --fh-steel-hover: #5e3940;
+  --fh-accent-hover: #b57d78;
+
+  --background: #f4f1f0;
+  --foreground: #2a2426;
+  --card: #fffcfb;
+  --card-foreground: #2a2426;
+  --popover: #fffcfb;
+  --popover-foreground: #2a2426;
+  --primary: #72464d;
+  --primary-foreground: #fbf7f6;
+  --secondary: #f3eceb;
+  --secondary-foreground: #2a2426;
+  --muted: #f3eceb;
+  --muted-foreground: #6d5d60;
+  --accent: #c48b86;
+  --accent-foreground: #2a2426;
+  --destructive: #9f1239;
+  --border: #e2d6d4;
+  --input: #e2d6d4;
+  --ring: #72464d;
+  --chart-1: #72464d;
+  --chart-2: #e3a008;
+  --chart-3: #0f766e;
+  --chart-4: #6d5d60;
+  --chart-5: #c48b86;
+  --sidebar: #72464d;
+  --sidebar-foreground: #fbf7f6;
+  --sidebar-primary: #e3a008;
+  --sidebar-primary-foreground: #2a2426;
+  --sidebar-accent: #5e3940;
+  --sidebar-accent-foreground: #fbf7f6;
+  --sidebar-border: #8d646a;
+  --sidebar-ring: #e3a008;
+}
+
+html[data-theme="blue"] {
+  color-scheme: light;
+  --fh-bg: #f1f4f6;
+  --fh-ink: #1c2830;
+  --fh-muted: #546270;
+  --fh-steel: #415772;
+  --fh-accent: #8aa4b5;
+  --fh-brand: #f3b48a;
+  --fh-line: #d5dee6;
+  --fh-panel: #ffffff;
+  --fh-ok: #0f766e;
+  --fh-bg-end: #e6ebf0;
+  --fh-glow: rgba(138, 164, 181, 0.12);
+  --fh-wash: rgba(65, 87, 114, 0.05);
+  --fh-steel-hover: #364a62;
+  --fh-accent-hover: #7d97a8;
+
+  --background: #f1f4f6;
+  --foreground: #1c2830;
+  --card: #ffffff;
+  --card-foreground: #1c2830;
+  --popover: #ffffff;
+  --popover-foreground: #1c2830;
+  --primary: #415772;
+  --primary-foreground: #f5f8fb;
+  --secondary: #e7eef3;
+  --secondary-foreground: #1c2830;
+  --muted: #e7eef3;
+  --muted-foreground: #546270;
+  --accent: #8aa4b5;
+  --accent-foreground: #1c2830;
+  --destructive: #b42318;
+  --border: #d5dee6;
+  --input: #d5dee6;
+  --ring: #415772;
+  --chart-1: #415772;
+  --chart-2: #e3a008;
+  --chart-3: #0f766e;
+  --chart-4: #546270;
+  --chart-5: #8aa4b5;
+  --sidebar: #415772;
+  --sidebar-foreground: #f5f8fb;
+  --sidebar-primary: #e3a008;
+  --sidebar-primary-foreground: #1c2830;
+  --sidebar-accent: #364a62;
+  --sidebar-accent-foreground: #f5f8fb;
+  --sidebar-border: #5d7590;
+  --sidebar-ring: #e3a008;
+}
+
+html[data-theme="green"] {
+  color-scheme: light;
+  --fh-bg: #f1f4f1;
+  --fh-ink: #1c2820;
+  --fh-muted: #55685c;
+  --fh-steel: #3c5e4c;
+  --fh-accent: #8aab96;
+  --fh-brand: #f3b48a;
+  --fh-line: #d5e2d8;
+  --fh-panel: #ffffff;
+  --fh-ok: #0f6e62;
+  --fh-bg-end: #e5eee7;
+  --fh-glow: rgba(138, 171, 150, 0.12);
+  --fh-wash: rgba(60, 94, 76, 0.05);
+  --fh-steel-hover: #314e3e;
+  --fh-accent-hover: #7c9e88;
+
+  --background: #f1f4f1;
+  --foreground: #1c2820;
+  --card: #ffffff;
+  --card-foreground: #1c2820;
+  --popover: #ffffff;
+  --popover-foreground: #1c2820;
+  --primary: #3c5e4c;
+  --primary-foreground: #f4faf6;
+  --secondary: #e7f0ea;
+  --secondary-foreground: #1c2820;
+  --muted: #e7f0ea;
+  --muted-foreground: #55685c;
+  --accent: #8aab96;
+  --accent-foreground: #1c2820;
+  --destructive: #b42318;
+  --border: #d5e2d8;
+  --input: #d5e2d8;
+  --ring: #3c5e4c;
+  --chart-1: #3c5e4c;
+  --chart-2: #e3a008;
+  --chart-3: #0f6e62;
+  --chart-4: #55685c;
+  --chart-5: #8aab96;
+  --sidebar: #3c5e4c;
+  --sidebar-foreground: #f4faf6;
+  --sidebar-primary: #e3a008;
+  --sidebar-primary-foreground: #1c2820;
+  --sidebar-accent: #314e3e;
+  --sidebar-accent-foreground: #f4faf6;
+  --sidebar-border: #5a7a68;
+  --sidebar-ring: #e3a008;
+}
+
+/* Night steel. General dark mode: dark page, charcoal-navy panels, light text, gold accent. */
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --fh-bg: #0e171e;
+  --fh-ink: #e7eef3;
+  --fh-muted: #9aadb8;
+  --fh-steel: #d7e6f0;
+  --fh-accent: #e3a008;
+  --fh-brand: #f3b48a;
+  --fh-line: #2c4252;
+  --fh-panel: #162430;
+  --fh-ok: #5eead4;
+  --fh-bg-end: #101c24;
+  --fh-glow: rgba(227, 160, 8, 0.1);
+  --fh-wash: rgba(20, 50, 68, 0.45);
+  --fh-steel-fill: #1b3a4b;
+  --fh-steel-hover: #244a5e;
+  --fh-accent-hover: #f0b01a;
+  --fh-panel-hover: #1d3342;
+
+  --background: #0e171e;
+  --foreground: #e7eef3;
+  --card: #162430;
+  --card-foreground: #e7eef3;
+  --popover: #162430;
+  --popover-foreground: #e7eef3;
+  --primary: #1b3a4b;
+  --primary-foreground: #f7fafc;
+  --secondary: #1c2e3a;
+  --secondary-foreground: #e7eef3;
+  --muted: #1c2e3a;
+  --muted-foreground: #9aadb8;
+  --accent: #e3a008;
+  --accent-foreground: #14232e;
+  --destructive: #f0a8a2;
+  --border: #2c4252;
+  --input: #3a5568;
+  --ring: #e3a008;
+  --chart-1: #d7e6f0;
+  --chart-2: #e3a008;
+  --chart-3: #5eead4;
+  --chart-4: #9aadb8;
+  --chart-5: #5c7d90;
+  --sidebar: #1b3a4b;
+  --sidebar-foreground: #f7fafc;
+  --sidebar-primary: #e3a008;
+  --sidebar-primary-foreground: #14232e;
+  --sidebar-accent: #244a5e;
+  --sidebar-accent-foreground: #f7fafc;
+  --sidebar-border: #2c4252;
+  --sidebar-ring: #e3a008;
+}
+
+/* Dark knight: near-black field, charcoal panels, warm light type, antique gold. Master only. */
+html[data-theme="dark-knight"] {
+  color-scheme: dark;
+  --fh-bg: #0c0e12;
+  --fh-ink: #ebe6dc;
+  --fh-muted: #b3aa9e;
+  --fh-steel: #f0eadf;
+  --fh-accent: #d4b36a;
+  --fh-brand: #e4c98a;
+  --fh-line: #2c313b;
+  --fh-panel: #171a20;
+  --fh-ok: #8fbfa8;
+  --fh-bg-end: #10131a;
+  --fh-glow: rgba(212, 179, 106, 0.1);
+  --fh-wash: rgba(0, 0, 0, 0.55);
+  --fh-steel-fill: #141820;
+  --fh-steel-hover: #2c3340;
+  --fh-accent-hover: #e2c48a;
+  --fh-panel-hover: #242830;
+
+  --background: #0c0e12;
+  --foreground: #ebe6dc;
+  --card: #171a20;
+  --card-foreground: #ebe6dc;
+  --popover: #171a20;
+  --popover-foreground: #ebe6dc;
+  --primary: #141820;
+  --primary-foreground: #f4efe6;
+  --secondary: #22262f;
+  --secondary-foreground: #ebe6dc;
+  --muted: #22262f;
+  --muted-foreground: #b3aa9e;
+  --accent: #d4b36a;
+  --accent-foreground: #16140e;
+  --destructive: #e7b1aa;
+  --border: #2c313b;
+  --input: #3a404c;
+  --ring: #d4b36a;
+  --chart-1: #d4b36a;
+  --chart-2: #8fbfa8;
+  --chart-3: #b3aa9e;
+  --chart-4: #f0eadf;
+  --chart-5: #5c6574;
+  --sidebar: #101218;
+  --sidebar-foreground: #f4efe6;
+  --sidebar-primary: #d4b36a;
+  --sidebar-primary-foreground: #16140e;
+  --sidebar-accent: #1c212b;
+  --sidebar-accent-foreground: #f4efe6;
+  --sidebar-border: #2c313b;
+  --sidebar-ring: #d4b36a;
+}
+
+/* Profit-percent chips: light type on a quiet tint, still readable on charcoal. */
+html[data-theme="dark"],
+html[data-theme="dark-knight"] {
+  --fh-profit-green: #b7d4cb;
+  --fh-profit-green-tint: rgba(120, 168, 156, 0.28);
+  --fh-profit-yellow: #ead9b0;
+  --fh-profit-yellow-tint: rgba(212, 179, 106, 0.28);
+  --fh-profit-red-tint: rgba(224, 160, 152, 0.3);
+}
+
+/* Cards written as bg-white follow the charcoal panel. */
+html[data-theme="dark"] [class~="bg-white"],
+html[data-theme="dark-knight"] [class~="bg-white"] {
+  background-color: var(--fh-panel);
+}
+
+html[data-theme="dark"] [class~="hover:bg-white"]:hover,
+html[data-theme="dark-knight"] [class~="hover:bg-white"]:hover {
+  background-color: var(--fh-panel-hover);
+}
+
+html[data-theme="dark"] [class~="bg-white/70"],
+html[data-theme="dark-knight"] [class~="bg-white/70"] {
+  background-color: color-mix(in srgb, var(--fh-panel) 88%, transparent);
+}
+
+/* Steel fills stay navy or charcoal while --fh-steel is the light heading colour. */
+html[data-theme="dark"] [class~="bg-[var(--fh-steel)]"],
+html[data-theme="dark-knight"] [class~="bg-[var(--fh-steel)]"] {
+  background-color: var(--fh-steel-fill);
+}
+
+/* Gold controls keep dark type. The cream access note stays a light chip with dark type. */
+html[data-theme="dark"] [class~="bg-[var(--fh-accent)]"],
+html[data-theme="dark-knight"] [class~="bg-[var(--fh-accent)]"],
+html[data-theme="dark"] [class~="bg-[#fff6e5]"],
+html[data-theme="dark-knight"] [class~="bg-[#fff6e5]"] {
+  color: #14232e;
+}
+
+/* Tailwind status colours were authored for a light page. On the dark themes,
+   lighten the type and deepen the chip so neither pair washes out. */
+html[data-theme="dark"] [class~="text-red-600"],
+html[data-theme="dark-knight"] [class~="text-red-600"],
+html[data-theme="dark"] [class~="text-red-700"],
+html[data-theme="dark-knight"] [class~="text-red-700"],
+html[data-theme="dark"] [class~="text-red-800"],
+html[data-theme="dark-knight"] [class~="text-red-800"] {
+  color: #fca5a5;
+}
+html[data-theme="dark"] [class~="bg-red-50"],
+html[data-theme="dark-knight"] [class~="bg-red-50"],
+html[data-theme="dark"] [class~="bg-red-50/60"],
+html[data-theme="dark-knight"] [class~="bg-red-50/60"],
+html[data-theme="dark"] [class~="bg-red-100"],
+html[data-theme="dark-knight"] [class~="bg-red-100"],
+html[data-theme="dark"] [class~="bg-red-100/90"],
+html[data-theme="dark-knight"] [class~="bg-red-100/90"] {
+  background-color: #3f2224;
+}
+html[data-theme="dark"] [class~="hover:bg-red-100"]:hover,
+html[data-theme="dark-knight"] [class~="hover:bg-red-100"]:hover {
+  background-color: #532c2f;
+}
+
+html[data-theme="dark"] [class~="text-emerald-700"],
+html[data-theme="dark-knight"] [class~="text-emerald-700"],
+html[data-theme="dark"] [class~="text-emerald-800"],
+html[data-theme="dark-knight"] [class~="text-emerald-800"] {
+  color: #6ee7b7;
+}
+html[data-theme="dark"] [class~="bg-emerald-50"],
+html[data-theme="dark-knight"] [class~="bg-emerald-50"],
+html[data-theme="dark"] [class~="bg-emerald-100"],
+html[data-theme="dark-knight"] [class~="bg-emerald-100"] {
+  background-color: #12312c;
+}
+
+html[data-theme="dark"] [class~="text-green-700"],
+html[data-theme="dark-knight"] [class~="text-green-700"],
+html[data-theme="dark"] [class~="text-green-800"],
+html[data-theme="dark-knight"] [class~="text-green-800"] {
+  color: #86efac;
+}
+html[data-theme="dark"] [class~="bg-green-50"],
+html[data-theme="dark-knight"] [class~="bg-green-50"] {
+  background-color: #143024;
+}
+
+html[data-theme="dark"] [class~="text-amber-800"],
+html[data-theme="dark-knight"] [class~="text-amber-800"],
+html[data-theme="dark"] [class~="text-amber-900"],
+html[data-theme="dark-knight"] [class~="text-amber-900"] {
+  color: #fcd34d;
+}
+html[data-theme="dark"] [class~="bg-amber-50"],
+html[data-theme="dark-knight"] [class~="bg-amber-50"],
+html[data-theme="dark"] [class~="bg-amber-50/60"],
+html[data-theme="dark-knight"] [class~="bg-amber-50/60"],
+html[data-theme="dark"] [class~="bg-amber-100"],
+html[data-theme="dark-knight"] [class~="bg-amber-100"] {
+  background-color: #3a2e14;
+}
+
+html[data-theme="dark"] [class~="text-sky-900"],
+html[data-theme="dark-knight"] [class~="text-sky-900"] {
+  color: #7dd3fc;
+}
+html[data-theme="dark"] [class~="bg-sky-50"],
+html[data-theme="dark-knight"] [class~="bg-sky-50"] {
+  background-color: #132a3a;
+}
+
+/* Sign-in card stays white on the navy page, so it keeps the day palette. */
+html[data-theme="dark"] .nexus-force-light,
+html[data-theme="dark-knight"] .nexus-force-light {
+  color-scheme: light;
+  --fh-bg: #eef1f4;
+  --fh-ink: #14232e;
+  --fh-muted: #5c6b76;
+  --fh-steel: #1b3a4b;
+  --fh-accent: #e3a008;
+  --fh-line: #d5dde4;
+  --fh-panel: #ffffff;
+  --fh-ok: #0f766e;
+  --foreground: #14232e;
+  --muted-foreground: #5c6b76;
+  --border: #d5dde4;
+  --input: #d5dde4;
+  --ring: #1b3a4b;
+  --destructive: #b42318;
+  color: #14232e;
+}
+html[data-theme="dark"] .nexus-force-light [class~="bg-white"],
+html[data-theme="dark-knight"] .nexus-force-light [class~="bg-white"] {
+  background-color: #ffffff;
+}
+html[data-theme="dark"] .nexus-force-light [class~="bg-red-50"],
+html[data-theme="dark-knight"] .nexus-force-light [class~="bg-red-50"] {
+  background-color: #fef2f2;
+}
+html[data-theme="dark"] .nexus-force-light [class~="text-red-700"],
+html[data-theme="dark-knight"] .nexus-force-light [class~="text-red-700"] {
+  color: #b91c1c;
+}
+html[data-theme="dark"] .nexus-force-light [class~="bg-green-50"],
+html[data-theme="dark-knight"] .nexus-force-light [class~="bg-green-50"] {
+  background-color: #f0fdf4;
+}
+html[data-theme="dark"] .nexus-force-light [class~="text-green-800"],
+html[data-theme="dark-knight"] .nexus-force-light [class~="text-green-800"] {
+  color: #166534;
+}
+
+/* Hard-coded navy and gold hovers follow the active palette. */
+html[data-theme="red"] [class~="hover:bg-[#244a5e]"]:hover,
+html[data-theme="blue"] [class~="hover:bg-[#244a5e]"]:hover,
+html[data-theme="green"] [class~="hover:bg-[#244a5e]"]:hover,
+html[data-theme="dark"] [class~="hover:bg-[#244a5e]"]:hover,
+html[data-theme="dark-knight"] [class~="hover:bg-[#244a5e]"]:hover {
+  background-color: var(--fh-steel-hover);
+}
+
+html[data-theme="red"] [class~="hover:bg-[#f0b01a]"]:hover,
+html[data-theme="blue"] [class~="hover:bg-[#f0b01a]"]:hover,
+html[data-theme="green"] [class~="hover:bg-[#f0b01a]"]:hover,
+html[data-theme="dark"] [class~="hover:bg-[#f0b01a]"]:hover,
+html[data-theme="dark-knight"] [class~="hover:bg-[#f0b01a]"]:hover {
+  background-color: var(--fh-accent-hover);
+}

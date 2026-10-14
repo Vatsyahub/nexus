@@ -1,0 +1,314 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import {
+  invoiceExpectedCash,
+  invoiceExtraTotal,
+  invoiceOutstanding,
+  invoiceRetentionHold,
+  invoiceTdsHold,
+  useFlowhubData,
+} from "@/lib/store";
+import { DEFAULT_TDS_PERCENT, type Payment, type PaymentLink } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+function formatMoney(n: number) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 2,
+  }).format(n);
+}
+
+function round2(n: number) {
+  return Math.round(n * 100) / 100;
+}
+
+function balanceLabel(amount: number) {
+  if (amount > 0.005) return `Due ${formatMoney(amount)}`;
+  if (amount < -0.005) return `Extra ${formatMoney(-amount)}`;
+  return "Paid";
+}
+
+export type PaymentFormValues = Omit<Payment, "id" | "createdAt">;
+
+export function PaymentForm({
+  initial,
+  submitLabel,
+  onSubmit,
+}: {
+  initial?: Payment;
+  submitLabel: string;
+  onSubmit: (values: PaymentFormValues) => Promise<string | null>;
+}) {
+  const data = useFlowhubData();
+  const [msg, setMsg] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const [contractId, setContractId] = useState(initial?.contractId ?? "");
+  const [link, setLink] = useState<PaymentLink>(initial?.link ?? "unlinked");
+  const [invoiceId, setInvoiceId] = useState(initial?.invoiceId ?? "");
+  const [date, setDate] = useState(initial?.date ?? "");
+  const [netAmount, setNetAmount] = useState(
+    initial ? String(initial.netAmount) : ""
+  );
+  const [gstAmount, setGstAmount] = useState(
+    initial ? String(initial.gstAmount) : ""
+  );
+  const [retention, setRetention] = useState(
+    initial ? String(initial.retentionAmount) : "0"
+  );
+  const [tds, setTds] = useState(initial ? String(initial.tdsAmount) : "0");
+  const [other, setOther] = useState(
+    initial ? String(initial.otherDeductions) : "0"
+  );
+  const [prefilledFor, setPrefilledFor] = useState<string | null>(
+    initial?.invoiceId ?? null
+  );
+
+  const contract = data.contracts.find((c) => c.id === contractId);
+  const invoicesForLink = useMemo(() => {
+    if (!contractId || link === "unlinked") return [];
+    return data.invoices
+      .filter((i) => i.contractId === contractId && i.type === link)
+      .slice()
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [data.invoices, contractId, link]);
+
+  const selected = data.invoices.find((i) => i.id === invoiceId);
+  const dueBefore =
+    selected?.type === "TI"
+      ? (() => {
+          const raw = invoiceOutstanding(selected, data);
+          if (!initial || initial.invoiceId !== selected.id) return raw;
+          // When editing a payment already on this TI, show balance as if this
+          // payment were removed so the form can target a clean settle.
+          // Outstanding only subtracts net+GST+other (not ret/TDS holds).
+          return (
+            raw +
+            (initial.netAmount + initial.gstAmount + initial.otherDeductions)
+          );
+        })()
+      : null;
+
+  const cash = (Number(netAmount) || 0) + (Number(gstAmount) || 0);
+  const accounted =
+    cash +
+    (Number(retention) || 0) +
+    (Number(tds) || 0) +
+    (Number(other) || 0);
+
+  useEffect(() => {
+    if (link === "unlinked") {
+      setInvoiceId("");
+      return;
+    }
+    if (invoiceId && !invoicesForLink.some((i) => i.id === invoiceId)) {
+      setInvoiceId("");
+    }
+  }, [link, invoicesForLink, invoiceId]);
+
+  useEffect(() => {
+    if (!selected || !contract) return;
+    if (prefilledFor === selected.id) return;
+    const ret = invoiceRetentionHold(selected, data);
+    const tdsHold = invoiceTdsHold(selected, data);
+    const extra = invoiceExtraTotal(selected);
+    // Cash portion only: invoice total − retention − TDS.
+    // Retention and TDS are recorded separately and are not due as cash.
+    setRetention(String(round2(ret)));
+    setTds(String(round2(tdsHold)));
+    setGstAmount(String(round2(selected.gstAmount)));
+    setNetAmount(String(round2(selected.netAmount + extra - ret - tdsHold)));
+    setOther("0");
+    setPrefilledFor(selected.id);
+  }, [selected, contract, data, prefilledFor]);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setMsg(null);
+    if (!contractId || !date) {
+      setMsg("Select a contract and payment date.");
+      return;
+    }
+    if (link !== "unlinked" && !invoiceId) {
+      setMsg(link === "PI" ? "Select a proforma." : "Select a tax invoice.");
+      return;
+    }
+    setPending(true);
+    const err = await onSubmit({
+      contractId,
+      invoiceId: link === "unlinked" ? null : invoiceId,
+      link,
+      date,
+      netAmount: Number(netAmount) || 0,
+      gstAmount: Number(gstAmount) || 0,
+      retentionAmount: Number(retention) || 0,
+      tdsAmount: Number(tds) || 0,
+      otherDeductions: Number(other) || 0,
+    });
+    setPending(false);
+    if (err) setMsg(err);
+  }
+
+  return (
+    <form
+      onSubmit={submit}
+      className="space-y-4 rounded-xl border border-[var(--fh-line)] bg-white p-5"
+    >
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1 sm:col-span-2">
+          <Label>Contract</Label>
+          <select
+            className="flex h-8 w-full rounded-lg border border-input px-2 text-sm"
+            value={contractId}
+            onChange={(e) => {
+              setContractId(e.target.value);
+              setInvoiceId("");
+              setPrefilledFor(null);
+            }}
+            required
+          >
+            <option value="">Select…</option>
+            {data.contracts.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.projectNo} · {c.projectName}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-1">
+          <Label>Link</Label>
+          <select
+            className="flex h-8 w-full rounded-lg border border-input px-2 text-sm"
+            value={link}
+            onChange={(e) => {
+              setLink(e.target.value as PaymentLink);
+              setPrefilledFor(null);
+            }}
+          >
+            <option value="unlinked">Unlinked</option>
+            <option value="TI">Tax invoice</option>
+            <option value="PI">Proforma</option>
+          </select>
+        </div>
+        {link !== "unlinked" && (
+          <div className="space-y-1">
+            <Label>{link === "PI" ? "Proforma" : "Tax invoice"}</Label>
+            <select
+              className="flex h-8 w-full rounded-lg border border-input px-2 text-sm"
+              value={invoiceId}
+              onChange={(e) => {
+                setInvoiceId(e.target.value);
+                setPrefilledFor(null);
+              }}
+              required
+              disabled={!contractId}
+            >
+              <option value="">Select…</option>
+              {invoicesForLink.map((inv) => {
+                const left =
+                  inv.type === "TI" ? invoiceOutstanding(inv, data) : null;
+                return (
+                  <option key={inv.id} value={inv.id}>
+                    {inv.number}
+                    {left != null ? ` · ${balanceLabel(left)}` : ""}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+        )}
+        <div className="space-y-1">
+          <Label>Payment date</Label>
+          <Input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            required
+          />
+        </div>
+        <Field
+          label="Cash — net"
+          value={netAmount}
+          onChange={setNetAmount}
+        />
+        <Field
+          label="Cash — GST"
+          value={gstAmount}
+          onChange={setGstAmount}
+        />
+        <Field label="Retention (held)" value={retention} onChange={setRetention} />
+        <Field label="TDS (held)" value={tds} onChange={setTds} />
+        <Field label="Other deductions" value={other} onChange={setOther} />
+      </div>
+
+      <div className="space-y-1 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)] px-3 py-2 text-xs text-[var(--fh-muted)]">
+        <p>
+          Cash fields are money received in the bank. Retention and TDS are
+          held amounts — they settle the invoice but are not cash due. When you
+          pick an invoice, cash is prefilled as invoice total minus retention
+          and TDS (editable).
+        </p>
+        {contract && (
+          <p>
+            This contract: retention {contract.retentionPercent}% of net, TDS{" "}
+            {contract.tdsPercent ?? DEFAULT_TDS_PERCENT}% of net. Extra charges
+            are not reduced.
+          </p>
+        )}
+        <p>
+          This entry: cash {formatMoney(cash)} · accounted{" "}
+          {formatMoney(accounted)} (cash + retention + TDS + other).
+        </p>
+        {selected && (
+          <p>
+            Invoice {selected.number}: total {formatMoney(selected.finalAmount)}{" "}
+            · expected cash {formatMoney(invoiceExpectedCash(selected, data))}
+            {dueBefore != null
+              ? ` · balance before this entry ${balanceLabel(dueBefore)}`
+              : ""}
+            {selected.type === "TI"
+              ? ` · after this entry ${balanceLabel(dueBefore != null ? dueBefore - accounted : selected.finalAmount - accounted)}`
+              : ""}
+          </p>
+        )}
+      </div>
+
+      {msg && (
+        <p
+          className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+          role="alert"
+        >
+          {msg}
+        </p>
+      )}
+
+      <Button
+        type="submit"
+        disabled={pending}
+        className="bg-[var(--fh-steel)] hover:bg-[#244a5e]"
+      >
+        {pending ? "Saving…" : submitLabel}
+      </Button>
+    </form>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label>{label}</Label>
+      <Input type="number" value={value} onChange={(e) => onChange(e.target.value)} />
+    </div>
+  );
+}

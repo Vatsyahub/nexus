@@ -1,0 +1,4345 @@
+"use client";
+
+import { useSyncExternalStore } from "react";
+import {
+  type BoqAmendment,
+  type BoqAmendmentLineDiff,
+  type BoqItem,
+  type Contract,
+  type ContractExpense,
+  type DeliveryChallan,
+  type DeliveryChallanLine,
+  type ExpenseEditRecord,
+  type FlowhubData,
+  SEED_EXPENSE_CATEGORIES,
+  type GuaranteeEditRecord,
+  type HubNotification,
+  type InstallationProgress,
+  type Invoice,
+  type InvoiceExtraCharge,
+  type InvoiceLine,
+  type ItemCatalogEntry,
+  type Payment,
+  type ScheduleChangeLogEntry,
+  type ScheduleKind,
+  type ScheduleLine,
+  type Task,
+  type TaskCatalogKey,
+  type TaskStatus,
+  GST_RATE,
+  DEFAULT_TDS_PERCENT,
+  SEED_DEPARTMENTS,
+  TASK_COMPLETED_VISIBLE_DAYS,
+  BG_EXPIRY_LEAD_MONTHS,
+  RETENTION_LEAD_DAYS,
+  SCHEDULE_KIND_LABELS,
+  SCHEDULE_DATE_NA,
+  isScheduleDateNa,
+  guaranteeAmount,
+  departmentDisplayName,
+  boqTotal,
+  defaultAmendmentNumber,
+  EMPTY_NEXUS_COSTS,
+  type NexusCosts,
+} from "@/lib/types";
+import {
+  contractDisplayStatus,
+  contractIsHandedOver,
+  contractStatusLabel,
+  normalizeNexusCosts,
+  todayIso as nexusTodayIso,
+} from "@/lib/nexus-core";
+import {
+  formatDisplayDate,
+  formatScheduleDateRange,
+} from "@/lib/dates";
+import {
+  resolveNotificationHref as resolveHrefFromTasks,
+  taskNotificationHref,
+} from "@/lib/notification-href";
+import {
+  notificationVisibleForUser,
+  purgeExpiredNotifications,
+} from "@/lib/notification-ttl";
+import {
+  canConfirmTaskVerification,
+  completesImmediately,
+  completionNeedsVerification,
+  notificationVisibleTo,
+  planDueNotices,
+  taskAlertAudience,
+  taskDueTodayAudience,
+  type TaskActor,
+} from "@/lib/task-notices";
+
+export type { TaskActor };
+export {
+  canConfirmTaskVerification,
+  completionNeedsVerification,
+  notificationVisibleTo,
+};
+
+export { taskNotificationHref } from "@/lib/notification-href";
+export {
+  NOTIFICATION_TTL_MS,
+  notificationIsAlive,
+  notificationVisibleForUser,
+  purgeExpiredNotifications,
+} from "@/lib/notification-ttl";
+
+/** Bump when demo/workspace must not fight stale browser caches. */
+const STORAGE_KEY = "nexus-ws-v5";
+
+const empty: FlowhubData = {
+  workspaceRevision: 0,
+  contracts: [],
+  tasks: [],
+  itemCatalog: [],
+  invoices: [],
+  payments: [],
+  schedules: [],
+  scheduleChangeLog: [],
+  notifications: [],
+  customDepartments: [],
+  expenseCategories: [],
+  deliveryChallans: [],
+  installationProgress: [],
+  nexusCosts: EMPTY_NEXUS_COSTS,
+};
+
+function normalizeExpense(
+  e: ContractExpense & { category?: string | null }
+): ContractExpense {
+  return {
+    ...e,
+    category: (e.category || "").trim() || "Miscellaneous",
+    createdBy: e.createdBy ?? null,
+    editHistory: e.editHistory ?? [],
+    deletedAt: e.deletedAt ?? null,
+    deletedBy: e.deletedBy ?? null,
+  };
+}
+
+const MAX_NOTIFICATIONS = 300;
+
+/**
+ * Soft migration: numbers like ABG/HDFC/7791 → bank "HDFC" when bank is empty.
+ * Returns null when the pattern does not match (no invented data).
+ */
+function inferBankFromGuaranteeNumber(
+  number: string | null | undefined
+): string | null {
+  if (!number) return null;
+  const m = String(number)
+    .trim()
+    .match(/^[AP]BG\/([^/]+)\/.+/i);
+  const bank = m?.[1]?.trim();
+  return bank || null;
+}
+
+function normalizeBankName(
+  explicit: string | null | undefined,
+  guaranteeNumber: string | null | undefined
+): string | null {
+  const trimmed = (explicit ?? "").trim();
+  if (trimmed) return trimmed;
+  return inferBankFromGuaranteeNumber(guaranteeNumber);
+}
+
+function coerceContractStatus(status: string | undefined): Contract["status"] {
+  const label = contractStatusLabel(status ?? "");
+  if (label === "Completed") return "completed";
+  if (label === "On hold") return "on_hold";
+  return "active";
+}
+
+/** Handed-over contracts are Completed. On hold and Active stay until then. */
+function completeHandedOverContracts(data: FlowhubData): FlowhubData {
+  const today = nexusTodayIso();
+  let changed = false;
+  const contracts = data.contracts.map((c) => {
+    if (!contractIsHandedOver(data, c.id, today)) return c;
+    if (c.status === "completed" || c.status === "complete") return c;
+    changed = true;
+    return { ...c, status: "completed" as const };
+  });
+  if (!changed) return data;
+  return { ...data, contracts };
+}
+
+function normalizeContract(c: Contract & { orderEndDate?: string }): Contract {
+  const legacy = c as Contract & {
+    orderEndDate?: string;
+    abgPercent?: number | null;
+    pbgPercent?: number | null;
+    abgBankName?: string | null;
+    pbgBankName?: string | null;
+    retentionRecoveredAt?: string | null;
+  };
+  const closureDate = c.closureDate || legacy.orderEndDate || "";
+  const abgPercent =
+    typeof legacy.abgPercent === "number"
+      ? legacy.abgPercent
+      : c.abgValue != null && c.orderValue > 0
+        ? (c.abgValue / c.orderValue) * 100
+        : null;
+  const pbgPercent =
+    typeof legacy.pbgPercent === "number"
+      ? legacy.pbgPercent
+      : c.pbgValue != null && c.orderValue > 0
+        ? (c.pbgValue / c.orderValue) * 100
+        : null;
+  const abgNumber = c.abgNumber ?? null;
+  const pbgNumber = c.pbgNumber ?? null;
+  const retentionRecoveredAt =
+    typeof legacy.retentionRecoveredAt === "string" &&
+    legacy.retentionRecoveredAt.trim()
+      ? legacy.retentionRecoveredAt.trim().slice(0, 10)
+      : null;
+  return {
+    ...c,
+    closureDate,
+    retentionPercent:
+      typeof c.retentionPercent === "number" ? c.retentionPercent : 0,
+    tdsPercent:
+      typeof c.tdsPercent === "number" ? c.tdsPercent : DEFAULT_TDS_PERCENT,
+    dlpMonths: typeof c.dlpMonths === "number" ? c.dlpMonths : 6,
+    abgPercent,
+    abgValue: guaranteeAmount(c.orderValue, abgPercent),
+    abgNumber,
+    abgDate: c.abgDate ?? null,
+    abgExpiry: c.abgExpiry ?? null,
+    abgBankName: normalizeBankName(legacy.abgBankName, abgNumber),
+    abgRetrieved: Boolean(c.abgRetrieved),
+    abgRetrievedDate: c.abgRetrieved ? (c.abgRetrievedDate ?? null) : null,
+    pbgPercent,
+    pbgValue: guaranteeAmount(c.orderValue, pbgPercent),
+    pbgNumber,
+    pbgDate: c.pbgDate ?? null,
+    pbgExpiry: c.pbgExpiry ?? null,
+    pbgBankName: normalizeBankName(legacy.pbgBankName, pbgNumber),
+    pbgRetrieved: Boolean(c.pbgRetrieved),
+    pbgRetrievedDate: c.pbgRetrieved ? (c.pbgRetrievedDate ?? null) : null,
+    retentionRecoveredAt,
+    contractorAssigned: c.contractorAssigned ?? "",
+    boq: c.boq ?? [],
+    amendments: (Array.isArray(c.amendments) ? c.amendments : []).map(
+      normalizeAmendment
+    ),
+    expenses: (c.expenses ?? []).map(normalizeExpense),
+    guaranteeEdits: c.guaranteeEdits ?? [],
+    status: coerceContractStatus(c.status),
+  };
+}
+
+function normalizeAmendment(a: BoqAmendment, idx: number): BoqAmendment {
+  const seq = typeof a.seq === "number" && a.seq > 0 ? a.seq : idx + 1;
+  return {
+    ...a,
+    id: a.id || crypto.randomUUID(),
+    seq,
+    number: String(a.number ?? "").trim() || defaultAmendmentNumber(seq),
+    date: String(a.date ?? a.at ?? "").slice(0, 10),
+    at: a.at || a.date || new Date(0).toISOString(),
+    by: a.by ?? null,
+    note: a.note ?? "",
+    previousOrderValue: Number(a.previousOrderValue) || 0,
+    newOrderValue: Number(a.newOrderValue) || 0,
+    previousBoqTotal: Number(a.previousBoqTotal) || 0,
+    newBoqTotal: Number(a.newBoqTotal) || 0,
+    lineDiffs: a.lineDiffs ?? [],
+    boqSnapshot: a.boqSnapshot ?? [],
+  };
+}
+
+function normalizeInvoice(i: Invoice): Invoice {
+  const extras = i.extraCharges ?? [];
+  const extraTotal = extras.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const net = i.netAmount ?? 0;
+  const gst = i.gstAmount ?? 0;
+  return {
+    ...i,
+    extraCharges: extras,
+    finalAmount: net + gst + extraTotal,
+    createdAt: i.createdAt || i.date || new Date(0).toISOString(),
+  };
+}
+
+function normalizeTask(t: Task & { assignee?: string | null }): Task {
+  const legacyAssignee = t.assignee;
+  const assignees =
+    Array.isArray(t.assignees) && t.assignees.length > 0
+      ? t.assignees.filter(Boolean)
+      : legacyAssignee
+        ? [legacyAssignee]
+        : [];
+  const status = (t.status ?? "pending") as TaskStatus;
+  const closed = status === "completed" || status === "not_required";
+  const waiting = status === "awaiting_verification";
+  return {
+    ...t,
+    assignees,
+    source: t.source ?? "manual",
+    catalogKey: (t.catalogKey as TaskCatalogKey | null) ?? null,
+    priority: t.priority ?? "normal",
+    notes: t.notes ?? "",
+    notesUpdatedAt: t.notesUpdatedAt ?? null,
+    completedAt: closed ? (t.completedAt ?? t.createdAt) : null,
+    notRequiredReason: t.notRequiredReason ?? null,
+    overdueNotifiedFor: t.overdueNotifiedFor
+      ? String(t.overdueNotifiedFor).slice(0, 10)
+      : null,
+    dueTodayNotifiedFor: t.dueTodayNotifiedFor
+      ? String(t.dueTodayNotifiedFor).slice(0, 10)
+      : null,
+    verificationDepartment: waiting ? (t.verificationDepartment ?? null) : null,
+    verificationRequestedBy: waiting
+      ? (t.verificationRequestedBy ?? null)
+      : null,
+    status,
+  };
+}
+
+/** Closed tasks older than retention window are hidden from lists. */
+export function taskVisibleInLists(t: Task, now = new Date()): boolean {
+  if (t.status !== "completed" && t.status !== "not_required") return true;
+  const at = t.completedAt || t.createdAt;
+  const done = new Date(at);
+  if (Number.isNaN(done.getTime())) return true;
+  const cutoff = new Date(now);
+  cutoff.setDate(cutoff.getDate() - TASK_COMPLETED_VISIBLE_DAYS);
+  return done >= cutoff;
+}
+
+export function taskIsOpen(t: Task) {
+  return t.status !== "completed" && t.status !== "not_required";
+}
+
+export function formatAssignees(assignees: string[]): string {
+  if (!assignees.length) return "—";
+  if (assignees.length === 1) return assignees[0];
+  return `${assignees[0]} +${assignees.length - 1}`;
+}
+
+function normalizeSchedule(s: ScheduleLine): ScheduleLine {
+  const start = s.startDate || s.endDate || "";
+  const end = s.endDate || s.startDate || "";
+  const done = Boolean(s.done);
+  return {
+    ...s,
+    boqItemId: s.boqItemId ?? null,
+    quantity: s.quantity ?? null,
+    startDate: start,
+    endDate: end,
+    committed: Boolean(s.committed),
+    baselineStartDate: s.baselineStartDate || start,
+    baselineEndDate: s.baselineEndDate || end,
+    done,
+    doneAt: done ? (s.doneAt ?? s.updatedAt ?? s.createdAt) : null,
+    doneBy: done ? (s.doneBy ?? null) : null,
+    updatedAt: s.updatedAt || s.createdAt,
+  };
+}
+
+function normalizeDeliveryChallan(dc: DeliveryChallan): DeliveryChallan {
+  const lines = Array.isArray(dc.lines) ? dc.lines : [];
+  return {
+    id: dc.id || crypto.randomUUID(),
+    contractId: String(dc.contractId ?? ""),
+    dcNo: String(dc.dcNo ?? "").trim(),
+    date: String(dc.date ?? "").slice(0, 10),
+    lines: lines
+      .map((l) => ({
+        boqItemId: String(l?.boqItemId ?? ""),
+        qty: Number(l?.qty) || 0,
+      }))
+      .filter((l) => l.boqItemId && l.qty > 0),
+    createdAt: dc.createdAt || dc.date || new Date(0).toISOString(),
+    createdBy: dc.createdBy ?? null,
+  };
+}
+
+function normalizeInstallationProgress(
+  p: InstallationProgress
+): InstallationProgress {
+  const history = (p.history ?? []).map((h) => ({
+    ...h,
+    id: h.id || `${p.id}-${h.recordedAt || h.at}`,
+    at: String(h.at ?? "").slice(0, 10),
+    recordedAt: h.recordedAt || h.at,
+    totalAfter: Number(h.totalAfter) || 0,
+    delta: Number(h.delta) || 0,
+    by: h.by ?? null,
+  }));
+  return {
+    ...p,
+    installedQty: Math.max(0, Number(p.installedQty) || 0),
+    lastUpdatedAt: p.lastUpdatedAt ?? history[history.length - 1]?.at ?? null,
+    history,
+  };
+}
+
+function normalizeData(raw: FlowhubData): FlowhubData {
+  const base: FlowhubData = {
+    ...empty,
+    ...raw,
+    workspaceRevision:
+      typeof raw.workspaceRevision === "number" ? raw.workspaceRevision : 0,
+    contracts: (raw.contracts ?? []).map(normalizeContract),
+    tasks: (raw.tasks ?? []).map(normalizeTask),
+    itemCatalog: raw.itemCatalog ?? [],
+    invoices: (raw.invoices ?? []).map(normalizeInvoice),
+    payments: (raw.payments ?? []).map((p) =>
+      normalizePayment(p, raw.invoices ?? [])
+    ),
+    schedules: (raw.schedules ?? []).map(normalizeSchedule),
+    scheduleChangeLog: raw.scheduleChangeLog ?? [],
+    // Unread notices last 21 days. A read notice lasts 24 hours from that read.
+    notifications: purgeExpiredNotifications(raw.notifications),
+    customDepartments: raw.customDepartments ?? [],
+    expenseCategories: raw.expenseCategories ?? [],
+    deliveryChallans: (raw.deliveryChallans ?? []).map(normalizeDeliveryChallan),
+    installationProgress: (raw.installationProgress ?? []).map(
+      normalizeInstallationProgress
+    ),
+    nexusCosts: normalizeNexusCosts(raw.nexusCosts),
+  };
+  return completeHandedOverContracts(base);
+}
+
+/** Prefer a live task-based href so older stored links still land on the entry page. */
+export function resolveNotificationHref(
+  n: HubNotification,
+  data?: FlowhubData
+): string {
+  const d = data ?? read();
+  return resolveHrefFromTasks(n, d.tasks);
+}
+
+function blankNotification(
+  task: Task,
+  spec: {
+    kind: HubNotification["kind"];
+    title: string;
+    createdBy?: string | null;
+    names: string[];
+    department: string | null;
+    audienceClearance?: HubNotification["audienceClearance"];
+  }
+): HubNotification {
+  return {
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+    kind: spec.kind,
+    title: spec.title,
+    /** Task / alert name only — contract shown separately in the bell. */
+    body: task.title,
+    href: taskNotificationHref(task),
+    taskId: task.id,
+    contractId: task.contractId,
+    audienceUserNames: spec.names,
+    audienceDepartment: spec.department,
+    audienceClearance: spec.audienceClearance ?? null,
+    createdBy: spec.createdBy ?? null,
+    readByUserIds: [],
+    readAtByUserIds: {},
+  };
+}
+
+function buildTaskJobNotification(
+  _data: FlowhubData,
+  task: Task,
+  opts?: { createdBy?: string | null; kind?: HubNotification["kind"] }
+): HubNotification | null {
+  const audience = taskAlertAudience(task);
+  if (!audience) return null;
+  const named = audience.names.length > 0;
+  return blankNotification(task, {
+    kind: named
+      ? (opts?.kind ?? "task_assigned")
+      : (opts?.kind ?? "task_department"),
+    title: named
+      ? "Task assigned to you"
+      : `New job for ${departmentDisplayName(audience.department)}`,
+    createdBy: opts?.createdBy ?? null,
+    names: audience.names,
+    department: audience.department,
+  });
+}
+
+function buildDatedNotice(
+  task: Task,
+  which: "overdue" | "due_today"
+): HubNotification | null {
+  const audience =
+    which === "due_today"
+      ? taskDueTodayAudience(task)
+      : taskAlertAudience(task);
+  if (!audience) return null;
+  return blankNotification(task, {
+    kind: which === "overdue" ? "task_overdue" : "task_due_today",
+    title: which === "overdue" ? "Task overdue" : "Task due today",
+    names: audience.names,
+    department: audience.department,
+  });
+}
+
+/** Managers of the user's department, or Master when that department is missing. */
+function buildVerifyNotification(
+  task: Task,
+  actor: TaskActor
+): HubNotification {
+  const dept = (actor.department || "").trim() || null;
+  return blankNotification(task, {
+    kind: "task_verify",
+    title: "Verify completed task",
+    createdBy: actor.name ?? null,
+    names: [],
+    department: dept,
+    audienceClearance: dept ? null : "master",
+  });
+}
+
+function appendNotifications(
+  data: FlowhubData,
+  rows: HubNotification[]
+): FlowhubData {
+  const kept = purgeExpiredNotifications(data.notifications);
+  if (!rows.length) {
+    if (kept.length === (data.notifications ?? []).length) return data;
+    return { ...data, notifications: kept };
+  }
+  const next = [...kept, ...rows].slice(-MAX_NOTIFICATIONS);
+  return { ...data, notifications: next };
+}
+
+function notifyForTasks(
+  data: FlowhubData,
+  tasks: Task[],
+  opts?: { createdBy?: string | null; kind?: HubNotification["kind"] }
+): FlowhubData {
+  const rows = tasks
+    .map((t) => buildTaskJobNotification(data, t, opts))
+    .filter((n): n is HubNotification => !!n);
+  return appendNotifications(data, rows);
+}
+
+export function notificationsForUser(
+  user: {
+    id: string;
+    name: string | null | undefined;
+    department: string | null | undefined;
+    clearance?: string | null;
+  },
+  data?: FlowhubData
+): HubNotification[] {
+  const d = data ?? read();
+  return [...(d.notifications ?? [])]
+    .filter(
+      (n) =>
+        notificationVisibleTo(n, user) &&
+        notificationVisibleForUser(n, user.id)
+    )
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export function unreadNotificationCount(
+  user: {
+    id: string;
+    name: string | null | undefined;
+    department: string | null | undefined;
+    clearance?: string | null;
+  },
+  data?: FlowhubData
+): number {
+  return notificationsForUser(user, data).filter(
+    (n) => !n.readByUserIds.includes(user.id)
+  ).length;
+}
+
+export function markNotificationRead(id: string, userId: string) {
+  const data = read();
+  const now = new Date().toISOString();
+  write({
+    ...data,
+    notifications: purgeExpiredNotifications(data.notifications).map((n) => {
+      if (n.id !== id) return n;
+      if (n.readByUserIds.includes(userId) && n.readAtByUserIds?.[userId]) {
+        return n;
+      }
+      return {
+        ...n,
+        readByUserIds: n.readByUserIds.includes(userId)
+          ? n.readByUserIds
+          : [...n.readByUserIds, userId],
+        readAtByUserIds: {
+          ...(n.readAtByUserIds ?? {}),
+          [userId]: n.readAtByUserIds?.[userId] ?? now,
+        },
+      };
+    }),
+  });
+}
+
+export function markAllNotificationsRead(userId: string, user: {
+  id: string;
+  name: string | null | undefined;
+  department: string | null | undefined;
+  clearance?: string | null;
+}) {
+  const data = read();
+  const now = new Date().toISOString();
+  write({
+    ...data,
+    notifications: purgeExpiredNotifications(data.notifications).map((n) => {
+      if (!notificationVisibleTo(n, user)) return n;
+      if (n.readByUserIds.includes(userId) && n.readAtByUserIds?.[userId]) {
+        return n;
+      }
+      return {
+        ...n,
+        readByUserIds: n.readByUserIds.includes(userId)
+          ? n.readByUserIds
+          : [...n.readByUserIds, userId],
+        readAtByUserIds: {
+          ...(n.readAtByUserIds ?? {}),
+          [userId]: n.readAtByUserIds?.[userId] ?? now,
+        },
+      };
+    }),
+  });
+}
+
+/** Drop expired notifications from the live workspace (no archive). */
+export function pruneExpiredNotifications(): boolean {
+  const data = read();
+  const before = (data.notifications ?? []).length;
+  const notifications = purgeExpiredNotifications(data.notifications);
+  if (notifications.length === before) return false;
+  write({ ...data, notifications });
+  return true;
+}
+
+function appendScheduleLog(
+  data: FlowhubData,
+  entry: Omit<ScheduleChangeLogEntry, "id" | "at"> & { at?: string }
+): FlowhubData {
+  const row: ScheduleChangeLogEntry = {
+    id: crypto.randomUUID(),
+    at: entry.at ?? new Date().toISOString(),
+    by: entry.by,
+    contractId: entry.contractId,
+    scheduleId: entry.scheduleId,
+    summary: entry.summary,
+  };
+  return {
+    ...data,
+    scheduleChangeLog: [...(data.scheduleChangeLog ?? []), row],
+  };
+}
+
+function daysBetweenIso(from: string, to: string): number {
+  const a = new Date(from + "T12:00:00").getTime();
+  const b = new Date(to + "T12:00:00").getTime();
+  return Math.round((b - a) / (24 * 60 * 60 * 1000));
+}
+
+/** Sum of supply/install qty already scheduled for a BOQ item (optionally excluding one line). */
+export function scheduledQtyForKind(
+  contractId: string,
+  boqItemId: string,
+  kind: "supply" | "installation",
+  excludeId?: string | null,
+  data?: FlowhubData
+): number {
+  const d = data ?? read();
+  return d.schedules
+    .filter(
+      (s) =>
+        s.contractId === contractId &&
+        s.kind === kind &&
+        s.boqItemId === boqItemId &&
+        s.id !== excludeId
+    )
+    .reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
+}
+
+export function scheduledSupplyQty(
+  contractId: string,
+  boqItemId: string,
+  excludeId?: string | null
+): number {
+  return scheduledQtyForKind(contractId, boqItemId, "supply", excludeId);
+}
+
+/**
+ * Closure date should show in red on the contracts list when:
+ * - contract is not completed, and
+ * - handover is after closure, or
+ * - there is no real handover date and today is already past closure.
+ * Completed contracts always use normal (non-attention) styling.
+ */
+export function closureDateNeedsAttention(
+  contractId: string,
+  data?: FlowhubData,
+  today?: string
+): boolean {
+  const d = data ?? read();
+  const contract = d.contracts.find((c) => c.id === contractId);
+  if (!contract?.closureDate) return false;
+  if (contractDisplayStatus(d, contract, today ?? nexusTodayIso()) === "Completed")
+    return false;
+  const todayIso =
+    today ??
+    (() => {
+      const t = new Date();
+      const m = String(t.getMonth() + 1).padStart(2, "0");
+      const day = String(t.getDate()).padStart(2, "0");
+      return `${t.getFullYear()}-${m}-${day}`;
+    })();
+  const handover = d.schedules.find(
+    (s) => s.contractId === contractId && s.kind === "handover"
+  );
+  const handoverDate =
+    handover && handover.startDate && !isScheduleDateNa(handover.startDate)
+      ? handover.startDate
+      : null;
+  if (handoverDate && handoverDate > contract.closureDate) return true;
+  if (!handoverDate && todayIso > contract.closureDate) return true;
+  return false;
+}
+
+export function scheduleIsOverdue(s: ScheduleLine, today: string): boolean {
+  if (s.done) return false;
+  const date = s.endDate || s.startDate;
+  if (!date || isScheduleDateNa(date)) return false;
+  return date < today;
+}
+
+/** A contract schedule exists only when every BOQ item is fully covered + testing + handover. */
+export function isContractScheduleComplete(
+  contractId: string,
+  data?: FlowhubData
+): boolean {
+  const d = data ?? read();
+  const contract = d.contracts.find((c) => c.id === contractId);
+  if (!contract || contract.boq.length === 0) return false;
+  const hasTesting = d.schedules.some(
+    (s) => s.contractId === contractId && s.kind === "testing" && s.startDate
+  );
+  const hasHandover = d.schedules.some(
+    (s) => s.contractId === contractId && s.kind === "handover" && s.startDate
+  );
+  if (!hasTesting || !hasHandover) return false;
+  return contract.boq.every((b) => {
+    const supply = scheduledQtyForKind(contractId, b.id, "supply", null, d);
+    const install = scheduledQtyForKind(
+      contractId,
+      b.id,
+      "installation",
+      null,
+      d
+    );
+    return supply === b.quantity && install === b.quantity;
+  });
+}
+
+export function contractScheduleCoverage(
+  contractId: string,
+  data?: FlowhubData
+): { itemsTotal: number; itemsComplete: number; hasTesting: boolean; hasHandover: boolean; complete: boolean } {
+  const d = data ?? read();
+  const contract = d.contracts.find((c) => c.id === contractId);
+  const itemsTotal = contract?.boq.length ?? 0;
+  let itemsComplete = 0;
+  if (contract) {
+    for (const b of contract.boq) {
+      const supply = scheduledQtyForKind(contractId, b.id, "supply", null, d);
+      const install = scheduledQtyForKind(
+        contractId,
+        b.id,
+        "installation",
+        null,
+        d
+      );
+      if (supply === b.quantity && install === b.quantity) itemsComplete += 1;
+    }
+  }
+  const hasTesting = d.schedules.some(
+    (s) => s.contractId === contractId && s.kind === "testing" && s.startDate
+  );
+  const hasHandover = d.schedules.some(
+    (s) => s.contractId === contractId && s.kind === "handover" && s.startDate
+  );
+  return {
+    itemsTotal,
+    itemsComplete,
+    hasTesting,
+    hasHandover,
+    complete: isContractScheduleComplete(contractId, d),
+  };
+}
+
+function completeCreateSchedulesTasks(
+  tasks: Task[],
+  contractId: string,
+  data: FlowhubData
+): Task[] {
+  if (!isContractScheduleComplete(contractId, data)) return tasks;
+  return tasks.map((t) =>
+    t.contractId === contractId &&
+    t.catalogKey === "create_schedules" &&
+    t.status !== "completed" &&
+    t.status !== "not_required"
+      ? {
+          ...t,
+          status: "completed" as const,
+          completedAt: t.completedAt || new Date().toISOString(),
+        }
+      : t
+  );
+}
+
+export type ScheduleWindowInput = {
+  startDate: string;
+  endDate: string;
+  quantity: number;
+  /**
+   * True only when this window was changed on this save.
+   * Untouched windows keep the stored line (dates, qty, done, id).
+   */
+  edited?: boolean;
+};
+
+export type ScheduleItemInput = {
+  boqItemId: string;
+  supplies: ScheduleWindowInput[];
+  installations: ScheduleWindowInput[];
+};
+
+function scheduleWindowBlank(w: ScheduleWindowInput): boolean {
+  return (
+    !String(w.startDate ?? "").trim() &&
+    !String(w.endDate ?? "").trim() &&
+    !(Number(w.quantity) > 0)
+  );
+}
+
+/**
+ * Keep stored supply/install lines unless this save edited that window.
+ * A handover date is often saved from a form that still holds the original
+ * plan, and that must not put user-edited dates or qty back.
+ */
+function mergeScheduleWindows(
+  existing: ScheduleLine[],
+  windows: ScheduleWindowInput[],
+  apply: (w: ScheduleWindowInput, prior?: ScheduleLine) => ScheduleLine
+): ScheduleLine[] {
+  const meaningful = windows.filter(
+    (w) => w.edited || !scheduleWindowBlank(w)
+  );
+  const anyEdited = meaningful.some((w) => w.edited === true);
+  if (!anyEdited && existing.length > 0) return existing;
+  if (!anyEdited) {
+    return meaningful
+      .filter((w) => !scheduleWindowBlank(w))
+      .map((w) => apply(w));
+  }
+  const result: ScheduleLine[] = [];
+  const count = Math.max(existing.length, meaningful.length);
+  for (let i = 0; i < count; i++) {
+    const prior = existing[i];
+    const w = meaningful[i];
+    if (!w) {
+      if (prior) result.push(prior);
+      continue;
+    }
+    if (!w.edited && prior) {
+      result.push(prior);
+      continue;
+    }
+    if (scheduleWindowBlank(w)) continue;
+    result.push(apply(w, prior));
+  }
+  return result;
+}
+
+/**
+ * Replace supply/install/testing/handover lines for a contract from the planner matrix.
+ * Existing lines the user did not edit in this save stay as stored.
+ */
+export function saveContractSchedulePlan(
+  input: {
+    contractId: string;
+    committed: boolean;
+    /** When false, existing lines keep their own committed flag. */
+    committedEdited?: boolean;
+    testingDate: string;
+    testingEdited?: boolean;
+    handoverDate: string;
+    handoverEdited?: boolean;
+    items: ScheduleItemInput[];
+  },
+  opts?: { by?: string }
+): { ok: true; complete: boolean } | { ok: false; error: string } {
+  const data = read();
+  const contract = data.contracts.find((c) => c.id === input.contractId);
+  if (!contract) return { ok: false, error: "Contract not found." };
+  if (!contract.boq.length)
+    return { ok: false, error: "Contract has no BOQ items to schedule." };
+
+  const by = opts?.by ?? "User";
+  const now = new Date().toISOString();
+  const prior = data.schedules.filter((s) => s.contractId === contract.id);
+  const committedForNew =
+    input.committedEdited === true
+      ? input.committed
+      : (prior.find((s) => s.committed)?.committed ?? input.committed);
+
+  const normDate = (d: string) =>
+    isScheduleDateNa(d) ? SCHEDULE_DATE_NA : d;
+
+  const applyWindow = (
+    boqId: string,
+    kind: "supply" | "installation",
+    w: ScheduleWindowInput,
+    existingLine?: ScheduleLine
+  ): ScheduleLine => {
+    const start = normDate(w.startDate);
+    const end = normDate(w.endDate || w.startDate);
+    const quantity = Number(w.quantity);
+    const committed =
+      input.committedEdited === true
+        ? input.committed
+        : (existingLine?.committed ?? committedForNew);
+    if (existingLine) {
+      return normalizeSchedule({
+        ...existingLine,
+        quantity,
+        startDate: start,
+        endDate: end,
+        committed,
+        updatedAt: now,
+      });
+    }
+    return normalizeSchedule({
+      id: crypto.randomUUID(),
+      contractId: contract.id,
+      boqItemId: boqId,
+      kind,
+      quantity,
+      startDate: start,
+      endDate: end,
+      committed,
+      baselineStartDate: start,
+      baselineEndDate: end,
+      done: false,
+      doneAt: null,
+      doneBy: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+  };
+
+  const newLines: ScheduleLine[] = [];
+
+  for (const boq of contract.boq) {
+    const item = input.items.find((i) => i.boqItemId === boq.id) ?? {
+      boqItemId: boq.id,
+      supplies: [],
+      installations: [],
+    };
+    const existingSupply = prior.filter(
+      (s) => s.kind === "supply" && s.boqItemId === boq.id
+    );
+    const existingInstall = prior.filter(
+      (s) => s.kind === "installation" && s.boqItemId === boq.id
+    );
+    const supplies = mergeScheduleWindows(existingSupply, item.supplies, (w, line) =>
+      applyWindow(boq.id, "supply", w, line)
+    );
+    const installations = mergeScheduleWindows(
+      existingInstall,
+      item.installations,
+      (w, line) => applyWindow(boq.id, "installation", w, line)
+    );
+
+    const checkLines = (
+      kind: "supply" | "installation",
+      lines: ScheduleLine[]
+    ) => {
+      let sum = 0;
+      for (const line of lines) {
+        if (!line.startDate || !line.endDate)
+          return `${SCHEDULE_KIND_LABELS[kind]} dates required for ${boq.name} (or set NA).`;
+        const startNa = isScheduleDateNa(line.startDate);
+        const endNa = isScheduleDateNa(line.endDate);
+        if (startNa !== endNa)
+          return `${SCHEDULE_KIND_LABELS[kind]} for ${boq.name}: set both dates to NA or both to real dates.`;
+        if (!startNa && !endNa && line.endDate < line.startDate)
+          return `${SCHEDULE_KIND_LABELS[kind]} end before start for ${boq.name}.`;
+        if (!(Number(line.quantity) > 0))
+          return `${SCHEDULE_KIND_LABELS[kind]} qty must be > 0 for ${boq.name}.`;
+        sum += Number(line.quantity);
+      }
+      if (sum > boq.quantity)
+        return `${SCHEDULE_KIND_LABELS[kind]} qty for ${boq.name} exceeds BOQ (${sum} > ${boq.quantity}).`;
+      return null;
+    };
+
+    const supplyErr = checkLines("supply", supplies);
+    if (supplyErr) return { ok: false, error: supplyErr };
+    const installErr = checkLines("installation", installations);
+    if (installErr) return { ok: false, error: installErr };
+
+    const hasRealSupply = supplies.some(
+      (s) => s.startDate && !isScheduleDateNa(s.startDate)
+    );
+    const hasInstallWork = installations.length > 0;
+    if (hasInstallWork && !hasRealSupply) {
+      return {
+        ok: false,
+        error: `Set a supply date for ${boq.name} before adding installation.`,
+      };
+    }
+
+    newLines.push(...supplies, ...installations);
+  }
+
+  const resolveContractLine = (
+    kind: "testing" | "handover",
+    date: string,
+    edited: boolean | undefined
+  ): ScheduleLine | null => {
+    const existing = prior.find((s) => s.kind === kind);
+    if (existing && edited !== true) return existing;
+    if (!date) return null;
+    const d = isScheduleDateNa(date) ? SCHEDULE_DATE_NA : date;
+    const committed =
+      input.committedEdited === true
+        ? input.committed
+        : (existing?.committed ?? committedForNew);
+    if (
+      existing &&
+      existing.startDate === d &&
+      existing.endDate === d &&
+      existing.committed === committed
+    ) {
+      return existing;
+    }
+    if (existing) {
+      return normalizeSchedule({
+        ...existing,
+        startDate: d,
+        endDate: d,
+        committed,
+        updatedAt: now,
+      });
+    }
+    return normalizeSchedule({
+      id: crypto.randomUUID(),
+      contractId: contract.id,
+      boqItemId: null,
+      kind,
+      quantity: null,
+      startDate: d,
+      endDate: d,
+      committed,
+      baselineStartDate: d,
+      baselineEndDate: d,
+      done: false,
+      doneAt: null,
+      doneBy: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+  };
+
+  const testingLine = resolveContractLine(
+    "testing",
+    input.testingDate,
+    input.testingEdited
+  );
+  if (testingLine) newLines.push(testingLine);
+  const handoverLine = resolveContractLine(
+    "handover",
+    input.handoverDate,
+    input.handoverEdited
+  );
+  if (handoverLine) newLines.push(handoverLine);
+
+  const merged = newLines;
+
+  const kept = data.schedules.filter((s) => s.contractId !== contract.id);
+  const schedules = [...kept, ...merged];
+  const nextDataBase: FlowhubData = { ...data, schedules };
+  const complete = isContractScheduleComplete(contract.id, nextDataBase);
+  const tasks = completeCreateSchedulesTasks(
+    data.tasks,
+    contract.id,
+    nextDataBase
+  );
+
+  let nextData = appendScheduleLog(
+    { ...nextDataBase, tasks },
+    {
+      by,
+      contractId: contract.id,
+      scheduleId: null,
+      summary: complete
+        ? `Saved complete schedule (${contract.projectNo}) — all BOQ items + testing + handover`
+        : `Saved schedule progress (${contract.projectNo}) — ${merged.length} lines`,
+    }
+  );
+  write(nextData);
+  if (input.handoverDate && !isScheduleDateNa(input.handoverDate)) {
+    syncDatedSystemTasks();
+  }
+  return { ok: true, complete };
+}
+
+/** Master-only: delete every schedule line for a contract. */
+export function deleteContractSchedule(
+  contractId: string,
+  opts?: { by?: string }
+): { ok: true; cleared: number } | { ok: false; error: string } {
+  const data = read();
+  if (!data.contracts.some((c) => c.id === contractId))
+    return { ok: false, error: "Contract not found." };
+  const cleared = data.schedules.filter((s) => s.contractId === contractId)
+    .length;
+  if (!cleared) return { ok: false, error: "No schedule lines for this contract." };
+  const projectNo =
+    data.contracts.find((c) => c.id === contractId)?.projectNo ?? contractId;
+  // Reopen create_schedules
+  const tasks = data.tasks.map((t) =>
+    t.contractId === contractId &&
+    t.catalogKey === "create_schedules" &&
+    (t.status === "completed" || t.status === "not_required")
+      ? { ...t, status: "pending" as const, completedAt: null }
+      : t
+  );
+  let nextData = appendScheduleLog(
+    {
+      ...data,
+      schedules: data.schedules.filter((s) => s.contractId !== contractId),
+      tasks,
+    },
+    {
+      by: opts?.by ?? "Master",
+      contractId,
+      scheduleId: null,
+      summary: `Deleted full schedule for ${projectNo} (${cleared} lines)`,
+    }
+  );
+  write(nextData);
+  return { ok: true, cleared };
+}
+
+export function listDepartments(data?: FlowhubData): string[] {
+  const d = data ?? read();
+  const set = new Set<string>([
+    ...SEED_DEPARTMENTS,
+    ...(d.customDepartments ?? []),
+  ]);
+  return [...set].sort((a, b) => a.localeCompare(b));
+}
+
+export function addCustomDepartment(name: string): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  const data = read();
+  const all = listDepartments(data);
+  if (all.some((d) => d.toLowerCase() === trimmed.toLowerCase())) {
+    return trimmed;
+  }
+  write({
+    ...data,
+    customDepartments: [...(data.customDepartments ?? []), trimmed],
+  });
+  return trimmed;
+}
+
+function workspaceIsEmpty(data: FlowhubData) {
+  return (
+    data.contracts.length === 0 &&
+    data.tasks.length === 0 &&
+    data.invoices.length === 0 &&
+    data.payments.length === 0 &&
+    data.schedules.length === 0 &&
+    data.itemCatalog.length === 0
+  );
+}
+
+function readLocal(): FlowhubData {
+  if (typeof window === "undefined") return empty;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return empty;
+    return normalizeData({ ...empty, ...JSON.parse(raw) } as FlowhubData);
+  } catch {
+    return empty;
+  }
+}
+
+/** Cached client snapshot for useSyncExternalStore — must be referentially stable. */
+let clientSnapshot: FlowhubData = empty;
+let clientHydrated = false;
+let serverHydrated = false;
+let hydratePromise: Promise<void> | null = null;
+let persistChain: Promise<void> = Promise.resolve();
+/** Latest save, including failures. flushWorkspace waits on this one. */
+let lastPersist: Promise<void> = persistChain;
+
+function notify() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event("flowhub-data"));
+}
+
+function setSnapshot(data: FlowhubData) {
+  clientSnapshot = normalizeData(data);
+  clientHydrated = true;
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(clientSnapshot));
+  } catch {
+    // A full workspace can exceed the browser quota. Drop the stale cache
+    // so the next load uses Postgres instead of an older partial copy.
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function read(): FlowhubData {
+  if (!clientHydrated) {
+    setSnapshot(readLocal());
+  }
+  return clientSnapshot;
+}
+
+function persistToServer(data: FlowhubData) {
+  if (typeof window === "undefined") return;
+  // Never push until a real Postgres GET succeeded — local-fallback unlock
+  // must not wipe the shared workspace.
+  if (!hydrateFromServerOk) return;
+  const payload = JSON.stringify(data);
+  // Chrome drops keepalive fetches once the body reaches 64KB. The shared
+  // workspace crosses that after a handful of contracts, so those saves
+  // never reached Postgres and later contracts vanished on the next load.
+  const job = persistChain.catch(() => undefined).then(async () => {
+    const res = await fetch("/api/workspace", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: payload,
+    });
+    if (!res.ok) {
+      throw new Error(`Could not save the workspace (${res.status}).`);
+    }
+  });
+  lastPersist = job;
+  persistChain = job.catch((err) => {
+    console.error("Failed to persist workspace", err);
+  });
+}
+
+/** When the signed-in person only has View on the current door, ignore writes. */
+let workspaceWritesLocked = false;
+
+export function setWorkspaceWritesLocked(locked: boolean) {
+  workspaceWritesLocked = locked;
+}
+
+/**
+ * A write arrived before the Postgres GET finished. persistToServer no-ops
+ * until that GET succeeds, so the edit lives only in clientSnapshot until
+ * hydrate applies it. Do not let the late GET replace it.
+ */
+let pendingLocalSave = false;
+
+function write(data: FlowhubData): Promise<void> {
+  if (workspaceWritesLocked) return persistChain;
+  setSnapshot(data);
+  notify();
+  if (!hydrateFromServerOk) pendingLocalSave = true;
+  persistToServer(clientSnapshot);
+  return persistChain;
+}
+
+/** Wait until every pending save has reached Postgres. */
+export function flushWorkspace(): Promise<void> {
+  if (pendingLocalSave && !hydrateFromServerOk) {
+    return hydrateWorkspace().then(() => {
+      if (pendingLocalSave && !hydrateFromServerOk) {
+        throw new Error("Could not save the workspace.");
+      }
+      return lastPersist;
+    });
+  }
+  return lastPersist;
+}
+
+export function getData(): FlowhubData {
+  return read();
+}
+
+/** True only after a successful JSON workspace GET (not local-fallback). */
+let hydrateFromServerOk = false;
+let hydrateRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let hydrateAttempts = 0;
+let unauthorizedStreak = 0;
+let hydrateRequested = false;
+const MAX_UNAUTHORIZED_RETRIES = 3;
+const MAX_TRANSIENT_RETRIES = 8;
+
+/** Flip the loading gate and notify — always set ready *before* notify. */
+function markReady(fromServer: boolean) {
+  serverHydrated = true;
+  if (fromServer) hydrateFromServerOk = true;
+  notify();
+}
+
+/** True after a successful JSON workspace GET (not local-fallback / 401). */
+export function isWorkspaceHydratedFromServer(): boolean {
+  return hydrateFromServerOk;
+}
+
+function scheduleHydrateRetry() {
+  if (hydrateRetryTimer || hydrateFromServerOk) return;
+  if (hydrateAttempts >= MAX_TRANSIENT_RETRIES) {
+    // Unlock UI with local cache; persist stays gated on hydrateFromServerOk.
+    if (!serverHydrated) markReady(false);
+    return;
+  }
+  const delay = Math.min(500 * 2 ** hydrateAttempts, 10_000);
+  hydrateAttempts += 1;
+  hydrateRetryTimer = setTimeout(() => {
+    hydrateRetryTimer = null;
+    void hydrateWorkspace({ force: true });
+  }, delay);
+}
+
+if (typeof window !== "undefined") {
+  const retryNow = () => {
+    if (!hydrateRequested || hydrateFromServerOk) return;
+    if (hydrateRetryTimer) {
+      clearTimeout(hydrateRetryTimer);
+      hydrateRetryTimer = null;
+    }
+    void hydrateWorkspace({ force: true });
+  };
+  window.addEventListener("online", retryNow);
+  window.addEventListener("focus", retryNow);
+}
+
+/**
+ * Load shared Postgres workspace (and push any leftover local-only data up once).
+ * Pass `{ force: true }` after login so a prior 401/local-fallback can retry.
+ */
+export function hydrateWorkspace(opts?: { force?: boolean }): Promise<void> {
+  if (typeof window === "undefined") return Promise.resolve();
+  hydrateRequested = true;
+  // Reuse in-flight work before any force reset (React Strict Mode remounts).
+  if (hydratePromise) return hydratePromise;
+  if (hydrateFromServerOk) return Promise.resolve();
+  if (serverHydrated && !opts?.force) return Promise.resolve();
+  // Drop the loading-gate flag without notifying yet — success/failure paths
+  // call markReady/notify so subscribers never miss the ready transition.
+  serverHydrated = false;
+
+  hydratePromise = (async () => {
+    // Don't let a late GET overwrite a save still in flight
+    await persistChain;
+    const local = readLocal();
+    try {
+      const res = await fetch("/api/workspace", {
+        headers: { Accept: "application/json" },
+        credentials: "same-origin",
+      });
+      if (res.status === 401) {
+        // Cookie race or expired JWT while SessionProvider still says authed.
+        // Keep an edit made during this GET; local was captured before it.
+        if (!pendingLocalSave) setSnapshot(local);
+        unauthorizedStreak += 1;
+        if (unauthorizedStreak > MAX_UNAUTHORIZED_RETRIES) {
+          // Unlock UI; do not persist until a real GET succeeds.
+          markReady(false);
+          if (!window.location.pathname.startsWith("/login")) {
+            const back = window.location.pathname + window.location.search;
+            window.location.assign(
+              `/login?callbackUrl=${encodeURIComponent(back)}`
+            );
+          }
+          return;
+        }
+        notify();
+        scheduleHydrateRetry();
+        return;
+      }
+      unauthorizedStreak = 0;
+      if (!res.ok) throw new Error(`workspace GET ${res.status}`);
+      const ctype = res.headers.get("content-type") ?? "";
+      if (!ctype.includes("application/json")) {
+        throw new Error(`workspace GET non-JSON (${ctype || "unknown"})`);
+      }
+      const remote = normalizeData((await res.json()) as FlowhubData);
+      const remoteEmpty = workspaceIsEmpty(remote);
+      const localHasData = !workspaceIsEmpty(local);
+
+      const remoteRev = remote.workspaceRevision ?? 0;
+      const localRev = local.workspaceRevision ?? 0;
+      if (pendingLocalSave) {
+        // This tab edited before the GET returned. persistToServer refused
+        // the write until hydrateFromServerOk, so push clientSnapshot now
+        // instead of painting the stale server copy over it.
+        pendingLocalSave = false;
+        markReady(true);
+        persistToServer(clientSnapshot);
+      } else if (remoteEmpty && localHasData && localRev >= remoteRev) {
+        // Same browser still has data the server has not saved yet.
+        // A newer server revision wins even when that revision is empty,
+        // so a cleared hub is not filled back in from an old cache.
+        setSnapshot(local);
+        markReady(true);
+        await fetch("/api/workspace", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(local),
+          credentials: "same-origin",
+        });
+      } else {
+        // Server is source of truth across tunnel URLs / tabs
+        setSnapshot(remote);
+        markReady(true);
+      }
+      // Drop day-old notifications from the shared store (no archive).
+      const pruned = pruneExpiredNotifications();
+      // Date-window system tasks (BG expiry, retention) after hydrate
+      const synced = syncDatedSystemTasks();
+      // One-time overdue / due-today notices, same load as the BG chase.
+      const dueNotices = syncTaskDueNotices();
+      if (pruned || synced.created.length > 0 || dueNotices.notified > 0) {
+        await flushWorkspace().catch(() => undefined);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn("Workspace hydrate failed; will retry", msg);
+      if (!pendingLocalSave) setSnapshot(local);
+      notify();
+      scheduleHydrateRetry();
+    }
+  })().finally(() => {
+    hydratePromise = null;
+    if (hydrateFromServerOk) hydrateAttempts = 0;
+  });
+
+  return hydratePromise;
+}
+
+/** Flush pending saves if the tab is closing / navigating away. */
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", () => {
+    if (!clientHydrated || !hydrateFromServerOk) return;
+    if (workspaceIsEmpty(clientSnapshot)) return;
+    const payload = JSON.stringify(clientSnapshot);
+    try {
+      // keepalive cannot carry a body of 64KB or more.
+      void fetch("/api/workspace", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+        keepalive: payload.length < 60 * 1024,
+      });
+    } catch {
+      // ignore — best effort
+    }
+  });
+}
+
+export function lineNet(rate: number, qty: number, termPercent: number) {
+  return (rate * qty * termPercent) / 100;
+}
+
+/** Qty may be negative (credit / reversal lines); zero or non-numeric is not a line. */
+export function isValidInvoiceQty(qty: number): boolean {
+  return Number.isFinite(qty) && Math.abs(qty) > QTY_EPS;
+}
+
+function recalcInvoiceLines(lines: InvoiceLine[]): InvoiceLine[] {
+  return lines.map((l) => {
+    const billedQty = Number(l.billedQty) || 0;
+    const rate = Number(l.rate) || 0;
+    const termPercent = Number(l.termPercent) || 0;
+    return {
+      ...l,
+      billedQty,
+      rate,
+      termPercent,
+      lineNet: lineNet(rate, billedQty, termPercent),
+    };
+  });
+}
+
+export function upsertCatalog(
+  data: FlowhubData,
+  name: string,
+  unit: string,
+  rate: number
+): { data: FlowhubData; catalogKey: string } {
+  const key = name.trim().toLowerCase();
+  const existing = data.itemCatalog.find((c) => c.key === key);
+  let itemCatalog: ItemCatalogEntry[];
+  if (existing) {
+    itemCatalog = data.itemCatalog.map((c) =>
+      c.key === key ? { ...c, unit, lastRate: rate, name: name.trim() } : c
+    );
+  } else {
+    itemCatalog = [
+      ...data.itemCatalog,
+      { key, name: name.trim(), unit, lastRate: rate },
+    ];
+  }
+  return { data: { ...data, itemCatalog }, catalogKey: key };
+}
+
+/** Persist a BOQ item name into the catalog as soon as it is entered. */
+export function rememberCatalogItem(name: string, unit: string, rate: number) {
+  const data = read();
+  const { data: next } = upsertCatalog(data, name, unit, rate);
+  write(next);
+}
+
+function systemTask(
+  title: string,
+  contractId: string,
+  catalogKey: TaskCatalogKey
+): Task {
+  return {
+    id: crypto.randomUUID(),
+    title,
+    contractId,
+    department: null,
+    assignees: [],
+    status: "pending",
+    dueDate: null,
+    parentId: null,
+    source: "system",
+    catalogKey,
+    priority: "normal",
+    notes: "",
+    notesUpdatedAt: null,
+    completedAt: null,
+    notRequiredReason: null,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+export function addContract(
+  contract: Omit<
+    Contract,
+    | "id"
+    | "createdAt"
+    | "status"
+    | "amendments"
+    | "expenses"
+    | "guaranteeEdits"
+    | "abgNumber"
+    | "abgDate"
+    | "abgExpiry"
+    | "abgBankName"
+    | "abgRetrieved"
+    | "abgRetrievedDate"
+    | "pbgNumber"
+    | "pbgDate"
+    | "pbgExpiry"
+    | "pbgBankName"
+    | "pbgRetrieved"
+    | "pbgRetrievedDate"
+    | "retentionRecoveredAt"
+  >
+): { contract: Contract; tasks: Task[] } {
+  const data = read();
+  let next = data;
+  const boq = contract.boq.map((line) => {
+    const res = upsertCatalog(next, line.name, line.unit, line.rate);
+    next = res.data;
+    return { ...line, catalogKey: res.catalogKey };
+  });
+
+  const abgPercent = contract.abgRequired ? contract.abgPercent : null;
+  const pbgPercent = contract.pbgRequired ? contract.pbgPercent : null;
+
+  const full: Contract = normalizeContract({
+    ...contract,
+    tdsPercent:
+      typeof contract.tdsPercent === "number"
+        ? contract.tdsPercent
+        : DEFAULT_TDS_PERCENT,
+    boq,
+    abgPercent,
+    abgValue: guaranteeAmount(contract.orderValue, abgPercent),
+    pbgPercent,
+    pbgValue: guaranteeAmount(contract.orderValue, pbgPercent),
+    contractorAssigned: contract.contractorAssigned ?? "",
+    amendments: [],
+    expenses: [],
+    guaranteeEdits: [],
+    abgNumber: null,
+    abgDate: null,
+    abgExpiry: null,
+    abgBankName: null,
+    abgRetrieved: false,
+    abgRetrievedDate: null,
+    pbgNumber: null,
+    pbgDate: null,
+    pbgExpiry: null,
+    pbgBankName: null,
+    pbgRetrieved: false,
+    pbgRetrievedDate: null,
+    retentionRecoveredAt: null,
+    id: crypto.randomUUID(),
+    status: "active",
+    createdAt: new Date().toISOString(),
+  });
+
+  const tasks: Task[] = [
+    systemTask("Kick off meeting pending", full.id, "kickoff"),
+  ];
+  if (full.abgRequired) {
+    tasks.push(
+      systemTask(`Create ABG — ${full.projectNo}`, full.id, "create_abg")
+    );
+  }
+  if (full.pbgRequired) {
+    tasks.push(
+      systemTask(`Create PBG — ${full.projectNo}`, full.id, "create_pbg")
+    );
+  }
+
+  write({
+    ...next,
+    contracts: [...next.contracts, full],
+    tasks: [...next.tasks, ...tasks],
+  });
+  return { contract: full, tasks };
+}
+
+export function updateContract(
+  id: string,
+  patch: Partial<Contract>,
+  opts?: { editedBy?: string; trackGuarantee?: "ABG" | "PBG" | "both" }
+): Contract | null {
+  const data = read();
+  const current = data.contracts.find((c) => c.id === id);
+  if (!current) return null;
+
+  let nextPatch = { ...patch };
+  if (nextPatch.status !== undefined) {
+    const handedOver = contractIsHandedOver(data, id, nexusTodayIso());
+    if (handedOver) {
+      nextPatch.status = "completed";
+    } else if (contractStatusLabel(String(nextPatch.status)) === "Completed") {
+      // Completed follows handover. It cannot be set by hand.
+      delete nextPatch.status;
+    } else if (contractStatusLabel(String(nextPatch.status)) === "On hold") {
+      nextPatch.status = "on_hold";
+    } else {
+      nextPatch.status = "active";
+    }
+  }
+  if (
+    nextPatch.abgPercent != null ||
+    nextPatch.orderValue != null ||
+    nextPatch.pbgPercent != null
+  ) {
+    const orderValue = nextPatch.orderValue ?? current.orderValue;
+    const abgPercent =
+      nextPatch.abgPercent !== undefined
+        ? nextPatch.abgPercent
+        : current.abgPercent;
+    const pbgPercent =
+      nextPatch.pbgPercent !== undefined
+        ? nextPatch.pbgPercent
+        : current.pbgPercent;
+    nextPatch.abgValue = guaranteeAmount(orderValue, abgPercent);
+    nextPatch.pbgValue = guaranteeAmount(orderValue, pbgPercent);
+  }
+
+  let updated = normalizeContract({ ...current, ...nextPatch, id });
+  const track = opts?.trackGuarantee;
+  if (track) {
+    const kinds: Array<"ABG" | "PBG"> =
+      track === "both" ? ["ABG", "PBG"] : [track];
+    const records: GuaranteeEditRecord[] = kinds.map((kind) => ({
+      id: crypto.randomUUID(),
+      kind,
+      at: new Date().toISOString(),
+      by: opts?.editedBy ?? "Unknown",
+      summary:
+        kind === "ABG"
+          ? `ABG ${updated.abgNumber ?? "—"} · ${formatDisplayDate(updated.abgDate)} · exp ${formatDisplayDate(updated.abgExpiry)}${
+              updated.abgBankName ? ` · ${updated.abgBankName}` : ""
+            }${
+              updated.abgRetrieved
+                ? ` · retrieved ${formatDisplayDate(updated.abgRetrievedDate)}`
+                : ""
+            }`
+          : `PBG ${updated.pbgNumber ?? "—"} · ${formatDisplayDate(updated.pbgDate)} · exp ${formatDisplayDate(updated.pbgExpiry)}${
+              updated.pbgBankName ? ` · ${updated.pbgBankName}` : ""
+            }${
+              updated.pbgRetrieved
+                ? ` · retrieved ${formatDisplayDate(updated.pbgRetrievedDate)}`
+                : ""
+            }`,
+    }));
+    updated = {
+      ...updated,
+      guaranteeEdits: [...(updated.guaranteeEdits ?? []), ...records],
+    };
+  }
+
+  let tasks = data.tasks;
+
+  if (
+    updated.abgRequired &&
+    updated.abgNumber &&
+    updated.abgDate &&
+    updated.abgExpiry
+  ) {
+    tasks = tasks.map((t) =>
+      t.contractId === id &&
+      t.source === "system" &&
+      t.title.startsWith("Create ABG") &&
+      t.status !== "completed"
+        ? { ...t, status: "completed" as const }
+        : t
+    );
+  }
+
+  if (
+    updated.pbgRequired &&
+    updated.pbgNumber &&
+    updated.pbgDate &&
+    updated.pbgExpiry
+  ) {
+    tasks = tasks.map((t) =>
+      t.contractId === id &&
+      t.source === "system" &&
+      t.title.startsWith("Create PBG") &&
+      t.status !== "completed"
+        ? { ...t, status: "completed" as const }
+        : t
+    );
+  }
+
+  // Retrieved BGs no longer need expiry chase — close open chase tasks.
+  if (updated.abgRetrieved) {
+    tasks = tasks.map((t) =>
+      t.contractId === id &&
+      t.catalogKey === "bg_expiry_abg" &&
+      t.status !== "completed" &&
+      t.status !== "not_required"
+        ? { ...t, status: "not_required" as const }
+        : t
+    );
+  }
+  if (updated.pbgRetrieved) {
+    tasks = tasks.map((t) =>
+      t.contractId === id &&
+      t.catalogKey === "bg_expiry_pbg" &&
+      t.status !== "completed" &&
+      t.status !== "not_required"
+        ? { ...t, status: "not_required" as const }
+        : t
+    );
+  }
+
+  write({
+    ...data,
+    contracts: data.contracts.map((c) => (c.id === id ? updated : c)),
+    tasks,
+  });
+  syncDatedSystemTasks();
+  return updated;
+}
+
+function catalogKeysInUse(contracts: Contract[]): Set<string> {
+  const used = new Set<string>();
+  const add = (name?: string | null, key?: string | null) => {
+    const n = (name ?? "").trim().toLowerCase();
+    const k = (key ?? "").trim().toLowerCase();
+    if (n) used.add(n);
+    if (k) used.add(k);
+  };
+  for (const c of contracts) {
+    for (const line of c.boq ?? []) add(line.name, line.catalogKey);
+    for (const amendment of c.amendments ?? []) {
+      for (const line of amendment.boqSnapshot ?? []) add(line.name, line.catalogKey);
+      for (const diff of amendment.lineDiffs ?? []) add(diff.name, null);
+    }
+  }
+  return used;
+}
+
+export function deleteContract(id: string): boolean {
+  const data = read();
+  if (!data.contracts.some((c) => c.id === id)) return false;
+  const contracts = data.contracts.filter((c) => c.id !== id);
+  const removedTaskIds = new Set(
+    data.tasks.filter((t) => t.contractId === id).map((t) => t.id)
+  );
+  const usedNames = catalogKeysInUse(contracts);
+  const next: FlowhubData = {
+    ...data,
+    contracts,
+    tasks: data.tasks.filter((t) => t.contractId !== id),
+    invoices: data.invoices.filter((i) => i.contractId !== id),
+    payments: data.payments.filter((p) => p.contractId !== id),
+    schedules: data.schedules.filter((s) => s.contractId !== id),
+    scheduleChangeLog: (data.scheduleChangeLog ?? []).filter(
+      (e) => e.contractId !== id
+    ),
+    notifications: (data.notifications ?? []).filter(
+      (n) =>
+        n.contractId !== id && !(n.taskId && removedTaskIds.has(n.taskId))
+    ),
+    itemCatalog: (data.itemCatalog ?? []).filter((entry) => {
+      const key = (entry.key || "").trim().toLowerCase();
+      const name = (entry.name || "").trim().toLowerCase();
+      return (key && usedNames.has(key)) || (name && usedNames.has(name));
+    }),
+    deliveryChallans: (data.deliveryChallans ?? []).filter(
+      (dc) => dc.contractId !== id
+    ),
+    installationProgress: (data.installationProgress ?? []).filter(
+      (p) => p.contractId !== id
+    ),
+    nexusCosts: dropContractCosts(data.nexusCosts, id),
+  };
+  if (workspaceIsEmpty(next)) {
+    // The server refuses an empty save that is not newer than the hub it
+    // would replace. Bumping the revision marks this delete as intentional.
+    next.workspaceRevision = (data.workspaceRevision ?? 0) + 1;
+  }
+  write(next);
+  return true;
+}
+
+export function deleteScheduleChangeLogEntry(id: string): boolean {
+  const data = read();
+  if (!(data.scheduleChangeLog ?? []).some((e) => e.id === id)) return false;
+  write({
+    ...data,
+    scheduleChangeLog: (data.scheduleChangeLog ?? []).filter((e) => e.id !== id),
+  });
+  return true;
+}
+
+function dropContractCosts(
+  raw: NexusCosts | undefined,
+  contractId: string
+): NexusCosts {
+  const costs = normalizeNexusCosts(raw);
+  if (!costs.contracts[contractId]) return costs;
+  const contracts = { ...costs.contracts };
+  delete contracts[contractId];
+  return { ...costs, contracts };
+}
+
+export function computeBoqLineDiffs(
+  previous: BoqItem[],
+  next: BoqItem[]
+): BoqAmendmentLineDiff[] {
+  const diffs: BoqAmendmentLineDiff[] = [];
+  const nextById = new Map(next.map((l) => [l.id, l]));
+  const prevIds = new Set(previous.map((l) => l.id));
+  for (const p of previous) {
+    const n = nextById.get(p.id);
+    if (!n) {
+      diffs.push({
+        boqItemId: p.id,
+        name: p.name,
+        unit: p.unit,
+        rate: p.rate,
+        kind: "removed",
+        previousQty: p.quantity,
+        newQty: null,
+      });
+    } else if (Math.abs((Number(n.quantity) || 0) - (Number(p.quantity) || 0)) > QTY_EPS) {
+      diffs.push({
+        boqItemId: p.id,
+        name: p.name,
+        unit: p.unit,
+        rate: p.rate,
+        kind: "qty_changed",
+        previousQty: p.quantity,
+        newQty: Number(n.quantity) || 0,
+      });
+    }
+  }
+  for (const n of next) {
+    if (prevIds.has(n.id)) continue;
+    diffs.push({
+      boqItemId: n.id,
+      name: n.name,
+      unit: n.unit,
+      rate: n.rate,
+      kind: "added",
+      previousQty: null,
+      newQty: Number(n.quantity) || 0,
+    });
+  }
+  return diffs;
+}
+
+/**
+ * Blocking problems with a proposed amended BOQ. Qty cannot drop below what
+ * was already dispatched / installed, and lines with execution or schedule
+ * history cannot be removed (reduce qty instead).
+ */
+export function boqAmendmentIssues(
+  contractId: string,
+  proposed: BoqItem[],
+  data?: FlowhubData
+): string[] {
+  const d = data ?? read();
+  const contract = d.contracts.find((c) => c.id === contractId);
+  if (!contract) return ["Contract not found."];
+  const issues: string[] = [];
+  if (proposed.length === 0) issues.push("BOQ needs at least one line.");
+  const names = new Set<string>();
+  for (const l of proposed) {
+    const name = l.name.trim();
+    if (!name) {
+      issues.push("Every BOQ line needs an item name.");
+      continue;
+    }
+    const key = name.toLowerCase();
+    if (names.has(key)) issues.push(`Duplicate BOQ item: ${name}.`);
+    names.add(key);
+    if (!(Number(l.rate) > 0)) issues.push(`Rate must be > 0 for ${name}.`);
+    const qty = Number(l.quantity);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      issues.push(`Qty must be > 0 for ${name} (remove the line instead).`);
+      continue;
+    }
+    if (!contract.boq.some((b) => b.id === l.id)) continue;
+    const floor = Math.max(
+      suppliedQty(contractId, l.id, d),
+      installedQty(contractId, l.id, d)
+    );
+    if (qty + QTY_EPS < floor) {
+      issues.push(
+        `${name}: qty ${qty} is below already dispatched/installed ${floor}.`
+      );
+    }
+  }
+  const keptIds = new Set(proposed.map((l) => l.id));
+  for (const b of contract.boq) {
+    if (keptIds.has(b.id)) continue;
+    const hasExecution =
+      suppliedQty(contractId, b.id, d) > 0 || installedQty(contractId, b.id, d) > 0;
+    const hasSchedule = d.schedules.some(
+      (s) => s.contractId === contractId && s.boqItemId === b.id
+    );
+    const hasInvoice = d.invoices.some(
+      (i) =>
+        i.contractId === contractId &&
+        i.lines.some((l) => l.boqItemId === b.id)
+    );
+    const blocker = hasExecution
+      ? "dispatch/installation"
+      : hasSchedule
+        ? "schedule"
+        : hasInvoice
+          ? "invoice"
+          : null;
+    if (blocker) {
+      issues.push(
+        `${b.name} has ${blocker} records — reduce its qty instead of removing it.`
+      );
+    }
+  }
+  return issues;
+}
+
+export function nextAmendmentSeq(contract: Contract): number {
+  return (
+    (contract.amendments ?? []).reduce((m, a) => Math.max(m, a.seq || 0), 0) + 1
+  );
+}
+
+export type AmendBoqResult =
+  | { ok: true; amendment: BoqAmendment; contract: Contract }
+  | { ok: false; error: string };
+
+/**
+ * Confirm a BOQ amendment: records it on the contract, replaces the BOQ,
+ * sets orderValue (and BG values) to the confirmed figure, and closes any
+ * open "Finalise BOQ amendment" task for the contract.
+ */
+export function amendContractBoq(input: {
+  contractId: string;
+  boq: BoqItem[];
+  newOrderValue: number;
+  date: string;
+  number?: string;
+  note?: string;
+  by?: string | null;
+}): AmendBoqResult {
+  const data = read();
+  const current = data.contracts.find((c) => c.id === input.contractId);
+  if (!current) return { ok: false, error: "Contract not found." };
+
+  const proposed: BoqItem[] = input.boq.map((l) => ({
+    ...l,
+    id: l.id || crypto.randomUUID(),
+    name: l.name.trim(),
+    unit: l.unit.trim() || "Nos",
+    rate: Number(l.rate) || 0,
+    quantity: Number(l.quantity) || 0,
+  }));
+  const issues = boqAmendmentIssues(current.id, proposed, data);
+  if (issues.length) return { ok: false, error: issues[0] };
+
+  const date = (input.date || "").slice(0, 10);
+  if (!date) return { ok: false, error: "Amendment date is required." };
+  const newOrderValue = Number(input.newOrderValue);
+  if (!Number.isFinite(newOrderValue) || newOrderValue <= 0)
+    return { ok: false, error: "Confirmed contract value must be > 0." };
+
+  const lineDiffs = computeBoqLineDiffs(current.boq, proposed);
+  const valueChanged = Math.abs(newOrderValue - current.orderValue) > 0.005;
+  if (!lineDiffs.length && !valueChanged)
+    return { ok: false, error: "No BOQ changes to amend." };
+
+  const seq = nextAmendmentSeq(current);
+  const number = (input.number ?? "").trim() || defaultAmendmentNumber(seq);
+  if (
+    current.amendments.some(
+      (a) => a.number.trim().toLowerCase() === number.toLowerCase()
+    )
+  ) {
+    return { ok: false, error: `Amendment no. ${number} already exists.` };
+  }
+
+  let next = data;
+  const boq = proposed.map((line) => {
+    const res = upsertCatalog(next, line.name, line.unit, line.rate);
+    next = res.data;
+    return { ...line, catalogKey: line.catalogKey || res.catalogKey };
+  });
+
+  const amendment: BoqAmendment = {
+    id: crypto.randomUUID(),
+    seq,
+    number,
+    date,
+    at: new Date().toISOString(),
+    by: input.by?.trim() || null,
+    note: (input.note ?? "").trim(),
+    previousOrderValue: current.orderValue,
+    newOrderValue,
+    previousBoqTotal: boqTotal(current.boq),
+    newBoqTotal: boqTotal(boq),
+    lineDiffs,
+    boqSnapshot: boq.map((l) => ({ ...l })),
+  };
+
+  const updated = normalizeContract({
+    ...current,
+    boq,
+    orderValue: newOrderValue,
+    amendments: [...current.amendments, amendment],
+  });
+
+  const now = new Date().toISOString();
+  const tasks = next.tasks.map((t) =>
+    t.contractId === current.id &&
+    t.catalogKey === "boq_amendment" &&
+    taskIsOpen(t)
+      ? {
+          ...t,
+          status: "completed" as const,
+          completedAt: now,
+          notes: t.notes || `Amendment ${number} confirmed.`,
+          notesUpdatedAt: t.notes ? t.notesUpdatedAt : now,
+        }
+      : t
+  );
+
+  write({
+    ...next,
+    contracts: next.contracts.map((c) => (c.id === current.id ? updated : c)),
+    tasks,
+  });
+  syncDatedSystemTasks();
+  return { ok: true, amendment, contract: updated };
+}
+
+export function listExpenseCategories(data?: FlowhubData): string[] {
+  const d = data ?? read();
+  const fromRows = d.contracts.flatMap((c) =>
+    (c.expenses ?? []).map((e) => e.category).filter(Boolean)
+  );
+  const set = new Set<string>([
+    ...SEED_EXPENSE_CATEGORIES,
+    ...(d.expenseCategories ?? []),
+    ...fromRows,
+  ]);
+  return [...set].sort((a, b) => a.localeCompare(b));
+}
+
+function rememberExpenseCategory(
+  data: FlowhubData,
+  category: string
+): FlowhubData {
+  const trimmed = category.trim();
+  if (!trimmed) return data;
+  if (
+    SEED_EXPENSE_CATEGORIES.some(
+      (c) => c.toLowerCase() === trimmed.toLowerCase()
+    )
+  ) {
+    return data;
+  }
+  const existing = data.expenseCategories ?? [];
+  if (existing.some((c) => c.toLowerCase() === trimmed.toLowerCase())) {
+    return data;
+  }
+  return { ...data, expenseCategories: [...existing, trimmed] };
+}
+
+export function addExpense(
+  contractId: string,
+  expense: {
+    amount: number;
+    date: string;
+    personPaid: string;
+    reason: string;
+    category: string;
+  },
+  opts?: { by?: string | null }
+): ContractExpense | null {
+  const data = read();
+  const contract = data.contracts.find((c) => c.id === contractId);
+  if (!contract) return null;
+  if (!(Number(expense.amount) > 0)) return null;
+  if (!expense.date?.trim()) return null;
+  const category = expense.category.trim() || "Miscellaneous";
+  const full: ContractExpense = {
+    id: crypto.randomUUID(),
+    amount: Number(expense.amount),
+    date: expense.date,
+    personPaid: expense.personPaid.trim(),
+    reason: expense.reason.trim(),
+    category,
+    createdAt: new Date().toISOString(),
+    createdBy: opts?.by?.trim() || null,
+    editHistory: [],
+    deletedAt: null,
+    deletedBy: null,
+  };
+  const withCat = rememberExpenseCategory(data, category);
+  write({
+    ...withCat,
+    contracts: withCat.contracts.map((c) =>
+      c.id === contractId
+        ? { ...c, expenses: [...(c.expenses ?? []), full] }
+        : c
+    ),
+  });
+  return full;
+}
+
+export function updateExpense(
+  contractId: string,
+  expenseId: string,
+  patch: {
+    amount: number;
+    date: string;
+    personPaid: string;
+    reason: string;
+    category: string;
+  },
+  opts?: { by?: string | null }
+): { ok: true } | { ok: false; error: string } {
+  const data = read();
+  const contract = data.contracts.find((c) => c.id === contractId);
+  if (!contract) return { ok: false, error: "Contract not found." };
+  const current = (contract.expenses ?? []).find((e) => e.id === expenseId);
+  if (!current || current.deletedAt)
+    return { ok: false, error: "Expense not found." };
+  if (!(Number(patch.amount) > 0))
+    return { ok: false, error: "Amount must be greater than 0." };
+  if (!patch.date?.trim()) return { ok: false, error: "Date is required." };
+
+  const category = patch.category.trim() || "Miscellaneous";
+  const next: ContractExpense = {
+    ...current,
+    amount: Number(patch.amount),
+    date: patch.date,
+    personPaid: patch.personPaid.trim(),
+    reason: patch.reason.trim(),
+    category,
+  };
+  const bits: string[] = [];
+  if (current.amount !== next.amount)
+    bits.push(`amount ${current.amount} → ${next.amount}`);
+  if (current.date !== next.date)
+    bits.push(`date ${current.date} → ${next.date}`);
+  if (current.personPaid !== next.personPaid)
+    bits.push(`person paid updated`);
+  if (current.reason !== next.reason) bits.push(`reason updated`);
+  if (current.category !== next.category)
+    bits.push(`category ${current.category} → ${next.category}`);
+  const entry: ExpenseEditRecord = {
+    id: crypto.randomUUID(),
+    at: new Date().toISOString(),
+    by: opts?.by?.trim() || "User",
+    summary: bits.length ? bits.join("; ") : "Edited expense",
+  };
+  next.editHistory = [...(current.editHistory ?? []), entry];
+
+  const withCat = rememberExpenseCategory(data, category);
+  write({
+    ...withCat,
+    contracts: withCat.contracts.map((c) =>
+      c.id === contractId
+        ? {
+            ...c,
+            expenses: (c.expenses ?? []).map((e) =>
+              e.id === expenseId ? next : e
+            ),
+          }
+        : c
+    ),
+  });
+  return { ok: true };
+}
+
+/** Clear edit-history on every expense (Master only in UI). */
+export function clearAllExpenseHistory(): {
+  ok: true;
+  cleared: number;
+} | { ok: false; error: string } {
+  const data = read();
+  let cleared = 0;
+  const contracts = data.contracts.map((c) => ({
+    ...c,
+    expenses: (c.expenses ?? []).map((e) => {
+      const n = (e.editHistory ?? []).length;
+      if (!n) return e;
+      cleared += n;
+      return { ...e, editHistory: [] };
+    }),
+  }));
+  if (!cleared) return { ok: false, error: "No history to clear." };
+  write({ ...data, contracts });
+  return { ok: true, cleared };
+}
+
+/** Permanently remove all soft-deleted expenses (Master only in UI). */
+export function clearDeletedExpenses(): {
+  ok: true;
+  removed: number;
+} | { ok: false; error: string } {
+  const data = read();
+  let removed = 0;
+  const contracts = data.contracts.map((c) => {
+    const before = c.expenses ?? [];
+    const expenses = before.filter((e) => {
+      if (e.deletedAt) {
+        removed += 1;
+        return false;
+      }
+      return true;
+    });
+    return expenses === before ? c : { ...c, expenses };
+  });
+  if (!removed) return { ok: false, error: "No deleted expenses to clear." };
+  write({ ...data, contracts });
+  return { ok: true, removed };
+}
+
+/** Soft-delete — row stays for history. Master only (enforced in UI). */
+export function deleteExpense(
+  contractId: string,
+  expenseId: string,
+  opts?: { by?: string | null }
+): { ok: true } | { ok: false; error: string } {
+  const data = read();
+  const contract = data.contracts.find((c) => c.id === contractId);
+  if (!contract) return { ok: false, error: "Contract not found." };
+  const current = (contract.expenses ?? []).find((e) => e.id === expenseId);
+  if (!current || current.deletedAt)
+    return { ok: false, error: "Expense not found." };
+  const at = new Date().toISOString();
+  const by = opts?.by?.trim() || "User";
+  const entry: ExpenseEditRecord = {
+    id: crypto.randomUUID(),
+    at,
+    by,
+    summary: `Deleted expense · ${current.amount} · ${current.category}`,
+  };
+  write({
+    ...data,
+    contracts: data.contracts.map((c) =>
+      c.id === contractId
+        ? {
+            ...c,
+            expenses: (c.expenses ?? []).map((e) =>
+              e.id === expenseId
+                ? {
+                    ...e,
+                    deletedAt: at,
+                    deletedBy: by,
+                    editHistory: [...(e.editHistory ?? []), entry],
+                  }
+                : e
+            ),
+          }
+        : c
+    ),
+  });
+  return { ok: true };
+}
+
+export function addInvoice(input: {
+  type: Invoice["type"];
+  number: string;
+  date: string;
+  contractId: string;
+  lines: InvoiceLine[];
+  extraCharges?: InvoiceExtraCharge[];
+  convertedFromPiId?: string | null;
+}): Invoice | null {
+  const data = read();
+  const contract = data.contracts.find((c) => c.id === input.contractId);
+  const lines = recalcInvoiceLines(input.lines);
+  if (!contract || lines.length === 0) return null;
+  if (lines.some((l) => !isValidInvoiceQty(l.billedQty))) return null;
+
+  const netAmount = lines.reduce((s, l) => s + l.lineNet, 0);
+  const gstAmount = contract.gstApplicable ? netAmount * GST_RATE : 0;
+  const extraCharges = input.extraCharges ?? [];
+  const extraTotal = extraCharges.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const full: Invoice = {
+    id: crypto.randomUUID(),
+    type: input.type,
+    number: input.number.trim(),
+    date: input.date,
+    contractId: input.contractId,
+    lines,
+    netAmount,
+    gstAmount,
+    extraCharges,
+    finalAmount: netAmount + gstAmount + extraTotal,
+    convertedFromPiId: input.convertedFromPiId ?? null,
+    createdAt: new Date().toISOString(),
+  };
+
+  write({ ...data, invoices: [...data.invoices, full] });
+  return full;
+}
+
+export function updateInvoice(
+  id: string,
+  patch: {
+    number?: string;
+    date?: string;
+    lines?: InvoiceLine[];
+    extraCharges?: InvoiceExtraCharge[];
+  }
+): Invoice | null {
+  const data = read();
+  const current = data.invoices.find((i) => i.id === id);
+  if (!current) return null;
+  const contract = data.contracts.find((c) => c.id === current.contractId);
+  if (!contract) return null;
+
+  const lines = recalcInvoiceLines(patch.lines ?? current.lines);
+  if (lines.length === 0) return null;
+  if (patch.lines && lines.some((l) => !isValidInvoiceQty(l.billedQty)))
+    return null;
+  const extraCharges = patch.extraCharges ?? current.extraCharges ?? [];
+  const netAmount = lines.reduce((s, l) => s + l.lineNet, 0);
+  const gstAmount = contract.gstApplicable ? netAmount * GST_RATE : 0;
+  const extraTotal = extraCharges.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+
+  const updated: Invoice = normalizeInvoice({
+    ...current,
+    number: patch.number != null ? patch.number.trim() : current.number,
+    date: patch.date ?? current.date,
+    lines,
+    netAmount,
+    gstAmount,
+    extraCharges,
+    finalAmount: netAmount + gstAmount + extraTotal,
+  });
+
+  write({
+    ...data,
+    invoices: data.invoices.map((i) => (i.id === id ? updated : i)),
+  });
+  return updated;
+}
+
+/** PI → TI: optional edited lines/charges; PI is removed after convert. */
+export function convertPiToTi(
+  piId: string,
+  tiNumber: string,
+  tiDate: string,
+  overrides?: {
+    lines?: InvoiceLine[];
+    extraCharges?: InvoiceExtraCharge[];
+  }
+): Invoice | null {
+  const data = read();
+  const pi = data.invoices.find((i) => i.id === piId && i.type === "PI");
+  if (!pi) return null;
+
+  const contract = data.contracts.find((c) => c.id === pi.contractId);
+  const lines = recalcInvoiceLines(overrides?.lines ?? pi.lines);
+  if (lines.length === 0) return null;
+  if (lines.some((l) => !isValidInvoiceQty(l.billedQty))) return null;
+  const extraCharges = overrides?.extraCharges ?? pi.extraCharges ?? [];
+  const netAmount = lines.reduce((s, l) => s + l.lineNet, 0);
+  const gstAmount = contract?.gstApplicable ? netAmount * GST_RATE : 0;
+  const extraTotal = extraCharges.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+
+  const ti: Invoice = {
+    ...pi,
+    id: crypto.randomUUID(),
+    type: "TI",
+    number: tiNumber.trim(),
+    date: tiDate,
+    lines,
+    netAmount,
+    gstAmount,
+    extraCharges,
+    finalAmount: netAmount + gstAmount + extraTotal,
+    convertedFromPiId: pi.id,
+    createdAt: new Date().toISOString(),
+  };
+
+  write({
+    ...data,
+    invoices: [...data.invoices.filter((i) => i.id !== piId), ti],
+    // PI-linked payments follow the new TI
+    payments: data.payments.map((p) =>
+      p.invoiceId === piId
+        ? { ...p, invoiceId: ti.id, link: "TI" as const, contractId: ti.contractId }
+        : p
+    ),
+  });
+  return ti;
+}
+
+export function paymentCash(p: Payment) {
+  return (Number(p.netAmount) || 0) + (Number(p.gstAmount) || 0);
+}
+
+/** Full payment line total (cash + actual ret/TDS + other). Display only — not used for outstanding. */
+export function paymentAccounted(p: Payment) {
+  return (
+    paymentCash(p) +
+    (Number(p.retentionAmount) || 0) +
+    (Number(p.tdsAmount) || 0) +
+    (Number(p.otherDeductions) || 0)
+  );
+}
+
+/**
+ * Amount that reduces outstanding: net + GST + other deductions.
+ * Retention and TDS are holds, not cash applied toward expected payment.
+ */
+export function paymentTowardOutstanding(p: Payment) {
+  return (
+    (Number(p.netAmount) || 0) +
+    (Number(p.gstAmount) || 0) +
+    (Number(p.otherDeductions) || 0)
+  );
+}
+
+function isTiLinkedPayment(p: Payment) {
+  return p.link === "TI" || (!p.link && !!p.invoiceId);
+}
+
+function isContractMoneyPayment(p: Payment) {
+  // TI-linked + unlinked count toward TI money world; PI-linked stay on PI reports only.
+  return p.link === "TI" || p.link === "unlinked" || !p.link;
+}
+
+export function addPayment(
+  payment: Omit<Payment, "id" | "createdAt">
+): Payment | null {
+  const data = read();
+  if (!data.contracts.some((c) => c.id === payment.contractId)) return null;
+  if (payment.link === "TI" || payment.link === "PI") {
+    const invoice = data.invoices.find((i) => i.id === payment.invoiceId);
+    if (!invoice) return null;
+    if (payment.link === "TI" && invoice.type !== "TI") return null;
+    if (payment.link === "PI" && invoice.type !== "PI") return null;
+  }
+
+  const full: Payment = {
+    ...payment,
+    invoiceId: payment.link === "unlinked" ? null : payment.invoiceId,
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+  };
+  write({ ...data, payments: [...data.payments, full] });
+  return full;
+}
+
+export function updatePayment(
+  id: string,
+  patch: Omit<Payment, "id" | "createdAt">
+): Payment | null {
+  const data = read();
+  const current = data.payments.find((p) => p.id === id);
+  if (!current) return null;
+  if (!data.contracts.some((c) => c.id === patch.contractId)) return null;
+  if (patch.link === "TI" || patch.link === "PI") {
+    const invoice = data.invoices.find((i) => i.id === patch.invoiceId);
+    if (!invoice) return null;
+    if (patch.link === "TI" && invoice.type !== "TI") return null;
+    if (patch.link === "PI" && invoice.type !== "PI") return null;
+  }
+
+  const updated: Payment = {
+    ...current,
+    ...patch,
+    invoiceId: patch.link === "unlinked" ? null : patch.invoiceId,
+  };
+  write({
+    ...data,
+    payments: data.payments.map((p) => (p.id === id ? updated : p)),
+  });
+  return updated;
+}
+
+export function deletePayment(id: string): boolean {
+  const data = read();
+  if (!data.payments.some((p) => p.id === id)) return false;
+  write({
+    ...data,
+    payments: data.payments.filter((p) => p.id !== id),
+  });
+  return true;
+}
+
+export function invoiceExtraTotal(invoice: Invoice) {
+  return (invoice.extraCharges ?? []).reduce(
+    (s, e) => s + (Number(e.amount) || 0),
+    0
+  );
+}
+
+/**
+ * Expected (theoretical) retention hold: ret% × TI net.
+ * Extra charges are not reduced. Used for expected payment / “expected held”.
+ * Actual held comes from payment entry sums — see invoiceActualRetentionHold.
+ */
+export function invoiceRetentionHold(invoice: Invoice, data?: FlowhubData) {
+  const d = data ?? read();
+  const contract = d.contracts.find((c) => c.id === invoice.contractId);
+  return ((contract?.retentionPercent ?? 0) * invoice.netAmount) / 100;
+}
+
+/**
+ * Expected (theoretical) TDS hold: tds% × TI net.
+ * Extra charges are not reduced. Used for expected payment / “expected held”.
+ * Actual held comes from payment entry sums — see invoiceActualTdsHold.
+ */
+export function invoiceTdsHold(invoice: Invoice, data?: FlowhubData) {
+  const d = data ?? read();
+  const contract = d.contracts.find((c) => c.id === invoice.contractId);
+  return (
+    ((contract?.tdsPercent ?? DEFAULT_TDS_PERCENT) * invoice.netAmount) / 100
+  );
+}
+
+/**
+ * Expected cash from client (expected world only):
+ * TI total (net + GST + others) − (ret%×net) − (tds%×net).
+ * Billing “expected payment” uses this; do not mix with actual payment holds.
+ */
+export function invoiceExpectedCash(invoice: Invoice, data?: FlowhubData) {
+  const d = data ?? read();
+  return (
+    invoice.finalAmount -
+    invoiceRetentionHold(invoice, d) -
+    invoiceTdsHold(invoice, d)
+  );
+}
+
+/**
+ * Actual retention held on a TI = sum of retentionAmount on payments linked to that TI.
+ * No payments → 0. Unlinked payments are not attributed here — use contractActualRetentionHold.
+ */
+export function invoiceActualRetentionHold(
+  invoice: Invoice,
+  data?: FlowhubData
+) {
+  if (invoice.type !== "TI") return 0;
+  const d = data ?? read();
+  return d.payments
+    .filter((p) => p.invoiceId === invoice.id && isTiLinkedPayment(p))
+    .reduce((s, p) => s + (Number(p.retentionAmount) || 0), 0);
+}
+
+/**
+ * Actual TDS held on a TI = sum of tdsAmount on payments linked to that TI.
+ * No payments → 0. Unlinked live at contract level — see contractActualTdsHold.
+ */
+export function invoiceActualTdsHold(invoice: Invoice, data?: FlowhubData) {
+  if (invoice.type !== "TI") return 0;
+  const d = data ?? read();
+  return d.payments
+    .filter((p) => p.invoiceId === invoice.id && isTiLinkedPayment(p))
+    .reduce((s, p) => s + (Number(p.tdsAmount) || 0), 0);
+}
+
+/**
+ * Contract-level actual retention held: sum ret on TI-linked + unlinked payments.
+ * Unlinked ret/TDS are included here in full (not FIFO-split across TIs).
+ */
+export function contractActualRetentionHold(
+  contractId: string,
+  data?: FlowhubData
+) {
+  const d = data ?? read();
+  return d.payments
+    .filter((p) => p.contractId === contractId && isContractMoneyPayment(p))
+    .reduce((s, p) => s + (Number(p.retentionAmount) || 0), 0);
+}
+
+/**
+ * Contract-level actual TDS held: sum TDS on TI-linked + unlinked payments.
+ */
+export function contractActualTdsHold(contractId: string, data?: FlowhubData) {
+  const d = data ?? read();
+  return d.payments
+    .filter((p) => p.contractId === contractId && isContractMoneyPayment(p))
+    .reduce((s, p) => s + (Number(p.tdsAmount) || 0), 0);
+}
+
+/** Excess actual over expected held (no cap). */
+export function holdExcess(actual: number, expected: number) {
+  return Math.max(0, actual - expected);
+}
+
+export function invoiceDueDate(invoice: Invoice, data?: FlowhubData) {
+  const d = data ?? read();
+  const contract = d.contracts.find((c) => c.id === invoice.contractId);
+  const raw = String(invoice.date ?? "").trim();
+  // Anchor at noon to avoid UTC timezone day-shifts; fall back to today if invalid
+  // so one bad TI cannot crash Invoices and Outstandings.
+  const base = /^\d{4}-\d{2}-\d{2}/.test(raw)
+    ? new Date(`${raw.slice(0, 10)}T12:00:00`)
+    : new Date(raw);
+  const start = Number.isNaN(base.getTime())
+    ? new Date(`${new Date().toISOString().slice(0, 10)}T12:00:00`)
+    : base;
+  start.setDate(start.getDate() + (contract?.paymentDueDays ?? 0));
+  const y = start.getFullYear();
+  const m = String(start.getMonth() + 1).padStart(2, "0");
+  const day = String(start.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function normalizePayment(
+  p: Payment & { invoiceId?: string | null },
+  invoices: Invoice[]
+): Payment {
+  const invoiceId = p.invoiceId ?? null;
+  const invoice = invoiceId ? invoices.find((i) => i.id === invoiceId) : null;
+  let link = p.link;
+  if (!link) {
+    if (!invoiceId) link = "unlinked";
+    else if (invoice?.type === "PI") link = "PI";
+    else link = "TI";
+  }
+  return {
+    ...p,
+    contractId: p.contractId || invoice?.contractId || "",
+    invoiceId,
+    link,
+  };
+}
+
+/**
+ * FIFO-allocate unlinked payments’ toward-outstanding amounts (net+GST+other)
+ * across a contract’s TIs. Unlinked ret/TDS are NOT allocated here — they roll
+ * into contract-level actual held only.
+ */
+function unlinkedTowardOutstandingAllocations(
+  data: FlowhubData
+): Map<string, number> {
+  const allocated = new Map<string, number>();
+  const byContract = new Map<string, Payment[]>();
+  for (const p of data.payments) {
+    if (p.link !== "unlinked") continue;
+    const list = byContract.get(p.contractId) ?? [];
+    list.push(p);
+    byContract.set(p.contractId, list);
+  }
+
+  for (const [contractId, pays] of byContract) {
+    let pool = pays
+      .slice()
+      .sort(
+        (a, b) =>
+          a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt)
+      )
+      .reduce((s, p) => s + paymentTowardOutstanding(p), 0);
+
+    const tis = data.invoices
+      .filter((i) => i.type === "TI" && i.contractId === contractId)
+      .slice()
+      .sort(
+        (a, b) =>
+          a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt)
+      );
+
+    for (const ti of tis) {
+      const linked = data.payments
+        .filter((p) => p.invoiceId === ti.id && isTiLinkedPayment(p))
+        .reduce((s, p) => s + paymentTowardOutstanding(p), 0);
+      const need = Math.max(0, invoiceExpectedCash(ti, data) - linked);
+      const take = Math.min(pool, need);
+      if (take > 0) {
+        allocated.set(ti.id, take);
+        pool -= take;
+      }
+    }
+  }
+  return allocated;
+}
+
+/**
+ * Paid toward outstanding on a TI: Σ(net + GST + other) on linked payments
+ * plus FIFO-allocated unlinked (net+GST+other). Does not include ret/TDS.
+ */
+export function paymentReceivedTotal(invoiceId: string, data?: FlowhubData) {
+  const d = data ?? read();
+  const invoice = d.invoices.find((i) => i.id === invoiceId);
+  const linked = d.payments
+    .filter((p) => {
+      if (p.invoiceId !== invoiceId) return false;
+      if (!invoice || invoice.type !== "TI") return true;
+      return isTiLinkedPayment(p);
+    })
+    .reduce((s, p) => s + paymentTowardOutstanding(p), 0);
+  const unlinked =
+    invoice?.type === "TI"
+      ? (unlinkedTowardOutstandingAllocations(d).get(invoiceId) ?? 0)
+      : 0;
+  return linked + unlinked;
+}
+
+/**
+ * Outstanding (locked): Expected − (Σ net paid + Σ GST paid + Σ other).
+ * Do NOT subtract retention/TDS — those are holds, not cash applied.
+ * Unlinked net+GST+other allocate FIFO toward TIs; unlinked ret/TDS stay at
+ * contract actual-held only. Negative means overpayment — shown as-is.
+ */
+export function invoiceOutstanding(invoice: Invoice, data?: FlowhubData) {
+  if (invoice.type !== "TI") return 0;
+  const d = data ?? read();
+  return invoiceExpectedCash(invoice, d) - paymentReceivedTotal(invoice.id, d);
+}
+
+export function invoiceIsPaid(invoice: Invoice, data?: FlowhubData) {
+  return invoiceOutstanding(invoice, data) <= 0.005;
+}
+
+export function assignTask(
+  id: string,
+  assignment: {
+    department: string | null;
+    assignees?: string[];
+    dueDate?: string | null;
+  },
+  opts?: { by?: string | null }
+) {
+  const data = read();
+  const current = data.tasks.find((t) => t.id === id);
+  if (!current) return;
+  const nextTask: Task = {
+    ...current,
+    department: assignment.department,
+    assignees: assignment.assignees ?? current.assignees,
+    dueDate:
+      assignment.dueDate !== undefined
+        ? assignment.dueDate || null
+        : current.dueDate,
+    status:
+      current.status === "pending" &&
+      (assignment.department || (assignment.assignees?.length ?? 0) > 0)
+        ? "in_progress"
+        : current.status,
+  };
+  const audienceChanged =
+    nextTask.department !== current.department ||
+    JSON.stringify([...(nextTask.assignees ?? [])].sort()) !==
+      JSON.stringify([...(current.assignees ?? [])].sort());
+  let nextData: FlowhubData = {
+    ...data,
+    tasks: data.tasks.map((t) => (t.id === id ? nextTask : t)),
+  };
+  if (
+    audienceChanged &&
+    (nextTask.department || (nextTask.assignees?.length ?? 0) > 0)
+  ) {
+    nextData = notifyForTasks(nextData, [nextTask], {
+      createdBy: opts?.by ?? null,
+      kind: "task_assigned",
+    });
+  }
+  write(nextData);
+}
+
+function applyStatusFields(
+  t: Task,
+  status: TaskStatus,
+  extra?: { notes?: string; notRequiredReason?: string | null }
+): Task {
+  const now = new Date().toISOString();
+  const closed = status === "completed" || status === "not_required";
+  const waiting = status === "awaiting_verification";
+  const notes =
+    extra?.notes !== undefined ? extra.notes.trim() : t.notes;
+  const notesChanged =
+    extra?.notes !== undefined && extra.notes.trim() !== (t.notes || "");
+  return {
+    ...t,
+    status,
+    notes,
+    notesUpdatedAt: notesChanged ? now : t.notesUpdatedAt,
+    completedAt: closed ? t.completedAt || now : null,
+    notRequiredReason:
+      status === "not_required"
+        ? (extra?.notRequiredReason ?? t.notRequiredReason)?.trim() || null
+        : null,
+    verificationDepartment: waiting ? (t.verificationDepartment ?? null) : null,
+    verificationRequestedBy: waiting ? (t.verificationRequestedBy ?? null) : null,
+  };
+}
+
+export type TaskStatusApplyResult = {
+  status: TaskStatus;
+  /** True when kickoff / GAD follow-up questions should run. */
+  sideEffects: boolean;
+  /** True when this completion was already waiting, so no new verify notice. */
+  alreadyWaiting: boolean;
+};
+
+function holdForVerification(
+  t: Task,
+  actor: TaskActor,
+  extra?: { notes?: string }
+): Task {
+  const now = new Date().toISOString();
+  const notes = extra?.notes !== undefined ? extra.notes.trim() : t.notes;
+  const notesChanged =
+    extra?.notes !== undefined && notes !== (t.notes || "");
+  const already = t.status === "awaiting_verification";
+  const dept = (actor.department || "").trim() || null;
+  return {
+    ...t,
+    status: "awaiting_verification",
+    notes,
+    notesUpdatedAt: notesChanged ? now : t.notesUpdatedAt,
+    completedAt: null,
+    notRequiredReason: null,
+    verificationDepartment: already ? (t.verificationDepartment ?? null) : dept,
+    verificationRequestedBy: already
+      ? (t.verificationRequestedBy ?? null)
+      : (actor.name || "").trim() || null,
+  };
+}
+
+/**
+ * User clearance parks the task as waiting and notifies once.
+ * Manager, Director, and Master complete it now with no verify notice.
+ */
+function applyCompletion(
+  data: FlowhubData,
+  task: Task,
+  actor: TaskActor | undefined,
+  extra?: { notes?: string; notRequiredReason?: string | null }
+): {
+  data: FlowhubData;
+  task: Task;
+  sideEffects: boolean;
+  alreadyWaiting: boolean;
+} {
+  if (completesImmediately(actor?.clearance)) {
+    const next = applyStatusFields(task, "completed", extra);
+    return {
+      data: {
+        ...data,
+        tasks: data.tasks.map((t) => (t.id === task.id ? next : t)),
+      },
+      task: next,
+      sideEffects: task.status !== "completed",
+      alreadyWaiting: false,
+    };
+  }
+  if (task.status === "completed" || task.status === "not_required") {
+    return { data, task, sideEffects: false, alreadyWaiting: false };
+  }
+  const already = task.status === "awaiting_verification";
+  const next = holdForVerification(task, actor ?? {}, extra);
+  let nextData: FlowhubData = {
+    ...data,
+    tasks: data.tasks.map((t) => (t.id === task.id ? next : t)),
+  };
+  if (!already) {
+    nextData = appendNotifications(nextData, [
+      buildVerifyNotification(next, {
+        name: actor?.name,
+        department: next.verificationDepartment,
+      }),
+    ]);
+  }
+  return {
+    data: nextData,
+    task: next,
+    sideEffects: false,
+    alreadyWaiting: already,
+  };
+}
+
+export function updateTaskStatus(
+  id: string,
+  status: TaskStatus,
+  opts?: {
+    notes?: string;
+    notRequiredReason?: string | null;
+    actor?: TaskActor;
+  }
+): TaskStatusApplyResult | null {
+  const data = read();
+  const current = data.tasks.find((t) => t.id === id);
+  if (!current) return null;
+
+  if (status === "completed" || status === "awaiting_verification") {
+    if (
+      status === "awaiting_verification" &&
+      current.status === "awaiting_verification"
+    ) {
+      const next = holdForVerification(current, opts?.actor ?? {}, opts);
+      write({
+        ...data,
+        tasks: data.tasks.map((t) => (t.id === id ? next : t)),
+      });
+      return {
+        status: "awaiting_verification",
+        sideEffects: false,
+        alreadyWaiting: true,
+      };
+    }
+    const applied = applyCompletion(data, current, opts?.actor, opts);
+    write(applied.data);
+    return {
+      status: applied.task.status,
+      sideEffects: applied.sideEffects,
+      alreadyWaiting: applied.alreadyWaiting,
+    };
+  }
+
+  const next = applyStatusFields(current, status, opts);
+  write({
+    ...data,
+    tasks: data.tasks.map((t) => (t.id === id ? next : t)),
+  });
+  return { status, sideEffects: false, alreadyWaiting: false };
+}
+
+export function updateTask(
+  id: string,
+  patch: Partial<
+    Pick<
+      Task,
+      | "title"
+      | "department"
+      | "assignees"
+      | "status"
+      | "dueDate"
+      | "priority"
+      | "notes"
+      | "notRequiredReason"
+    >
+  >
+) {
+  const data = read();
+  const current = data.tasks.find((t) => t.id === id);
+  if (!current) return null;
+  const now = new Date().toISOString();
+  let next: Task = { ...current, ...patch };
+  if (patch.notes !== undefined && patch.notes !== current.notes) {
+    next = {
+      ...next,
+      notes: patch.notes.trim(),
+      notesUpdatedAt: now,
+    };
+  }
+  if (patch.status !== undefined && patch.status !== current.status) {
+    next = applyStatusFields(next, patch.status, {
+      notes: patch.notes,
+      notRequiredReason: patch.notRequiredReason,
+    });
+  }
+  const audienceChanged =
+    (patch.department !== undefined &&
+      patch.department !== current.department) ||
+    (patch.assignees !== undefined &&
+      JSON.stringify([...(patch.assignees ?? [])].sort()) !==
+        JSON.stringify([...(current.assignees ?? [])].sort()));
+  let nextData: FlowhubData = {
+    ...data,
+    tasks: data.tasks.map((t) => (t.id === id ? next : t)),
+  };
+  if (
+    audienceChanged &&
+    (next.department || (next.assignees?.length ?? 0) > 0)
+  ) {
+    nextData = notifyForTasks(nextData, [next], { kind: "task_assigned" });
+  }
+  write(nextData);
+  return next;
+}
+
+export function addManualTask(input: {
+  title: string;
+  contractId: string;
+  department?: string | null;
+  assignees?: string[];
+  dueDate?: string | null;
+  priority?: Task["priority"];
+  notes?: string;
+  parentId?: string | null;
+  catalogKey?: TaskCatalogKey | null;
+  source?: "system" | "manual";
+}): Task {
+  const data = read();
+  const assignees = input.assignees?.filter(Boolean) ?? [];
+  const full: Task = {
+    id: crypto.randomUUID(),
+    title: input.title.trim(),
+    contractId: input.contractId,
+    department: input.department ?? null,
+    assignees,
+    status:
+      input.department || assignees.length > 0 ? "in_progress" : "pending",
+    dueDate: input.dueDate || null,
+    parentId: input.parentId ?? null,
+    source: input.source ?? "manual",
+    catalogKey: input.catalogKey ?? "custom",
+    priority: input.priority ?? "normal",
+    notes: input.notes?.trim() ?? "",
+    notesUpdatedAt: input.notes?.trim() ? new Date().toISOString() : null,
+    completedAt: null,
+    notRequiredReason: null,
+    createdAt: new Date().toISOString(),
+  };
+  let nextData: FlowhubData = { ...data, tasks: [...data.tasks, full] };
+  nextData = notifyForTasks(nextData, [full], { kind: "task_created" });
+  write(nextData);
+  return full;
+}
+
+export function addSubtask(
+  parentId: string,
+  input: {
+    title: string;
+    department?: string | null;
+    assignees?: string[];
+    dueDate?: string | null;
+  }
+): Task | null {
+  const data = read();
+  const parent = data.tasks.find((t) => t.id === parentId);
+  if (!parent?.contractId) return null;
+  return addManualTask({
+    title: input.title,
+    contractId: parent.contractId,
+    department: input.department ?? null,
+    assignees: input.assignees,
+    dueDate: input.dueDate,
+    parentId,
+    priority: parent.priority,
+    catalogKey: "custom",
+  });
+}
+
+/** Close open subtasks, then complete the parent or park it for verification. */
+export function completeTaskWithSubtasks(
+  parentId: string,
+  subtaskClosures: {
+    id: string;
+    status: "completed" | "not_required";
+    reason?: string;
+  }[],
+  opts?: { notes?: string; actor?: TaskActor }
+):
+  | {
+      ok: true;
+      status: TaskStatus;
+      sideEffects: boolean;
+      alreadyWaiting: boolean;
+    }
+  | { ok: false; error: string } {
+  const data = read();
+  const parent = data.tasks.find((t) => t.id === parentId);
+  if (!parent) return { ok: false, error: "Task not found." };
+  const openSubs = data.tasks.filter(
+    (t) => t.parentId === parentId && taskIsOpen(t)
+  );
+  for (const sub of openSubs) {
+    const closure = subtaskClosures.find((c) => c.id === sub.id);
+    if (!closure) {
+      return {
+        ok: false,
+        error: `Close subtask “${sub.title}” (complete or not required).`,
+      };
+    }
+    if (closure.status === "not_required" && !closure.reason?.trim()) {
+      return {
+        ok: false,
+        error: `Reason required to mark “${sub.title}” not required.`,
+      };
+    }
+  }
+  let nextData = data;
+  for (const sub of openSubs) {
+    const closure = subtaskClosures.find((c) => c.id === sub.id);
+    if (!closure) continue;
+    const current = nextData.tasks.find((t) => t.id === sub.id);
+    if (!current) continue;
+    if (closure.status === "not_required") {
+      const updated = applyStatusFields(current, "not_required", {
+        notRequiredReason: closure.reason ?? null,
+      });
+      nextData = {
+        ...nextData,
+        tasks: nextData.tasks.map((t) => (t.id === current.id ? updated : t)),
+      };
+      continue;
+    }
+    const applied = applyCompletion(nextData, current, opts?.actor);
+    nextData = applied.data;
+  }
+  const parentNow = nextData.tasks.find((t) => t.id === parentId);
+  if (!parentNow) return { ok: false, error: "Task not found." };
+  const parentApplied = applyCompletion(nextData, parentNow, opts?.actor, {
+    notes: opts?.notes,
+  });
+  write(parentApplied.data);
+  return {
+    ok: true,
+    status: parentApplied.task.status,
+    sideEffects: parentApplied.sideEffects,
+    alreadyWaiting: parentApplied.alreadyWaiting,
+  };
+}
+
+/** Department manager, or Master, accepts a task that is waiting for verification. */
+export function confirmTaskVerification(
+  id: string,
+  actor: TaskActor
+): { ok: true } | { ok: false; error: string } {
+  const data = read();
+  const current = data.tasks.find((t) => t.id === id);
+  if (!current) return { ok: false, error: "Task not found." };
+  if (current.status !== "awaiting_verification") {
+    return { ok: false, error: "This task is not waiting for verification." };
+  }
+  if (!canConfirmTaskVerification(actor, current)) {
+    return {
+      ok: false,
+      error: "Only that department’s manager, or Master, can confirm this.",
+    };
+  }
+  const openSubs = data.tasks.filter(
+    (t) => t.parentId === id && taskIsOpen(t)
+  );
+  if (openSubs.length) {
+    return { ok: false, error: "Close open subtasks before confirming." };
+  }
+  const next = applyStatusFields(current, "completed");
+  write({
+    ...data,
+    tasks: data.tasks.map((t) => (t.id === id ? next : t)),
+  });
+  return { ok: true };
+}
+
+function todayIsoLocal() {
+  const t = new Date();
+  const m = String(t.getMonth() + 1).padStart(2, "0");
+  const d = String(t.getDate()).padStart(2, "0");
+  return `${t.getFullYear()}-${m}-${d}`;
+}
+
+function addMonthsToIso(iso: string, months: number) {
+  const d = new Date(iso + "T12:00:00");
+  d.setMonth(d.getMonth() + months);
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+function addDaysToIso(iso: string, days: number) {
+  const d = new Date(iso + "T12:00:00");
+  d.setDate(d.getDate() + days);
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+function monthsBeforeIso(iso: string, months: number) {
+  return addMonthsToIso(iso, -months);
+}
+
+function daysBeforeIso(iso: string, days: number) {
+  return addDaysToIso(iso, -days);
+}
+
+function hasOpenCatalogTask(
+  tasks: Task[],
+  contractId: string,
+  catalogKey: TaskCatalogKey
+) {
+  return tasks.some(
+    (t) =>
+      t.contractId === contractId &&
+      t.catalogKey === catalogKey &&
+      !t.parentId &&
+      taskIsOpen(t)
+  );
+}
+
+function makeSystemTask(input: {
+  title: string;
+  contractId: string;
+  catalogKey: TaskCatalogKey;
+  dueDate?: string | null;
+  department?: string | null;
+  priority?: Task["priority"];
+}): Task {
+  return {
+    id: crypto.randomUUID(),
+    title: input.title,
+    contractId: input.contractId,
+    department: input.department ?? null,
+    assignees: [],
+    status: "pending",
+    dueDate: input.dueDate ?? null,
+    parentId: null,
+    source: "system",
+    catalogKey: input.catalogKey,
+    priority: input.priority ?? "normal",
+    notes: "",
+    notesUpdatedAt: null,
+    completedAt: null,
+    notRequiredReason: null,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+/** After Kick off is completed — create GAD only if user said it is required. */
+export function afterKickoffCompleted(
+  contractId: string,
+  gadRequired: boolean
+): Task | null {
+  if (!gadRequired) return null;
+  const data = read();
+  const contract = data.contracts.find((c) => c.id === contractId);
+  if (!contract) return null;
+  if (hasOpenCatalogTask(data.tasks, contractId, "gad")) return null;
+  // Also skip if a completed GAD already exists for this contract
+  const already = data.tasks.some(
+    (t) =>
+      t.contractId === contractId &&
+      t.catalogKey === "gad" &&
+      !t.parentId
+  );
+  if (already) return null;
+  const task = makeSystemTask({
+    title: "Finalise Drawings/GAD",
+    contractId,
+    catalogKey: "gad",
+    department: "Drawings Department",
+    priority: "high",
+  });
+  let nextData: FlowhubData = { ...data, tasks: [...data.tasks, task] };
+  nextData = notifyForTasks(nextData, [task], { kind: "task_department" });
+  write(nextData);
+  return task;
+}
+
+/**
+ * After Finalise GAD is completed:
+ * always create Create schedules; optionally Finalise BOQ amendment.
+ */
+export function afterGadCompleted(
+  contractId: string,
+  opts: { boqChanged: boolean; amendmentNeeded: boolean }
+): Task[] {
+  const data = read();
+  const contract = data.contracts.find((c) => c.id === contractId);
+  if (!contract) return [];
+  const created: Task[] = [];
+  let tasks = data.tasks;
+
+  if (!hasOpenCatalogTask(tasks, contractId, "create_schedules")) {
+    const exists = tasks.some(
+      (t) =>
+        t.contractId === contractId &&
+        t.catalogKey === "create_schedules" &&
+        !t.parentId
+    );
+    if (!exists) {
+      const schedulesTask = makeSystemTask({
+        title: `Create schedules — ${contract.projectNo}`,
+        contractId,
+        catalogKey: "create_schedules",
+        department: "Contracts Department",
+        priority: "high",
+      });
+      tasks = [...tasks, schedulesTask];
+      created.push(schedulesTask);
+    }
+  }
+
+  if (opts.boqChanged && opts.amendmentNeeded) {
+    if (!hasOpenCatalogTask(tasks, contractId, "boq_amendment")) {
+      const exists = tasks.some(
+        (t) =>
+          t.contractId === contractId &&
+          t.catalogKey === "boq_amendment" &&
+          !t.parentId &&
+          taskIsOpen(t)
+      );
+      if (!exists) {
+        const amd = makeSystemTask({
+          title: `Finalise BOQ amendment — ${contract.projectNo}`,
+          contractId,
+          catalogKey: "boq_amendment",
+          department: "Contracts Department",
+          priority: "high",
+        });
+        tasks = [...tasks, amd];
+        created.push(amd);
+      }
+    }
+  }
+
+  if (created.length) {
+    let nextData: FlowhubData = { ...data, tasks };
+    nextData = notifyForTasks(nextData, created, { kind: "task_department" });
+    write(nextData);
+  }
+  return created;
+}
+
+function handoverDateForContract(
+  data: FlowhubData,
+  contractId: string
+): string | null {
+  const line = data.schedules.find(
+    (s) => s.contractId === contractId && s.kind === "handover"
+  );
+  const d = line?.endDate || line?.startDate || null;
+  if (!d || isScheduleDateNa(d)) return null;
+  return d;
+}
+
+/**
+ * Create BG-expiry and Collect-retention tasks when their date windows open.
+ * Safe to call on hydrate / after BG or schedule edits.
+ */
+export function syncDatedSystemTasks(): { created: Task[] } {
+  const data = read();
+  const today = todayIsoLocal();
+  let tasks = data.tasks;
+  const created: Task[] = [];
+
+  for (const c of data.contracts) {
+    if (contractDisplayStatus(data, c, today) === "Completed") continue;
+
+    if (c.abgRequired && c.abgExpiry && !c.abgRetrieved) {
+      const windowStart = monthsBeforeIso(c.abgExpiry, BG_EXPIRY_LEAD_MONTHS);
+      if (today >= windowStart && today <= c.abgExpiry) {
+        const open = hasOpenCatalogTask(tasks, c.id, "bg_expiry_abg");
+        const sameDue = tasks.some(
+          (t) =>
+            t.contractId === c.id &&
+            t.catalogKey === "bg_expiry_abg" &&
+            t.dueDate === c.abgExpiry &&
+            !t.parentId
+        );
+        if (!open && !sameDue) {
+          const t = makeSystemTask({
+            title: `Chase ABG expiry — ${c.projectNo}`,
+            contractId: c.id,
+            catalogKey: "bg_expiry_abg",
+            dueDate: c.abgExpiry,
+            department: "Accounts Department",
+            priority: "urgent",
+          });
+          tasks = [...tasks, t];
+          created.push(t);
+        }
+      }
+    }
+
+    if (c.pbgRequired && c.pbgExpiry && !c.pbgRetrieved) {
+      const windowStart = monthsBeforeIso(c.pbgExpiry, BG_EXPIRY_LEAD_MONTHS);
+      if (today >= windowStart && today <= c.pbgExpiry) {
+        const open = hasOpenCatalogTask(tasks, c.id, "bg_expiry_pbg");
+        const sameDue = tasks.some(
+          (t) =>
+            t.contractId === c.id &&
+            t.catalogKey === "bg_expiry_pbg" &&
+            t.dueDate === c.pbgExpiry &&
+            !t.parentId
+        );
+        if (!open && !sameDue) {
+          const t = makeSystemTask({
+            title: `Chase PBG expiry — ${c.projectNo}`,
+            contractId: c.id,
+            catalogKey: "bg_expiry_pbg",
+            dueDate: c.pbgExpiry,
+            department: "Accounts Department",
+            priority: "urgent",
+          });
+          tasks = [...tasks, t];
+          created.push(t);
+        }
+      }
+    }
+
+    if ((c.retentionPercent ?? 0) > 0) {
+      const handover = handoverDateForContract(data, c.id);
+      if (handover) {
+        const dlpEnd = addMonthsToIso(handover, c.dlpMonths || 0);
+        const windowStart = daysBeforeIso(dlpEnd, RETENTION_LEAD_DAYS);
+        if (today >= windowStart && today <= dlpEnd) {
+          const open = hasOpenCatalogTask(tasks, c.id, "collect_retention");
+          const sameDue = tasks.some(
+            (t) =>
+              t.contractId === c.id &&
+              t.catalogKey === "collect_retention" &&
+              t.dueDate === dlpEnd &&
+              !t.parentId
+          );
+          if (!open && !sameDue) {
+            const t = makeSystemTask({
+              title: `Collect retention — ${c.projectNo}`,
+              contractId: c.id,
+              catalogKey: "collect_retention",
+              dueDate: dlpEnd,
+              department: "Accounts Department",
+              priority: "high",
+            });
+            tasks = [...tasks, t];
+            created.push(t);
+          }
+        }
+      }
+    }
+  }
+
+  if (created.length) {
+    let nextData: FlowhubData = { ...data, tasks };
+    nextData = notifyForTasks(nextData, created, { kind: "task_department" });
+    write(nextData);
+  }
+  return { created };
+}
+
+/**
+ * One overdue notice and one due-today notice per task.
+ * Runs when the workspace loads, beside the bank-guarantee chase.
+ */
+export function syncTaskDueNotices(): { notified: number } {
+  const data = read();
+  const planned = planDueNotices(data.tasks, todayIsoLocal());
+  if (!planned.hits.length) return { notified: 0 };
+  const byId = new Map(planned.tasks.map((t) => [t.id, t]));
+  const rows: HubNotification[] = [];
+  for (const hit of planned.hits) {
+    const task = byId.get(hit.taskId);
+    if (!task) continue;
+    const row = buildDatedNotice(task, hit.which);
+    if (row) rows.push(row);
+  }
+  write(appendNotifications({ ...data, tasks: planned.tasks }, rows));
+  return { notified: rows.length };
+}
+
+export type ScheduleWriteResult =
+  | { ok: true; line: ScheduleLine; cascade?: CascadeProposal[] }
+  | { ok: false; error: string };
+
+export type CascadeProposal = {
+  scheduleId: string;
+  label: string;
+  startDate: string;
+  endDate: string;
+  fromStartDate: string;
+  fromEndDate: string;
+};
+
+export function addSchedule(
+  input: {
+    contractId: string;
+    kind: ScheduleKind;
+    boqItemId?: string | null;
+    quantity?: number | null;
+    startDate: string;
+    endDate: string;
+    committed: boolean;
+  },
+  opts?: { by?: string }
+): ScheduleWriteResult {
+  const data = read();
+  const contract = data.contracts.find((c) => c.id === input.contractId);
+  if (!contract) return { ok: false, error: "Contract not found." };
+  if (!input.startDate || !input.endDate)
+    return { ok: false, error: "Dates are required." };
+  if (input.endDate < input.startDate)
+    return { ok: false, error: "End date cannot be before start date." };
+
+  const by = opts?.by ?? "User";
+  const itemKinds = input.kind === "supply" || input.kind === "installation";
+  if (itemKinds) {
+    if (!input.boqItemId)
+      return { ok: false, error: "BOQ item is required." };
+    const boq = contract.boq.find((b) => b.id === input.boqItemId);
+    if (!boq) return { ok: false, error: "BOQ item not found." };
+    if (!(Number(input.quantity) > 0))
+      return { ok: false, error: "Quantity must be greater than 0." };
+    if (input.kind === "supply") {
+      const already = scheduledSupplyQty(
+        input.contractId,
+        input.boqItemId,
+        null
+      );
+      if (already + Number(input.quantity) > boq.quantity) {
+        return {
+          ok: false,
+          error: `Supply qty would exceed BOQ (${already} scheduled + ${input.quantity} > ${boq.quantity}).`,
+        };
+      }
+    }
+    if (input.kind === "installation") {
+      const hasSupply = data.schedules.some(
+        (s) =>
+          s.contractId === input.contractId &&
+          s.kind === "supply" &&
+          s.boqItemId === input.boqItemId &&
+          s.startDate &&
+          !isScheduleDateNa(s.startDate)
+      );
+      if (!hasSupply) {
+        return {
+          ok: false,
+          error: `Set a supply date for ${boq.name} before adding installation.`,
+        };
+      }
+    }
+  } else {
+    const existing = data.schedules.find(
+      (s) => s.contractId === input.contractId && s.kind === input.kind
+    );
+    if (existing) {
+      return updateSchedule(
+        existing.id,
+        {
+          startDate: input.startDate,
+          endDate: input.endDate,
+          committed: input.committed,
+        },
+        { by, skipCascadePrompt: true }
+      );
+    }
+  }
+
+  const now = new Date().toISOString();
+  const full: ScheduleLine = normalizeSchedule({
+    id: crypto.randomUUID(),
+    contractId: input.contractId,
+    boqItemId: itemKinds ? input.boqItemId! : null,
+    kind: input.kind,
+    quantity: itemKinds ? Number(input.quantity) : null,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    committed: input.committed,
+    baselineStartDate: input.startDate,
+    baselineEndDate: input.endDate,
+    done: false,
+    doneAt: null,
+    doneBy: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const schedules = [...data.schedules, full];
+  const provisional: FlowhubData = { ...data, schedules };
+  let nextData = appendScheduleLog(
+    {
+      ...provisional,
+      tasks: completeCreateSchedulesTasks(
+        data.tasks,
+        full.contractId,
+        provisional
+      ),
+    },
+    {
+      by,
+      contractId: full.contractId,
+      scheduleId: full.id,
+      summary: `Created ${SCHEDULE_KIND_LABELS[full.kind]} ${formatScheduleDateRange(full.startDate, full.endDate)}${full.quantity != null ? ` · qty ${full.quantity}` : ""}`,
+    }
+  );
+  write(nextData);
+  if (full.kind === "handover") syncDatedSystemTasks();
+  return { ok: true, line: full };
+}
+
+export function updateSchedule(
+  id: string,
+  patch: Partial<
+    Pick<
+      ScheduleLine,
+      | "boqItemId"
+      | "quantity"
+      | "startDate"
+      | "endDate"
+      | "committed"
+      | "kind"
+    >
+  >,
+  opts?: { by?: string; skipCascadePrompt?: boolean }
+): ScheduleWriteResult {
+  const data = read();
+  const current = data.schedules.find((s) => s.id === id);
+  if (!current) return { ok: false, error: "Schedule line not found." };
+  const contract = data.contracts.find((c) => c.id === current.contractId);
+  if (!contract) return { ok: false, error: "Contract not found." };
+
+  const by = opts?.by ?? "User";
+  const next = normalizeSchedule({
+    ...current,
+    ...patch,
+    updatedAt: new Date().toISOString(),
+  });
+  if (next.endDate < next.startDate)
+    return { ok: false, error: "End date cannot be before start date." };
+
+  const unchanged =
+    next.kind === current.kind &&
+    next.boqItemId === current.boqItemId &&
+    next.quantity === current.quantity &&
+    next.startDate === current.startDate &&
+    next.endDate === current.endDate &&
+    next.committed === current.committed;
+  if (unchanged) return { ok: true, line: current };
+
+  const datesChanged =
+    next.startDate !== current.startDate || next.endDate !== current.endDate;
+
+  if (next.kind === "supply" && next.boqItemId) {
+    const boq = contract.boq.find((b) => b.id === next.boqItemId);
+    if (!boq) return { ok: false, error: "BOQ item not found." };
+    const already = scheduledSupplyQty(
+      next.contractId,
+      next.boqItemId,
+      next.id
+    );
+    if (already + (Number(next.quantity) || 0) > boq.quantity) {
+      return {
+        ok: false,
+        error: `Supply qty would exceed BOQ (${already} other + ${next.quantity} > ${boq.quantity}).`,
+      };
+    }
+  }
+
+  if (next.kind === "installation" && next.boqItemId) {
+    const boq = contract.boq.find((b) => b.id === next.boqItemId);
+    const hasSupply = data.schedules.some(
+      (s) =>
+        s.id !== id &&
+        s.contractId === next.contractId &&
+        s.kind === "supply" &&
+        s.boqItemId === next.boqItemId &&
+        s.startDate &&
+        !isScheduleDateNa(s.startDate)
+    );
+    if (!hasSupply) {
+      return {
+        ok: false,
+        error: `Set a supply date for ${boq?.name ?? "this item"} before adding installation.`,
+      };
+    }
+  }
+
+  const endSlip = daysBetweenIso(current.endDate, next.endDate);
+  const cascade =
+    !opts?.skipCascadePrompt && endSlip > 0
+      ? proposeCascadeAfterSlip(data, current, endSlip)
+      : [];
+
+  if (cascade.length > 0) {
+    // Save the edited line first; UI confirms cascade separately.
+    let nextData = appendScheduleLog(
+      {
+        ...data,
+        schedules: data.schedules.map((s) => (s.id === id ? next : s)),
+      },
+      {
+        by,
+        contractId: next.contractId,
+        scheduleId: next.id,
+        summary: `Updated ${SCHEDULE_KIND_LABELS[next.kind]} dates ${formatScheduleDateRange(current.startDate, current.endDate)} to ${formatScheduleDateRange(next.startDate, next.endDate)} (cascade pending)`,
+      }
+    );
+    write(nextData);
+    if (next.kind === "handover") syncDatedSystemTasks();
+    return { ok: true, line: next, cascade };
+  }
+
+  const label = SCHEDULE_KIND_LABELS[next.kind];
+  const committedBit =
+    next.committed !== current.committed
+      ? next.committed
+        ? " · committed"
+        : " · uncommitted"
+      : "";
+  const summary = datesChanged
+    ? `Updated ${label} ${formatScheduleDateRange(next.startDate, next.endDate)}${
+        next.quantity !== current.quantity
+          ? ` · qty ${current.quantity} → ${next.quantity}`
+          : ""
+      }${committedBit}`
+    : next.quantity !== current.quantity
+      ? `Updated ${label} qty ${current.quantity} → ${next.quantity}${committedBit}`
+      : `Updated ${label}${committedBit}`;
+
+  let nextData = appendScheduleLog(
+    {
+      ...data,
+      schedules: data.schedules.map((s) => (s.id === id ? next : s)),
+    },
+    {
+      by,
+      contractId: next.contractId,
+      scheduleId: next.id,
+      summary,
+    }
+  );
+  write(nextData);
+  if (next.kind === "handover") syncDatedSystemTasks();
+  return { ok: true, line: next };
+}
+
+function proposeCascadeAfterSlip(
+  data: FlowhubData,
+  source: ScheduleLine,
+  slipDays: number
+): CascadeProposal[] {
+  if (slipDays <= 0) return [];
+  const contract = data.contracts.find((c) => c.id === source.contractId);
+  if (!contract) return [];
+  const proposals: CascadeProposal[] = [];
+  const push = (s: ScheduleLine, label: string) => {
+    if (s.done || s.id === source.id) return;
+    if (proposals.some((p) => p.scheduleId === s.id)) return;
+    proposals.push({
+      scheduleId: s.id,
+      label,
+      fromStartDate: s.startDate,
+      fromEndDate: s.endDate,
+      startDate: addDaysToIso(s.startDate, slipDays),
+      endDate: addDaysToIso(s.endDate, slipDays),
+    });
+  };
+
+  const sameContract = data.schedules.filter(
+    (s) => s.contractId === source.contractId && !s.done
+  );
+
+  if (source.kind === "supply" && source.boqItemId) {
+    for (const s of sameContract) {
+      if (s.kind === "installation" && s.boqItemId === source.boqItemId) {
+        push(s, `Install · same item`);
+      }
+    }
+  }
+
+  if (source.kind === "installation" && source.boqItemId) {
+    const order = contract.boq.map((b) => b.id);
+    const idx = order.indexOf(source.boqItemId);
+    if (idx >= 0) {
+      const laterIds = new Set(order.slice(idx + 1));
+      for (const s of sameContract) {
+        if (
+          (s.kind === "supply" || s.kind === "installation") &&
+          s.boqItemId &&
+          laterIds.has(s.boqItemId)
+        ) {
+          push(
+            s,
+            `${SCHEDULE_KIND_LABELS[s.kind]} · later BOQ item`
+          );
+        }
+      }
+    }
+    // Last install end drives testing / handover
+    const installEnds = sameContract
+      .filter((s) => s.kind === "installation")
+      .map((s) => (s.id === source.id ? addDaysToIso(source.endDate, slipDays) : s.endDate));
+    const maxInstall = installEnds.sort().at(-1);
+    if (maxInstall) {
+      for (const s of sameContract) {
+        if (s.kind === "testing" || s.kind === "handover") {
+          push(s, SCHEDULE_KIND_LABELS[s.kind]);
+        }
+      }
+    }
+  }
+
+  if (source.kind === "testing") {
+    for (const s of sameContract) {
+      if (s.kind === "handover") push(s, "Handover");
+    }
+  }
+
+  return proposals;
+}
+
+export function applyCascadeProposals(
+  proposals: CascadeProposal[],
+  opts?: { by?: string; contractId?: string | null }
+): { ok: true } | { ok: false; error: string } {
+  if (!proposals.length) return { ok: true };
+  const data = read();
+  const by = opts?.by ?? "User";
+  const map = new Map(proposals.map((p) => [p.scheduleId, p]));
+  const schedules = data.schedules.map((s) => {
+    const p = map.get(s.id);
+    if (!p) return s;
+    return normalizeSchedule({
+      ...s,
+      startDate: p.startDate,
+      endDate: p.endDate,
+      updatedAt: new Date().toISOString(),
+    });
+  });
+  const summary = `Cascade confirmed (+dates): ${proposals
+    .map(
+      (p) =>
+        `${p.label} ${formatScheduleDateRange(p.fromStartDate, p.fromEndDate)} to ${formatScheduleDateRange(p.startDate, p.endDate)}`
+    )
+    .join("; ")}`;
+  let nextData = appendScheduleLog(
+    { ...data, schedules },
+    {
+      by,
+      contractId: opts?.contractId ?? schedules.find((s) => map.has(s.id))?.contractId ?? null,
+      scheduleId: null,
+      summary,
+    }
+  );
+  write(nextData);
+  syncDatedSystemTasks();
+  return { ok: true };
+}
+
+export function markScheduleDone(
+  id: string,
+  opts?: { by?: string; done?: boolean; completedDate?: string | null }
+): ScheduleWriteResult {
+  const data = read();
+  const current = data.schedules.find((s) => s.id === id);
+  if (!current) return { ok: false, error: "Schedule line not found." };
+  const by = opts?.by ?? "User";
+  const done = opts?.done !== false;
+  const now = new Date().toISOString();
+  if (done) {
+    const completed = (opts?.completedDate || "").trim();
+    if (!completed || isScheduleDateNa(completed)) {
+      return {
+        ok: false,
+        error: "Enter the completion date when marking done.",
+      };
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(completed)) {
+      return { ok: false, error: "Completion date must be YYYY-MM-DD." };
+    }
+  }
+  const next = normalizeSchedule({
+    ...current,
+    done,
+    doneAt: done ? (opts?.completedDate || "").trim() : null,
+    doneBy: done ? by : null,
+    updatedAt: now,
+  });
+  let nextData = appendScheduleLog(
+    {
+      ...data,
+      schedules: data.schedules.map((s) => (s.id === id ? next : s)),
+    },
+    {
+      by,
+      contractId: next.contractId,
+      scheduleId: next.id,
+      summary: done
+        ? `Marked ${SCHEDULE_KIND_LABELS[next.kind]} done on ${formatDisplayDate(next.doneAt)}`
+        : `Cleared done on ${SCHEDULE_KIND_LABELS[next.kind]}`,
+    }
+  );
+  write(nextData);
+  return { ok: true, line: next };
+}
+
+export function deleteSchedule(
+  id: string,
+  opts?: { by?: string }
+): boolean {
+  const data = read();
+  const current = data.schedules.find((s) => s.id === id);
+  if (!current) return false;
+  let nextData = appendScheduleLog(
+    {
+      ...data,
+      schedules: data.schedules.filter((s) => s.id !== id),
+    },
+    {
+      by: opts?.by ?? "User",
+      contractId: current.contractId,
+      scheduleId: current.id,
+      summary: `Deleted ${SCHEDULE_KIND_LABELS[current.kind]} ${formatScheduleDateRange(current.startDate, current.endDate)}`,
+    }
+  );
+  write(nextData);
+  return true;
+}
+
+/**
+ * Master-only restart of the Schedules slice: clears lines + change log.
+ * Contracts/tasks/BOQ stay. Create-schedules tasks are reopened when absent open.
+ */
+export function resetSchedulesSlice(opts?: { by?: string }): {
+  cleared: number;
+} {
+  const data = read();
+  const cleared = data.schedules.length;
+  const by = opts?.by ?? "Master";
+  // Reopen create_schedules if contract has no schedules after reset
+  let tasks = data.tasks.map((t) =>
+    t.catalogKey === "create_schedules" &&
+    (t.status === "completed" || t.status === "not_required")
+      ? {
+          ...t,
+          status: "pending" as const,
+          completedAt: null,
+        }
+      : t
+  );
+  const nextData = appendScheduleLog(
+    {
+      ...data,
+      schedules: [],
+      scheduleChangeLog: [],
+      tasks,
+    },
+    {
+      by,
+      contractId: null,
+      scheduleId: null,
+      summary: `Reset schedules slice (${cleared} lines cleared). Restart anytime via Master → Reset schedules slice.`,
+    }
+  );
+  // Keep only the reset breadcrumb in the new log
+  write({
+    ...nextData,
+    scheduleChangeLog: nextData.scheduleChangeLog.slice(-1),
+  });
+  return { cleared };
+}
+
+/** Σ DC line qty for one contract BOQ item. */
+export function suppliedQty(
+  contractId: string,
+  boqItemId: string,
+  data?: FlowhubData
+): number {
+  const d = data ?? read();
+  let total = 0;
+  for (const dc of d.deliveryChallans) {
+    if (dc.contractId !== contractId) continue;
+    for (const l of dc.lines) {
+      if (l.boqItemId === boqItemId) total += Number(l.qty) || 0;
+    }
+  }
+  return total;
+}
+
+export function installationProgressFor(
+  contractId: string,
+  boqItemId: string,
+  data?: FlowhubData
+): InstallationProgress | null {
+  const d = data ?? read();
+  return (
+    d.installationProgress.find(
+      (p) => p.contractId === contractId && p.boqItemId === boqItemId
+    ) ?? null
+  );
+}
+
+export function installedQty(
+  contractId: string,
+  boqItemId: string,
+  data?: FlowhubData
+): number {
+  return installationProgressFor(contractId, boqItemId, data)?.installedQty ?? 0;
+}
+
+/** BOQ − supplied (never negative). */
+export function leftToSupplyQty(
+  contractId: string,
+  boqItemId: string,
+  data?: FlowhubData
+): number {
+  const d = data ?? read();
+  const item = d.contracts
+    .find((c) => c.id === contractId)
+    ?.boq.find((b) => b.id === boqItemId);
+  const boq = Number(item?.quantity) || 0;
+  return Math.max(0, boq - suppliedQty(contractId, boqItemId, d));
+}
+
+/** Supplied − installed (cannot install what was not supplied). */
+export function leftToInstallQty(
+  contractId: string,
+  boqItemId: string,
+  data?: FlowhubData
+): number {
+  const d = data ?? read();
+  return Math.max(
+    0,
+    suppliedQty(contractId, boqItemId, d) - installedQty(contractId, boqItemId, d)
+  );
+}
+
+const QTY_EPS = 1e-9;
+
+export type ExecutionWriteResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: string };
+
+export function addDeliveryChallan(
+  input: {
+    contractId: string;
+    dcNo: string;
+    date: string;
+    lines: DeliveryChallanLine[];
+  },
+  opts?: { by?: string | null }
+): ExecutionWriteResult<DeliveryChallan> {
+  const data = read();
+  const contract = data.contracts.find((c) => c.id === input.contractId);
+  if (!contract) return { ok: false, error: "Select a contract." };
+  const dcNo = input.dcNo.trim();
+  if (!dcNo) return { ok: false, error: "DC no. is required." };
+  const date = input.date.trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date))
+    return { ok: false, error: "DC date is required." };
+  const dup = data.deliveryChallans.some(
+    (dc) =>
+      dc.contractId === contract.id &&
+      dc.dcNo.toLowerCase() === dcNo.toLowerCase()
+  );
+  if (dup)
+    return {
+      ok: false,
+      error: `DC ${dcNo} already exists on ${contract.projectNo}.`,
+    };
+
+  const merged = new Map<string, number>();
+  for (const l of input.lines) {
+    const qty = Number(l.qty);
+    if (!l.boqItemId || !Number.isFinite(qty) || qty <= 0) continue;
+    merged.set(l.boqItemId, (merged.get(l.boqItemId) ?? 0) + qty);
+  }
+  if (merged.size === 0)
+    return { ok: false, error: "Enter a qty greater than 0 for at least one item." };
+
+  for (const [boqItemId, qty] of merged) {
+    const item = contract.boq.find((b) => b.id === boqItemId);
+    if (!item) return { ok: false, error: "Unknown BOQ item on this contract." };
+    const left = leftToSupplyQty(contract.id, boqItemId, data);
+    if (qty > left + QTY_EPS) {
+      return {
+        ok: false,
+        error: `${item.name}: ${qty} exceeds qty left to supply (${left}).`,
+      };
+    }
+  }
+
+  const dc: DeliveryChallan = normalizeDeliveryChallan({
+    id: crypto.randomUUID(),
+    contractId: contract.id,
+    dcNo,
+    date,
+    lines: [...merged].map(([boqItemId, qty]) => ({ boqItemId, qty })),
+    createdAt: new Date().toISOString(),
+    createdBy: opts?.by?.trim() || null,
+  });
+  write({ ...data, deliveryChallans: [...data.deliveryChallans, dc] });
+  return { ok: true, value: dc };
+}
+
+/** Blocked when removal would leave installed qty above supplied. */
+export function deleteDeliveryChallan(id: string): ExecutionWriteResult<null> {
+  const data = read();
+  const dc = data.deliveryChallans.find((d) => d.id === id);
+  if (!dc) return { ok: false, error: "DC not found." };
+  const next: FlowhubData = {
+    ...data,
+    deliveryChallans: data.deliveryChallans.filter((d) => d.id !== id),
+  };
+  for (const l of dc.lines) {
+    const supplied = suppliedQty(dc.contractId, l.boqItemId, next);
+    const installed = installedQty(dc.contractId, l.boqItemId, next);
+    if (installed > supplied + QTY_EPS) {
+      const item = data.contracts
+        .find((c) => c.id === dc.contractId)
+        ?.boq.find((b) => b.id === l.boqItemId);
+      return {
+        ok: false,
+        error: `Cannot delete DC ${dc.dcNo}: ${item?.name ?? "item"} would have installed (${installed}) above supplied (${supplied}).`,
+      };
+    }
+  }
+  write(next);
+  return { ok: true, value: null };
+}
+
+/** Set a new cumulative installed total; history keeps the delta. */
+export function recordInstallationTotal(
+  input: {
+    contractId: string;
+    boqItemId: string;
+    newTotal: number;
+    date: string;
+  },
+  opts?: { by?: string | null }
+): ExecutionWriteResult<InstallationProgress> {
+  const data = read();
+  const contract = data.contracts.find((c) => c.id === input.contractId);
+  if (!contract) return { ok: false, error: "Select a contract." };
+  const item = contract.boq.find((b) => b.id === input.boqItemId);
+  if (!item) return { ok: false, error: "Unknown BOQ item on this contract." };
+  const total = Number(input.newTotal);
+  if (!Number.isFinite(total) || total < 0)
+    return { ok: false, error: "Enter a cumulative installed qty of 0 or more." };
+  const date = input.date.trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date))
+    return { ok: false, error: "Update date is required." };
+  const supplied = suppliedQty(contract.id, item.id, data);
+  if (total > supplied + QTY_EPS) {
+    return {
+      ok: false,
+      error: `${item.name}: installed total ${total} exceeds supplied ${supplied}.`,
+    };
+  }
+  const existing = installationProgressFor(contract.id, item.id, data);
+  const before = existing?.installedQty ?? 0;
+  const delta = total - before;
+  if (Math.abs(delta) < QTY_EPS)
+    return { ok: false, error: `${item.name}: total is already ${before}.` };
+
+  const now = new Date().toISOString();
+  const entry = {
+    id: crypto.randomUUID(),
+    at: date,
+    recordedAt: now,
+    totalAfter: total,
+    delta,
+    by: opts?.by?.trim() || null,
+  };
+  const updated: InstallationProgress = normalizeInstallationProgress({
+    id: existing?.id ?? crypto.randomUUID(),
+    contractId: contract.id,
+    boqItemId: item.id,
+    installedQty: total,
+    lastUpdatedAt: date,
+    history: [...(existing?.history ?? []), entry],
+  });
+  write({
+    ...data,
+    installationProgress: existing
+      ? data.installationProgress.map((p) =>
+          p.id === existing.id ? updated : p
+        )
+      : [...data.installationProgress, updated],
+  });
+  return { ok: true, value: updated };
+}
+
+export function addNexusCostColumn(
+  header: string
+): { ok: true } | { ok: false; error: string } {
+  const trimmed = header.trim().replace(/\s+/g, " ");
+  if (!trimmed) return { ok: false, error: "Enter a column header." };
+  if (trimmed.length > 40) {
+    return { ok: false, error: "Use 40 characters or fewer." };
+  }
+  const data = read();
+  const costs = normalizeNexusCosts(data.nexusCosts);
+  if (
+    costs.columns.some((c) => c.header.toLowerCase() === trimmed.toLowerCase())
+  ) {
+    return { ok: false, error: "That column header is already used." };
+  }
+  write({
+    ...data,
+    nexusCosts: {
+      ...costs,
+      columns: [...costs.columns, { id: crypto.randomUUID(), header: trimmed }],
+    },
+  });
+  return { ok: true };
+}
+
+export function removeNexusCostColumn(id: string) {
+  const data = read();
+  const costs = normalizeNexusCosts(data.nexusCosts);
+  if (!costs.columns.some((c) => c.id === id)) return;
+  const contracts: NexusCosts["contracts"] = {};
+  for (const [contractId, entry] of Object.entries(costs.contracts)) {
+    const lineRates: NexusCosts["contracts"][string]["lineRates"] = {};
+    for (const [boqId, rates] of Object.entries(entry.lineRates)) {
+      const next = { ...rates };
+      delete next[id];
+      if (Object.keys(next).length) lineRates[boqId] = next;
+    }
+    contracts[contractId] = { directCost: entry.directCost, lineRates };
+  }
+  write({
+    ...data,
+    nexusCosts: {
+      columns: costs.columns.filter((c) => c.id !== id),
+      contracts,
+    },
+  });
+}
+
+export function setNexusDirectCost(contractId: string, amount: number | null) {
+  const data = read();
+  if (!data.contracts.some((c) => c.id === contractId)) return;
+  const costs = normalizeNexusCosts(data.nexusCosts);
+  const prev = costs.contracts[contractId] ?? {
+    directCost: null,
+    lineRates: {},
+  };
+  const directCost =
+    amount != null && Number.isFinite(amount) ? amount : null;
+  const nextEntry = { ...prev, directCost };
+  const contracts = { ...costs.contracts };
+  if (directCost == null && Object.keys(nextEntry.lineRates).length === 0) {
+    delete contracts[contractId];
+  } else {
+    contracts[contractId] = nextEntry;
+  }
+  write({
+    ...data,
+    nexusCosts: { ...costs, contracts },
+  });
+}
+
+export function setNexusBoqRate(
+  contractId: string,
+  boqItemId: string,
+  columnId: string,
+  rate: number | null
+) {
+  const data = read();
+  const costs = normalizeNexusCosts(data.nexusCosts);
+  if (!costs.columns.some((c) => c.id === columnId)) return;
+  const contract = data.contracts.find((c) => c.id === contractId);
+  if (!contract?.boq.some((b) => b.id === boqItemId)) return;
+  const prev = costs.contracts[contractId] ?? {
+    directCost: null,
+    lineRates: {},
+  };
+  const line = { ...(prev.lineRates[boqItemId] ?? {}) };
+  if (rate == null || !Number.isFinite(rate)) delete line[columnId];
+  else line[columnId] = rate;
+  const lineRates = { ...prev.lineRates };
+  if (Object.keys(line).length === 0) delete lineRates[boqItemId];
+  else lineRates[boqItemId] = line;
+  const nextEntry = { ...prev, lineRates };
+  const contracts = { ...costs.contracts };
+  if (nextEntry.directCost == null && Object.keys(lineRates).length === 0) {
+    delete contracts[contractId];
+  } else {
+    contracts[contractId] = nextEntry;
+  }
+  write({
+    ...data,
+    nexusCosts: { ...costs, contracts },
+  });
+}
+
+/** Sort key for “next items” — earliest relevant date on the line. */
+export function scheduleSortDate(s: ScheduleLine): string {
+  const d = s.startDate || s.endDate;
+  if (!d || isScheduleDateNa(d)) return "9999-99-99";
+  return d;
+}
+
+function subscribeWorkspace(onStoreChange: () => void) {
+  const handler = () => onStoreChange();
+  window.addEventListener("flowhub-data", handler);
+  window.addEventListener("storage", handler);
+  return () => {
+    window.removeEventListener("flowhub-data", handler);
+    window.removeEventListener("storage", handler);
+  };
+}
+
+/** True after Postgres workspace has been loaded (or hydrate gave up to local). */
+export function useWorkspaceReady(): boolean {
+  return useSyncExternalStore(
+    subscribeWorkspace,
+    () => serverHydrated,
+    () => false
+  );
+}
+
+export function useFlowhubData(): FlowhubData {
+  return useSyncExternalStore(
+    subscribeWorkspace,
+    () => {
+      if (!clientHydrated) {
+        clientSnapshot = readLocal();
+        clientHydrated = true;
+      }
+      return clientSnapshot;
+    },
+    () => empty
+  );
+}
