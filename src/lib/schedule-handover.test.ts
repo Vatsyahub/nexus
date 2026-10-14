@@ -274,3 +274,146 @@ test("handover keeps saved supply lines and an honest change log", () => {
     "completed"
   );
 });
+
+test("planner commitment edit updates uncommitted lines without touching dates", () => {
+  const boqId = "boq-commit-flip";
+  const created = addContract({
+    projectName: "Commitment flip",
+    projectNo: "C-COMMIT-FLIP",
+    orderNos: "T-2",
+    orderDate: "2026-10-01",
+    closureDate: "2026-12-31",
+    orderValue: 10000,
+    gstApplicable: false,
+    city: "Delhi",
+    state: "Delhi",
+    country: "India",
+    billingTerms: { supply: 100 },
+    paymentDueDays: 30,
+    retentionPercent: 0,
+    tdsPercent: 0,
+    dlpMonths: 12,
+    abgRequired: false,
+    abgPercent: null,
+    abgValue: null,
+    pbgRequired: false,
+    pbgPercent: null,
+    pbgValue: null,
+    contractorAssigned: "",
+    boq: [
+      {
+        id: boqId,
+        catalogKey: "item-commit",
+        name: "Commit Item",
+        unit: "Nos",
+        rate: 100,
+        quantity: 10,
+      },
+    ],
+  });
+  const contractId = created.contract.id;
+  const supply = {
+    startDate: "2026-10-20",
+    endDate: "2026-10-22",
+    quantity: 10,
+  };
+  const installation = {
+    startDate: "2026-10-25",
+    endDate: "2026-10-28",
+    quantity: 10,
+  };
+  const testingDate = "2026-11-01";
+  const handoverDate = "2026-11-15";
+  const first = saveContractSchedulePlan(
+    {
+      contractId,
+      committed: false,
+      testingDate,
+      handoverDate,
+      items: [
+        {
+          boqItemId: boqId,
+          supplies: [supply],
+          installations: [installation],
+        },
+      ],
+    },
+    { by: "Tester" }
+  );
+  assert.equal(first.ok, true);
+  const before = getData().schedules.filter((s) => s.contractId === contractId);
+  assert.equal(before.length, 4);
+  assert.ok(before.every((s) => s.committed === false));
+  const supplyLine = before.find((s) => s.kind === "supply");
+  const installLine = before.find((s) => s.kind === "installation");
+  assert.ok(supplyLine && installLine);
+
+  const flipped = saveContractSchedulePlan(
+    {
+      contractId,
+      committed: true,
+      committedEdited: true,
+      testingDate,
+      testingEdited: false,
+      handoverDate,
+      handoverEdited: false,
+      items: [
+        {
+          boqItemId: boqId,
+          supplies: [{ ...supply, edited: false }],
+          installations: [{ ...installation, edited: false }],
+        },
+      ],
+    },
+    { by: "Tester" }
+  );
+  assert.equal(flipped.ok, true);
+  const after = getData().schedules.filter((s) => s.contractId === contractId);
+  assert.equal(after.length, 4);
+  assert.ok(
+    after.every((s) => s.committed === true),
+    after.map((s) => `${s.kind}:${s.committed}`).join(",")
+  );
+  const savedSupply = after.find((s) => s.id === supplyLine.id);
+  const savedInstall = after.find((s) => s.id === installLine.id);
+  assert.ok(savedSupply && savedInstall);
+  assert.equal(savedSupply.startDate, supply.startDate);
+  assert.equal(savedSupply.endDate, supply.endDate);
+  assert.equal(savedSupply.quantity, supply.quantity);
+  assert.equal(savedInstall.startDate, installation.startDate);
+  assert.equal(savedInstall.endDate, installation.endDate);
+  assert.equal(
+    getData().scheduleChangeLog.some(
+      (e) =>
+        e.contractId === contractId && e.summary.endsWith(" · committed")
+    ),
+    true
+  );
+
+  const untouched = saveContractSchedulePlan(
+    {
+      contractId,
+      committed: false,
+      committedEdited: false,
+      testingDate,
+      testingEdited: false,
+      handoverDate,
+      handoverEdited: false,
+      items: [
+        {
+          boqItemId: boqId,
+          supplies: [{ ...supply, edited: false }],
+          installations: [{ ...installation, edited: false }],
+        },
+      ],
+    },
+    { by: "Tester" }
+  );
+  assert.equal(untouched.ok, true);
+  const kept = getData().schedules.filter((s) => s.contractId === contractId);
+  assert.ok(kept.every((s) => s.committed === true));
+  assert.equal(
+    kept.find((s) => s.id === supplyLine.id)?.endDate,
+    supply.endDate
+  );
+});

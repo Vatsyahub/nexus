@@ -866,7 +866,8 @@ function mergeScheduleWindows(
 
 /**
  * Replace supply/install/testing/handover lines for a contract from the planner matrix.
- * Existing lines the user did not edit in this save stay as stored.
+ * Existing lines the user did not edit in this save keep their dates, quantities,
+ * and completion. A deliberate commitment edit still updates every line.
  */
 export function saveContractSchedulePlan(
   input: {
@@ -1068,7 +1069,32 @@ export function saveContractSchedulePlan(
   );
   if (handoverLine) newLines.push(handoverLine);
 
-  const merged = newLines;
+  // Untouched windows return the stored line, so a commitment-only edit
+  // never reaches applyWindow / resolveContractLine. Stamp it here.
+  const merged =
+    input.committedEdited === true
+      ? newLines.map((line) =>
+          line.committed === input.committed
+            ? line
+            : normalizeSchedule({
+                ...line,
+                committed: input.committed,
+                updatedAt: now,
+              })
+        )
+      : newLines;
+
+  const commitmentChanged =
+    input.committedEdited === true &&
+    merged.some((line) => {
+      const previous = prior.find((s) => s.id === line.id);
+      return previous != null && previous.committed !== line.committed;
+    });
+  const commitmentBit = commitmentChanged
+    ? input.committed
+      ? " · committed"
+      : " · uncommitted"
+    : "";
 
   const kept = data.schedules.filter((s) => s.contractId !== contract.id);
   const schedules = [...kept, ...merged];
@@ -1087,8 +1113,8 @@ export function saveContractSchedulePlan(
       contractId: contract.id,
       scheduleId: null,
       summary: complete
-        ? `Saved complete schedule (${contract.projectNo}) — all BOQ items + testing + handover`
-        : `Saved schedule progress (${contract.projectNo}) — ${merged.length} lines`,
+        ? `Saved complete schedule (${contract.projectNo}) — all BOQ items + testing + handover${commitmentBit}`
+        : `Saved schedule progress (${contract.projectNo}) — ${merged.length} lines${commitmentBit}`,
     }
   );
   write(nextData);
