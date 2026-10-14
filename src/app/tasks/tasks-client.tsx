@@ -52,6 +52,7 @@ import {
 } from "@/components/report-export-icons";
 import { taskMatchesQuery } from "@/lib/list-search";
 import { formatDisplayDate } from "@/lib/dates";
+import { confirmWorkspaceSave } from "@/lib/save-notice";
 import { HubDataScroll, HubPage } from "@/components/hub-scroll";
 import { cn } from "@/lib/utils";
 
@@ -128,6 +129,21 @@ function sortTasks(a: Task, b: Task, today: string) {
 
 function formatLastUpdated(t: Task) {
   return formatDisplayDate(t.notesUpdatedAt);
+}
+
+function peopleLabel(names: string[]) {
+  if (!names.length) return "—";
+  return names.join(", ");
+}
+
+function subtaskAsText(s: Task) {
+  const parts = [
+    TASK_STATUS_LABELS[s.status],
+    s.department ? departmentDisplayName(s.department) : null,
+    s.assignees.length ? s.assignees.join(", ") : null,
+    s.dueDate ? formatDisplayDate(s.dueDate) : null,
+  ].filter(Boolean);
+  return parts.length ? `${s.title} — ${parts.join(" · ")}` : s.title;
 }
 
 const WORK_STATUSES: TaskStatus[] = [
@@ -1065,20 +1081,22 @@ function PriorityPill({
   );
 }
 
-function Section({
-  title,
+function SummaryField({
+  label,
   children,
+  className,
 }: {
-  title: string;
+  label: string;
   children: ReactNode;
+  className?: string;
 }) {
   return (
-    <section className="space-y-3 border border-[var(--fh-line)] bg-white p-4">
-      <h3 className="border-b border-[var(--fh-line)] pb-2 font-[family-name:var(--font-display)] text-lg text-[var(--fh-steel)]">
-        {title}
-      </h3>
-      {children}
-    </section>
+    <div className={className}>
+      <dt className="text-[10px] uppercase tracking-wide text-[var(--fh-muted)]">
+        {label}
+      </dt>
+      <dd className="mt-0.5 text-sm text-[var(--fh-ink)]">{children}</dd>
+    </div>
   );
 }
 
@@ -1117,7 +1135,7 @@ function TaskEditor({
   const [subTitle, setSubTitle] = useState("");
   const [subDept, setSubDept] = useState("none");
   const [subDue, setSubDue] = useState("");
-  const [msg, setMsg] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [closing, setClosing] = useState(false);
   const [closures, setClosures] = useState<
@@ -1131,6 +1149,8 @@ function TaskEditor({
 
   const selectable = peopleForDepartment(people, department);
   const openSubs = subtasks.filter(taskIsOpen);
+  const showCompletion =
+    task.status === "completed" || task.status === "not_required";
 
   function runAfterCompleted() {
     if (!task.contractId) return;
@@ -1158,39 +1178,27 @@ function TaskEditor({
     );
   }
 
-  function saveAssignment() {
+  async function saveAssignment() {
     assignTask(task.id, {
       department: department === "none" ? null : department,
       assignees: canAssignPeople ? assignees : task.assignees,
       dueDate: dueDate || null,
     });
     updateTask(task.id, { priority });
-    void flushWorkspace();
-    setMsg("Assignment saved.");
     setErr(null);
+    await confirmWorkspaceSave();
   }
 
   function applyStatusMessage(result: {
     status: TaskStatus;
     sideEffects: boolean;
-    alreadyWaiting: boolean;
   }) {
     setStatus(result.status === "not_required" ? "completed" : result.status);
-    if (result.status === "awaiting_verification") {
-      setMsg(
-        result.alreadyWaiting
-          ? "Already waiting for the manager."
-          : "Waiting for the manager."
-      );
-      setErr(null);
-      return;
-    }
-    setMsg(result.sideEffects ? "Task completed." : "Status updated.");
     setErr(null);
     if (result.sideEffects) runAfterCompleted();
   }
 
-  function saveStatus() {
+  async function saveStatus() {
     if (status === "completed" && openSubs.length > 0) {
       setClosing(true);
       setErr(null);
@@ -1201,11 +1209,12 @@ function TaskEditor({
       setErr("Task not found.");
       return;
     }
-    void flushWorkspace();
-    applyStatusMessage(result);
+    setErr(null);
+    const saved = await confirmWorkspaceSave();
+    if (saved) applyStatusMessage(result);
   }
 
-  function confirmVerified() {
+  async function confirmVerified() {
     if (openSubs.length > 0) {
       setClosing(true);
       setErr(null);
@@ -1216,14 +1225,14 @@ function TaskEditor({
       setErr(result.error);
       return;
     }
-    void flushWorkspace();
-    setStatus("completed");
-    setMsg("Task completed.");
     setErr(null);
+    const saved = await confirmWorkspaceSave();
+    if (!saved) return;
+    setStatus("completed");
     runAfterCompleted();
   }
 
-  function confirmCompleteParent() {
+  async function confirmCompleteParent() {
     const list = openSubs.map((s) => {
       const c = closures[s.id] ?? { status: "completed" as const, reason: "" };
       return {
@@ -1243,7 +1252,9 @@ function TaskEditor({
       setErr(result.error);
       return;
     }
-    void flushWorkspace();
+    setErr(null);
+    const saved = await confirmWorkspaceSave();
+    if (!saved) return;
     setClosing(false);
     applyStatusMessage(result);
   }
@@ -1306,14 +1317,13 @@ function TaskEditor({
         </Button>
       </div>
 
-      {(err || msg || followUpMsg) && (
+      {(err || followUpMsg) && (
         <div className="space-y-1">
           {err && (
             <p className="text-sm text-[var(--destructive)]" role="alert">
               {err}
             </p>
           )}
-          {msg && <p className="text-sm text-[var(--fh-ok)]">{msg}</p>}
           {followUpMsg && (
             <p className="rounded-md border border-[var(--fh-ok)]/30 bg-[var(--fh-ok)]/10 px-3 py-2 text-sm text-[var(--fh-ok)]">
               {followUpMsg}
@@ -1403,7 +1413,70 @@ function TaskEditor({
         </div>
       )}
 
-      <Section title="1. Assignment">
+      <div
+        data-task-summary
+        className="flex items-start gap-4 border border-[var(--fh-line)] bg-white p-4"
+      >
+        <dl className="grid min-w-0 flex-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+          <SummaryField label="Department">
+            {task.department ? departmentDisplayName(task.department) : "—"}
+          </SummaryField>
+          <SummaryField label="People">
+            {peopleLabel(task.assignees)}
+          </SummaryField>
+          <SummaryField label="Deadline">
+            {task.dueDate ? formatDisplayDate(task.dueDate) : "No deadline"}
+          </SummaryField>
+          <SummaryField label="Priority">
+            {TASK_PRIORITY_LABELS[task.priority]}
+          </SummaryField>
+          <SummaryField label="Status">
+            {TASK_STATUS_LABELS[task.status]}
+          </SummaryField>
+          <SummaryField label="Updated">
+            {formatLastUpdated(task)}
+          </SummaryField>
+          {showCompletion && (
+            <SummaryField label="Completion date">
+              {formatDisplayDate(task.completedAt)}
+            </SummaryField>
+          )}
+          <SummaryField
+            label="Latest note"
+            className="sm:col-span-2 lg:col-span-3"
+          >
+            {(task.notes ?? "").trim() ? task.notes : "—"}
+          </SummaryField>
+          <SummaryField
+            label="Subtasks"
+            className="sm:col-span-2 lg:col-span-3"
+          >
+            {subtasks.length === 0 ? (
+              "No subtasks."
+            ) : (
+              <ul className="space-y-1">
+                {subtasks.map((s) => (
+                  <li key={s.id}>{subtaskAsText(s)}</li>
+                ))}
+              </ul>
+            )}
+          </SummaryField>
+        </dl>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="shrink-0"
+          aria-pressed={editing}
+          onClick={() => setEditing((open) => !open)}
+        >
+          {editing ? "Close edit" : "Edit"}
+        </Button>
+      </div>
+
+      {editing && (
+      <div className="space-y-6 border border-[var(--fh-line)] bg-white p-4">
+      <div className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div className="space-y-1">
             <Label className="text-xs">Department</Label>
@@ -1477,9 +1550,9 @@ function TaskEditor({
         <Button size="sm" className="bg-[var(--fh-steel)]" onClick={saveAssignment}>
           Save assignment
         </Button>
-      </Section>
+      </div>
 
-      <Section title="2. Status & update">
+      <div className="space-y-3 border-t border-[var(--fh-line)] pt-4">
         <div className="grid gap-3 sm:grid-cols-[12rem_1fr]">
           <div className="space-y-1">
             <Label className="text-xs">Status</Label>
@@ -1601,9 +1674,9 @@ function TaskEditor({
             </div>
           </div>
         )}
-      </Section>
+      </div>
 
-      <Section title="3. Subtasks (checklist)">
+      <div className="space-y-3 border-t border-[var(--fh-line)] pt-4">
         <ul className="space-y-2">
           {subtasks.length === 0 ? (
             <li className="text-sm text-[var(--fh-muted)]">No subtasks yet.</li>
@@ -1714,7 +1787,9 @@ function TaskEditor({
             Add
           </Button>
         </div>
-      </Section>
+      </div>
+      </div>
+      )}
     </div>
   );
 }
@@ -1820,7 +1895,7 @@ function SubtaskEditor({
         <Button
           size="sm"
           className="bg-[var(--fh-steel)]"
-          onClick={() => {
+          onClick={async () => {
             if (status === "not_required" && !reason.trim()) {
               setErr("Reason is required for not required.");
               return;
@@ -1830,13 +1905,18 @@ function SubtaskEditor({
               assignees: canAssignPeople ? assignees : task.assignees,
               dueDate: dueDate || null,
             });
-            updateTaskStatus(task.id, status, {
+            const result = updateTaskStatus(task.id, status, {
               notes,
               notRequiredReason: reason,
               actor,
             });
-            void flushWorkspace();
-            onDone();
+            if (!result) {
+              setErr("Task not found.");
+              return;
+            }
+            setErr(null);
+            const saved = await confirmWorkspaceSave();
+            if (saved) onDone();
           }}
         >
           Save subtask
@@ -1845,14 +1925,15 @@ function SubtaskEditor({
           <Button
             size="sm"
             className="bg-[var(--fh-ok)] text-white"
-            onClick={() => {
+            onClick={async () => {
               const result = confirmTaskVerification(task.id, actor);
               if (!result.ok) {
                 setErr(result.error);
                 return;
               }
-              void flushWorkspace();
-              onDone();
+              setErr(null);
+              const saved = await confirmWorkspaceSave();
+              if (saved) onDone();
             }}
           >
             Confirm completion

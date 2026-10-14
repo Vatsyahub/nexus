@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { flushWorkspace, updatePayment, useFlowhubData } from "@/lib/store";
+import { updatePayment, useFlowhubData } from "@/lib/store";
+import { confirmWorkspaceSave } from "@/lib/save-notice";
 import {
   PaymentForm,
   type PaymentFormValues,
@@ -32,7 +33,8 @@ export default function EditPaymentPage() {
   async function onSubmit(values: PaymentFormValues) {
     const updated = updatePayment(id, values);
     if (!updated) return "Could not save payment.";
-    await flushWorkspace();
+    const saved = await confirmWorkspaceSave();
+    if (!saved) return null;
     router.push(`/payments/${id}`);
     return null;
   }

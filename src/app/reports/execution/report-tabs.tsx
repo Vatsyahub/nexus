@@ -21,6 +21,7 @@ import {
   type WorkorderStatus,
 } from "@/lib/execution-reports";
 import { matchesAny } from "@/lib/list-search";
+import { confirmAction } from "@/components/confirm-panel";
 import { deleteDeliveryChallan, flushWorkspace } from "@/lib/store";
 import { ListSearchWithDateRange } from "@/components/list-date-range";
 import { ListSearchBar } from "@/components/list-search";
@@ -844,7 +845,14 @@ function DcRecordsTable({
   }, [rows]);
 
   async function onDelete(id: string, dcNo: string) {
-    if (!window.confirm(`Delete DC ${dcNo}? This cannot be undone.`)) return;
+    if (
+      !(await confirmAction({
+        message: `Delete DC ${dcNo}? This cannot be undone.`,
+        action: "Delete",
+      }))
+    ) {
+      return;
+    }
     const res = deleteDeliveryChallan(id);
     if (!res.ok) {
       setMsg({ kind: "error", text: res.error });

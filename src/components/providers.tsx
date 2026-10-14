@@ -7,7 +7,9 @@ import {
   hydrateWorkspace,
   isWorkspaceHydratedFromServer,
 } from "@/lib/store";
+import { ConfirmPanel } from "@/components/confirm-panel";
 import { HubThemeSync } from "@/components/hub-theme";
+import { SaveNotice } from "@/components/save-notice";
 
 function WorkspaceHydrator({ children }: { children: React.ReactNode }) {
   const { status } = useSession();
@@ -46,6 +48,8 @@ export function Providers({
     <SessionProvider session={session} refetchOnWindowFocus={false}>
       <HubThemeSync />
       <WorkspaceHydrator>{children}</WorkspaceHydrator>
+      <ConfirmPanel />
+      <SaveNotice />
     </SessionProvider>
   );
 }

@@ -4,10 +4,10 @@ import { useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   addContract,
-  flushWorkspace,
   rememberCatalogItem,
   useFlowhubData,
 } from "@/lib/store";
+import { confirmWorkspaceSave } from "@/lib/save-notice";
 import {
   DEFAULT_BILLING_TERM_KEYS,
   DEFAULT_TDS_PERCENT,
@@ -263,7 +263,8 @@ export default function NewContractPage() {
       });
 
       // Ensure Postgres has the contract before we leave the page
-      await flushWorkspace();
+      const saved = await confirmWorkspaceSave();
+      if (!saved) return;
       router.push(`/contracts/${contract.id}`);
     } catch (err) {
       setError(

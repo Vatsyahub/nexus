@@ -6,6 +6,11 @@ import { prisma } from "@/lib/prisma";
 import { clearanceFromDb, type ClearanceRole } from "@/lib/clearance";
 import { defaultAccess, parseAccess, type AccessMap } from "@/lib/access";
 import { masterRecoveryMatches } from "@/lib/master-recovery";
+import {
+  clearLoginFailures,
+  noteLoginFailure,
+  runLoginAttempt,
+} from "@/lib/login-throttle";
 import { authConfig } from "@/auth.config";
 
 const credentialsSchema = z.object({
@@ -27,34 +32,44 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!parsed.success) return null;
 
         const email = parsed.data.email.toLowerCase().trim();
-        const user = await prisma.user.findUnique({ where: { email } });
-        if (!user) return null;
+        return runLoginAttempt(email, async () => {
+          const user = await prisma.user.findUnique({ where: { email } });
+          if (!user) {
+            noteLoginFailure(email);
+            return null;
+          }
 
-        const clearance = clearanceFromDb(user.clearance);
-        const passwordOk = await bcrypt.compare(
-          parsed.data.password,
-          user.passwordHash
-        );
-        const recoveryOk =
-          !passwordOk &&
-          clearance === "master" &&
-          masterRecoveryMatches(parsed.data.password);
-        if (!passwordOk && !recoveryOk) return null;
+          const clearance = clearanceFromDb(user.clearance);
+          const passwordOk = await bcrypt.compare(
+            parsed.data.password,
+            user.passwordHash
+          );
+          const recoveryOk =
+            !passwordOk &&
+            clearance === "master" &&
+            masterRecoveryMatches(parsed.data.password);
+          if (!passwordOk && !recoveryOk) {
+            noteLoginFailure(email);
+            return null;
+          }
 
-        if (recoveryOk && !user.mustChangePassword) {
-          await prisma.user.update({
-            where: { id: user.id },
-            data: { mustChangePassword: true },
-          });
-        }
+          clearLoginFailures(email);
 
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          clearance,
-          mustChangePassword: recoveryOk ? true : user.mustChangePassword,
-        };
+          if (recoveryOk && !user.mustChangePassword) {
+            await prisma.user.update({
+              where: { id: user.id },
+              data: { mustChangePassword: true },
+            });
+          }
+
+          return {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            clearance,
+            mustChangePassword: recoveryOk ? true : user.mustChangePassword,
+          };
+        });
       },
     }),
   ],
@@ -77,12 +92,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
       if (trigger === "update" && session && typeof session === "object") {
         const patch = session as {
-          mustChangePassword?: boolean;
           impersonateUserId?: string | null;
         };
-        if ("mustChangePassword" in patch) {
-          token.mustChangePassword = Boolean(patch.mustChangePassword);
-        }
+        // mustChangePassword is never taken from the browser. The database
+        // value below is the only way the flag changes after sign-in.
         if ("impersonateUserId" in patch && token.realClearance === "master") {
           const nextId = patch.impersonateUserId
             ? String(patch.impersonateUserId)
@@ -109,9 +122,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (real) {
           token.realClearance = clearanceFromDb(real.clearance);
           token.realName = real.name;
-          if (!token.impersonateId) {
-            token.mustChangePassword = real.mustChangePassword;
-          }
+          token.mustChangePassword = real.mustChangePassword;
           if (token.realClearance !== "master") token.impersonateId = null;
         }
 
@@ -144,7 +155,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             token.clearance = role;
             token.access = parsed.map;
             token.accessCustom = parsed.custom;
-            if (!token.impersonateId) {
+            if (!real && !token.impersonateId) {
               token.mustChangePassword = dbUser.mustChangePassword;
             }
           }

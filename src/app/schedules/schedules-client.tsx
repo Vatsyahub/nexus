@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
   applyCascadeProposals,
-  deleteScheduleChangeLogEntry,
+  clearScheduleChangeLog,
   flushWorkspace,
   scheduleIsOverdue,
   scheduleSortDate,
@@ -18,6 +18,7 @@ import {
   isScheduleDateNa,
   type ScheduleLine,
 } from "@/lib/types";
+import { confirmAction } from "@/components/confirm-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,7 +43,6 @@ import {
   formatScheduleDateRange,
 } from "@/lib/dates";
 import { HubDataScroll, HubPage } from "@/components/hub-scroll";
-import { DeleteIconButton } from "@/components/icon-actions";
 import { contractStatusLabel } from "@/lib/nexus-core";
 import { cn } from "@/lib/utils";
 
@@ -86,6 +86,7 @@ function scheduleStatusLabel(s: ScheduleLine, today: string) {
 
 export default function SchedulesClient({
   canEdit,
+  isMaster,
   actorName,
 }: {
   canEdit: boolean;
@@ -193,10 +194,15 @@ export default function SchedulesClient({
       .sort((a, b) => b.at.localeCompare(a.at));
   }, [data.scheduleChangeLog, data.contracts, q]);
 
-  async function onDeleteChange(id: string) {
-    if (!canEdit) return;
-    if (!window.confirm("Delete this change log row?")) return;
-    deleteScheduleChangeLogEntry(id);
+  async function onClearChangeLog() {
+    if (!isMaster) return;
+    const ok = await confirmAction({
+      message:
+        "This removes every change-log row and cannot be undone.",
+      action: "Clear",
+    });
+    if (!ok) return;
+    clearScheduleChangeLog();
     await flushWorkspace();
   }
 
@@ -401,9 +407,21 @@ export default function SchedulesClient({
 
       {tab === "changelog" ? (
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-          <p className="shrink-0 text-xs text-[var(--fh-muted)]">
-            {changelog.length} change{changelog.length === 1 ? "" : "s"}
-          </p>
+          <div className="flex shrink-0 items-center justify-between gap-3">
+            <p className="text-xs text-[var(--fh-muted)]">
+              {changelog.length} change{changelog.length === 1 ? "" : "s"}
+            </p>
+            {isMaster ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void onClearChangeLog()}
+              >
+                Clear
+              </Button>
+            ) : null}
+          </div>
           <HubDataScroll className="overflow-x-auto rounded-xl border border-[var(--fh-line)] bg-white">
             <table className="w-full min-w-[640px] text-left text-sm">
               <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-xs uppercase tracking-wide text-[var(--fh-muted)]">
@@ -412,14 +430,13 @@ export default function SchedulesClient({
                   <th className="px-3 py-2 font-medium">Who</th>
                   <th className="px-3 py-2 font-medium">Contract</th>
                   <th className="px-3 py-2 font-medium">Change</th>
-                  {canEdit && <th className="px-3 py-2 font-medium" />}
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--fh-line)]">
                 {changelog.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={canEdit ? 5 : 4}
+                      colSpan={4}
                       className="px-3 py-8 text-center text-[var(--fh-muted)]"
                     >
                       {q.trim()
@@ -440,14 +457,6 @@ export default function SchedulesClient({
                         <td className="px-3 py-2">{e.by}</td>
                         <td className="px-3 py-2">{c?.projectNo ?? "—"}</td>
                         <td className="px-3 py-2">{e.summary}</td>
-                        {canEdit && (
-                          <td className="px-3 py-2 text-right">
-                            <DeleteIconButton
-                              label="Delete change"
-                              onClick={() => void onDeleteChange(e.id)}
-                            />
-                          </td>
-                        )}
                       </tr>
                     );
                   })

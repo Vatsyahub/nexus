@@ -12,6 +12,8 @@ import {
   updateExpense,
   useFlowhubData,
 } from "@/lib/store";
+import { confirmAction } from "@/components/confirm-panel";
+import { confirmWorkspaceSave } from "@/lib/save-notice";
 import type { ContractExpense } from "@/lib/types";
 import { ContractTypeahead } from "@/components/contract-typeahead";
 import { ListSearchBar } from "@/components/list-search";
@@ -231,8 +233,8 @@ export function ExpensesClient({
         setErr(result.error);
         return;
       }
-      await flushWorkspace();
-      setMsg("Expense updated.");
+      const saved = await confirmWorkspaceSave();
+      if (!saved) return;
       cancelForm();
       return;
     }
@@ -252,14 +254,21 @@ export function ExpensesClient({
       setErr("Could not save expense.");
       return;
     }
-    await flushWorkspace();
-    setMsg("Expense added.");
+    const saved = await confirmWorkspaceSave();
+    if (!saved) return;
     cancelForm();
   }
 
   async function onDelete(contractId: string, expenseId: string) {
     if (!canDelete) return;
-    if (!window.confirm("Delete this expense? It will stay in history.")) return;
+    if (
+      !(await confirmAction({
+        message: "Delete this expense? It will stay in history.",
+        action: "Delete",
+      }))
+    ) {
+      return;
+    }
     const result = deleteExpense(contractId, expenseId, { by: actorName });
     if (!result.ok) {
       setErr(result.error);
@@ -272,7 +281,14 @@ export function ExpensesClient({
 
   async function onClearAllHistory() {
     if (!canViewHistory) return;
-    if (!window.confirm("Clear edit history for every expense?")) return;
+    if (
+      !(await confirmAction({
+        message: "Clear edit history for every expense?",
+        action: "Clear",
+      }))
+    ) {
+      return;
+    }
     const result = clearAllExpenseHistory();
     if (!result.ok) {
       setErr(result.error);
@@ -286,9 +302,10 @@ export function ExpensesClient({
   async function onClearDeleted() {
     if (!canViewHistory) return;
     if (
-      !window.confirm(
-        "Permanently remove all deleted expenses? This cannot be undone."
-      )
+      !(await confirmAction({
+        message: "Permanently remove all deleted expenses? This cannot be undone.",
+        action: "Remove",
+      }))
     ) {
       return;
     }

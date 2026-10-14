@@ -12,7 +12,6 @@ import {
   formatCorePercent,
   profitPercentTone,
   todayIso,
-  type ContractStatusLabel,
   type CostCentreRow,
   type ProfitPercentTone,
 } from "@/lib/nexus-core";
@@ -31,7 +30,7 @@ export default function CostCentrePage() {
   const data = useFlowhubData();
   const ready = useWorkspaceReady();
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState<"" | ContractStatusLabel>("");
+  const [lossesOnly, setLossesOnly] = useState(false);
   const today = todayIso();
 
   const allRows = useMemo(
@@ -41,7 +40,7 @@ export default function CostCentrePage() {
   const rows = useMemo(
     () =>
       allRows.filter((row) => {
-        if (status && row.status !== status) return false;
+        if (lossesOnly && !(row.profit < 0)) return false;
         return matchesAny(q, [
           row.projectName,
           row.projectNo,
@@ -49,7 +48,7 @@ export default function CostCentrePage() {
           row.status,
         ]);
       }),
-    [allRows, q, status]
+    [allRows, q, lossesOnly]
   );
   const totals = useMemo(() => {
     const comparison = rows.reduce((s, r) => s + r.comparison, 0);
@@ -128,27 +127,8 @@ export default function CostCentrePage() {
         <ListSearchBar
           value={q}
           onChange={setQ}
-          placeholder="Search project name, number, city…"
+          placeholder="Search project name, number, city, status…"
         />
-        <label className="flex h-8 items-center gap-2 text-[var(--fh-muted)]">
-          <span className="text-xs font-medium uppercase tracking-wide">
-            Status
-          </span>
-          <select
-            id="cost-centre-status"
-            aria-label="Status"
-            className="h-8 rounded-lg border border-input bg-white px-2 text-sm text-[var(--fh-ink)]"
-            value={status}
-            onChange={(e) =>
-              setStatus(e.target.value as "" | ContractStatusLabel)
-            }
-          >
-            <option value="">All</option>
-            <option value="Active">Active</option>
-            <option value="On hold">On hold</option>
-            <option value="Completed">Completed</option>
-          </select>
-        </label>
       </div>
 
       {!ready ? (
@@ -177,9 +157,38 @@ export default function CostCentrePage() {
                 {formatCoreMoney(totals.profit)}
               </p>
             </div>
-            <p className="text-sm tabular-nums text-[var(--fh-muted)]">
-              {rows.length} {rows.length === 1 ? "project" : "projects"}
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm tabular-nums text-[var(--fh-muted)]">
+                {rows.length} {rows.length === 1 ? "project" : "projects"}
+              </p>
+              <button
+                type="button"
+                aria-pressed={lossesOnly}
+                aria-label="Losses"
+                data-losses={lossesOnly ? "on" : "off"}
+                onClick={() => setLossesOnly((on) => !on)}
+                className="inline-flex size-8 items-center justify-center rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[var(--destructive)]/40"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="size-6 overflow-visible"
+                  aria-hidden
+                >
+                  <text
+                    x="12"
+                    y="18"
+                    textAnchor="middle"
+                    fontSize="20"
+                    fontWeight="700"
+                    fill={lossesOnly ? "var(--destructive)" : "none"}
+                    stroke="var(--destructive)"
+                    strokeWidth={lossesOnly ? 0.6 : 1.4}
+                  >
+                    ₹
+                  </text>
+                </svg>
+              </button>
+            </div>
           </div>
           <HubDataScroll className="space-y-4">
             {rows.length === 0 ? (
@@ -203,8 +212,8 @@ export default function CostCentrePage() {
             filters={reportFilterSummary({
               search: q,
               extra: [
-                ...(status
-                  ? [["Status", status] as [string, string]]
+                ...(lossesOnly
+                  ? [["Showing", "Losses"] as [string, string]]
                   : []),
                 ["Amounts", "Rupees"],
               ],

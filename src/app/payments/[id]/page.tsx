@@ -13,6 +13,7 @@ import {
 import { COMPANY_NAME } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
+import { confirmAction } from "@/components/confirm-panel";
 import {
   DeleteIconButton,
   EditIconLink,
@@ -62,7 +63,14 @@ export default function PaymentDetailPage() {
     invoice?.type === "TI" ? invoiceOutstanding(invoice, data) : null;
 
   async function onDelete() {
-    if (!window.confirm("Delete this payment? This cannot be undone.")) return;
+    if (
+      !(await confirmAction({
+        message: "Delete this payment? This cannot be undone.",
+        action: "Delete",
+      }))
+    ) {
+      return;
+    }
     deletePayment(id);
     await flushWorkspace();
     router.push("/payments");

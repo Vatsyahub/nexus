@@ -61,6 +61,7 @@ import {
   notificationVisibleForUser,
   purgeExpiredNotifications,
 } from "@/lib/notification-ttl";
+import { purgeExpiredScheduleChangeLog } from "@/lib/schedule-change-log";
 import {
   canConfirmTaskVerification,
   completesImmediately,
@@ -393,7 +394,7 @@ function normalizeData(raw: FlowhubData): FlowhubData {
       normalizePayment(p, raw.invoices ?? [])
     ),
     schedules: (raw.schedules ?? []).map(normalizeSchedule),
-    scheduleChangeLog: raw.scheduleChangeLog ?? [],
+    scheduleChangeLog: purgeExpiredScheduleChangeLog(raw.scheduleChangeLog),
     // Unread notices last 21 days. A read notice lasts 24 hours from that read.
     notifications: purgeExpiredNotifications(raw.notifications),
     customDepartments: raw.customDepartments ?? [],
@@ -1410,12 +1411,17 @@ export function hydrateWorkspace(opts?: { force?: boolean }): Promise<void> {
       if (!ctype.includes("application/json")) {
         throw new Error(`workspace GET non-JSON (${ctype || "unknown"})`);
       }
-      const remote = normalizeData((await res.json()) as FlowhubData);
+      const payload = (await res.json()) as FlowhubData;
+      const rawLogCount = Array.isArray(payload.scheduleChangeLog)
+        ? payload.scheduleChangeLog.length
+        : 0;
+      const remote = normalizeData(payload);
       const remoteEmpty = workspaceIsEmpty(remote);
       const localHasData = !workspaceIsEmpty(local);
 
       const remoteRev = remote.workspaceRevision ?? 0;
       const localRev = local.workspaceRevision ?? 0;
+      let adoptedRemote = false;
       if (pendingLocalSave) {
         // This tab edited before the GET returned. persistToServer refused
         // the write until hydrateFromServerOk, so push clientSnapshot now
@@ -1439,14 +1445,23 @@ export function hydrateWorkspace(opts?: { force?: boolean }): Promise<void> {
         // Server is source of truth across tunnel URLs / tabs
         setSnapshot(remote);
         markReady(true);
+        adoptedRemote = true;
       }
       // Drop day-old notifications from the shared store (no archive).
       const pruned = pruneExpiredNotifications();
+      const logPruned =
+        adoptedRemote &&
+        (clientSnapshot.scheduleChangeLog ?? []).length < rawLogCount;
       // Date-window system tasks (BG expiry, retention) after hydrate
       const synced = syncDatedSystemTasks();
       // One-time overdue / due-today notices, same load as the BG chase.
       const dueNotices = syncTaskDueNotices();
-      if (pruned || synced.created.length > 0 || dueNotices.notified > 0) {
+      if (
+        pruned ||
+        logPruned ||
+        synced.created.length > 0 ||
+        dueNotices.notified > 0
+      ) {
         await flushWorkspace().catch(() => undefined);
       }
     } catch (err) {
@@ -1853,13 +1868,11 @@ export function deleteContract(id: string): boolean {
   return true;
 }
 
-export function deleteScheduleChangeLogEntry(id: string): boolean {
+/** Remove every schedule change-log row. Schedule lines are left in place. */
+export function clearScheduleChangeLog(): boolean {
   const data = read();
-  if (!(data.scheduleChangeLog ?? []).some((e) => e.id === id)) return false;
-  write({
-    ...data,
-    scheduleChangeLog: (data.scheduleChangeLog ?? []).filter((e) => e.id !== id),
-  });
+  if ((data.scheduleChangeLog ?? []).length === 0) return false;
+  write({ ...data, scheduleChangeLog: [] });
   return true;
 }
 
@@ -2546,6 +2559,22 @@ export function updatePayment(
     payments: data.payments.map((p) => (p.id === id ? updated : p)),
   });
   return updated;
+}
+
+/** Remove one invoice. Payments that pointed at it stay and become unlinked. */
+export function deleteInvoice(id: string): boolean {
+  const data = read();
+  if (!data.invoices.some((i) => i.id === id)) return false;
+  write({
+    ...data,
+    invoices: data.invoices.filter((i) => i.id !== id),
+    payments: data.payments.map((p) =>
+      p.invoiceId === id
+        ? { ...p, invoiceId: null, link: "unlinked" as const }
+        : p
+    ),
+  });
+  return true;
 }
 
 export function deletePayment(id: string): boolean {

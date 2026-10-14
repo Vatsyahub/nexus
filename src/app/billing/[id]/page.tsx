@@ -1,8 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import {
+  deleteInvoice,
+  flushWorkspace,
   invoiceDueDate,
   invoiceExpectedCash,
   invoiceOutstanding,
@@ -13,7 +16,8 @@ import {
 import { COMPANY_NAME, TERM_LABELS } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
-import { EditIconLink } from "@/components/icon-actions";
+import { confirmAction } from "@/components/confirm-panel";
+import { DeleteIconButton, EditIconLink } from "@/components/icon-actions";
 import { formatDisplayDate } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +37,8 @@ function balanceLabel(amount: number) {
 
 export default function InvoiceDetailPage() {
   const params = useParams();
+  const router = useRouter();
+  const { data: session, status } = useSession();
   const id = String(params.id);
   const data = useFlowhubData();
   const inv = data.invoices.find((i) => i.id === id);
@@ -53,7 +59,23 @@ export default function InvoiceDetailPage() {
   const extras = inv.extraCharges ?? [];
   const expected = invoiceExpectedCash(inv, data);
   const dueDate = inv.type === "TI" ? invoiceDueDate(inv, data) : null;
-  const linkedPayments = data.payments.filter((p) => p.invoiceId === inv.id);
+  const invoice = inv;
+  const linkedPayments = data.payments.filter((p) => p.invoiceId === invoice.id);
+  const isMaster = session?.user?.clearance === "master";
+  const showDelete =
+    invoice.type === "PI" || (status === "authenticated" && isMaster);
+
+  async function onDelete() {
+    const kind = invoice.type === "PI" ? "Proforma Invoice" : "Tax Invoice";
+    const ok = await confirmAction({
+      message: `Delete ${kind} ${invoice.number}?`,
+      action: "Delete",
+    });
+    if (!ok) return;
+    if (!deleteInvoice(id)) return;
+    await flushWorkspace();
+    router.push("/billing");
+  }
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -67,6 +89,16 @@ export default function InvoiceDetailPage() {
         <div className="flex flex-wrap items-center gap-2">
           <Badge>{inv.type}</Badge>
           <EditIconLink href={`/billing/${id}/edit`} label="Edit invoice" />
+          {showDelete ? (
+            <DeleteIconButton
+              label={
+                inv.type === "PI"
+                  ? "Delete proforma"
+                  : "Delete tax invoice"
+              }
+              onClick={() => void onDelete()}
+            />
+          ) : null}
         </div>
       </div>
 

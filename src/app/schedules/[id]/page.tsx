@@ -13,6 +13,8 @@ import {
   useFlowhubData,
   type CascadeProposal,
 } from "@/lib/store";
+import { confirmAction } from "@/components/confirm-panel";
+import { confirmWorkspaceSave } from "@/lib/save-notice";
 import {
   SCHEDULE_KIND_LABELS,
   isScheduleDateNa,
@@ -130,9 +132,10 @@ export default function ScheduleDetailPage() {
       c.closureDate &&
       startDate > c.closureDate
     ) {
-      const ok = window.confirm(
-        `Handover date is after the contract closure date (${c.closureDate}). Save anyway? The closure date will show in red on the contracts list.`
-      );
+      const ok = await confirmAction({
+        message: `Handover date is after the contract closure date (${c.closureDate}). Save anyway? The closure date will show in red on the contracts list.`,
+        action: "Save anyway",
+      });
       if (!ok) return;
     }
     const updated = updateSchedule(
@@ -151,19 +154,25 @@ export default function ScheduleDetailPage() {
       setMsg(updated.error);
       return;
     }
-    await flushWorkspace();
+    const saved = await confirmWorkspaceSave();
+    if (!saved) return;
     setEditing(false);
+    setMsg(null);
     if (updated.cascade?.length) {
       setCascade(updated.cascade);
-      setMsg("Saved. Review cascade proposals.");
-    } else {
-      setMsg("Saved.");
     }
   }
 
   async function onDelete() {
     if (!canEdit) return;
-    if (!window.confirm("Delete this schedule line?")) return;
+    if (
+      !(await confirmAction({
+        message: "Delete this schedule line?",
+        action: "Delete",
+      }))
+    ) {
+      return;
+    }
     deleteSchedule(id, { by: actorName });
     await flushWorkspace();
     router.push("/schedules");

@@ -389,6 +389,37 @@ html[data-theme="dark-knight"] {
   --sidebar-ring: #d4b36a;
 }
 
+/* Native select popups. color-scheme: dark paints option type light while the
+   popup stays white. Pin the list to the theme panel and keep color-scheme
+   dark so the browser does not swap in a light system menu. */
+html[data-theme="dark"] select,
+html[data-theme="dark"] option {
+  color-scheme: dark;
+  background-color: #162430;
+  color: #e7eef3;
+}
+html[data-theme="dark"] option:hover,
+html[data-theme="dark"] option:focus,
+html[data-theme="dark"] option:active,
+html[data-theme="dark"] option:checked {
+  background-color: #1d3342;
+  color: #e7eef3;
+}
+
+html[data-theme="dark-knight"] select,
+html[data-theme="dark-knight"] option {
+  color-scheme: dark;
+  background-color: #171a20;
+  color: #ebe6dc;
+}
+html[data-theme="dark-knight"] option:hover,
+html[data-theme="dark-knight"] option:focus,
+html[data-theme="dark-knight"] option:active,
+html[data-theme="dark-knight"] option:checked {
+  background-color: #242830;
+  color: #ebe6dc;
+}
+
 /* Profit-percent chips: light type on a quiet tint, still readable on charcoal. */
 html[data-theme="dark"],
 html[data-theme="dark-knight"] {

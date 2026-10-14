@@ -4,7 +4,8 @@ import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { flushWorkspace, updateContract, useFlowhubData } from "@/lib/store";
+import { updateContract, useFlowhubData } from "@/lib/store";
+import { confirmWorkspaceSave } from "@/lib/save-notice";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -96,7 +97,8 @@ export default function EditContractPage() {
       dlpMonths: Number(dlpMonths) || 12,
       contractorAssigned: contractorAssigned.trim(),
     });
-    await flushWorkspace();
+    const saved = await confirmWorkspaceSave();
+    if (!saved) return;
     router.push(`/contracts/${id}`);
   }
 

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { deleteUser } from "@/app/actions/users";
+import { confirmAction } from "@/components/confirm-panel";
 import { UsersTable, type UserRow } from "@/components/user-management";
 import { Input } from "@/components/ui/input";
 import { buttonVariants } from "@/components/ui/button";
@@ -38,7 +39,14 @@ export function UsersClient({
 
   async function onDelete(user: UserRow) {
     if (user.id === currentUserId) return;
-    if (!window.confirm(`Delete ${user.name} (${user.email})?`)) return;
+    if (
+      !(await confirmAction({
+        message: `Delete ${user.name} (${user.email})?`,
+        action: "Delete",
+      }))
+    ) {
+      return;
+    }
     const fd = new FormData();
     fd.set("userId", user.id);
     const res = await deleteUser({}, fd);

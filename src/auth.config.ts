@@ -20,15 +20,14 @@ export const authConfig = {
     authorized() {
       return true;
     },
-    async jwt({ token, user, trigger, session }) {
+    async jwt({ token, user }) {
       if (user) {
         token.id = user.id!;
         token.clearance = user.clearance as ClearanceRole;
         token.mustChangePassword = Boolean(user.mustChangePassword);
       }
-      if (trigger === "update" && session?.mustChangePassword === false) {
-        token.mustChangePassword = false;
-      }
+      // The browser cannot clear mustChangePassword. The Node callback
+      // copies the flag from the database after the password hash is saved.
       return token;
     },
     async session({ session, token }) {

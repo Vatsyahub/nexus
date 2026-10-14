@@ -2,6 +2,9 @@
 
 import { useActionState, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
+import { KeyRound, VenetianMask, X } from "lucide-react";
 import { resetUserPassword, type UserActionState } from "@/app/actions/users";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +13,6 @@ import {
   DeleteIconButton,
   EditIconLink,
 } from "@/components/icon-actions";
-import { ImpersonateButton } from "@/components/impersonate-button";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -33,24 +35,75 @@ const clearanceLabel: Record<UserRow["clearance"], string> = {
   MASTER: "Master",
 };
 
-function ResetPasswordRow({ user }: { user: UserRow }) {
+function ImpersonateIconButton({ userId }: { userId: string }) {
+  const { update, data } = useSession();
+  const router = useRouter();
+  const [pending, setPending] = useState(false);
+
+  if (data?.user?.impersonating) return null;
+  if (data?.user?.id === userId) return null;
+
+  return (
+    <Button
+      type="button"
+      size="icon-sm"
+      variant="outline"
+      aria-label="Impersonate"
+      title="Open as user"
+      disabled={pending}
+      onClick={() => {
+        setPending(true);
+        void update({ impersonateUserId: userId } as never).then(() => {
+          router.push("/");
+          router.refresh();
+        });
+      }}
+    >
+      <VenetianMask className="size-3.5" aria-hidden />
+    </Button>
+  );
+}
+
+function OtherUserActions({
+  user,
+  onDelete,
+}: {
+  user: UserRow;
+  onDelete?: (user: UserRow) => void;
+}) {
   const [state, action, pending] = useActionState(resetUserPassword, initial);
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="space-y-2">
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={() => setOpen((v) => !v)}
-      >
-        {open ? "Cancel" : "Reset password"}
-      </Button>
+    <div className="flex flex-col items-end gap-1.5">
+      <div className="flex items-center gap-1">
+        <EditIconLink href={`/users/${user.id}/edit`} label="Edit user" />
+        {onDelete && (
+          <DeleteIconButton
+            onClick={() => onDelete(user)}
+            label="Delete user"
+          />
+        )}
+        <ImpersonateIconButton userId={user.id} />
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
+          aria-label={open ? "Cancel reset password" : "Reset password"}
+          title={open ? "Cancel" : "Reset password"}
+          onClick={() => setOpen((v) => !v)}
+        >
+          {open ? (
+            <X className="size-3.5" aria-hidden />
+          ) : (
+            <KeyRound className="size-3.5" aria-hidden />
+          )}
+        </Button>
+      </div>
       {open && (
-        <form action={action} className="flex flex-wrap items-end gap-2">
+        <form action={action} className="flex flex-wrap items-end justify-end gap-2">
           <input type="hidden" name="userId" value={user.id} />
-          <div className="space-y-1">
+          <div className="space-y-1 text-left">
             <Label htmlFor={`reset-${user.id}`} className="text-xs">
               New temporary password
             </Label>
@@ -74,12 +127,12 @@ function ResetPasswordRow({ user }: { user: UserRow }) {
         </form>
       )}
       {state.error && (
-        <p className="text-xs text-red-600" role="alert">
+        <p className="max-w-xs text-right text-xs text-red-600" role="alert">
           {state.error}
         </p>
       )}
       {state.ok && (
-        <p className="text-xs text-green-700" role="status">
+        <p className="max-w-xs text-right text-xs text-green-700" role="status">
           Temporary password set. They must change it on next login.
         </p>
       )}
@@ -104,61 +157,71 @@ export function UsersTable({
 
   return (
     <div className="rounded-xl border border-[var(--fh-line)] bg-white">
-      <table className="w-full min-w-[800px] text-left text-sm">
+      <table className="w-full text-left text-sm">
         <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-xs uppercase tracking-wide text-[var(--fh-muted)]">
           <tr>
-            <th className="px-4 py-3 font-medium">Name</th>
-            <th className="px-4 py-3 font-medium">Email</th>
-            <th className="px-4 py-3 font-medium">Clearance</th>
-            <th className="px-4 py-3 font-medium">Department</th>
-            <th className="px-4 py-3 font-medium">Password</th>
-            <th className="px-4 py-3 font-medium">Actions</th>
+            <th className="px-3 py-2 font-medium">Name</th>
+            <th className="px-3 py-2 font-medium">Department</th>
+            <th className="px-3 py-2 font-medium">Status</th>
+            <th className="w-px whitespace-nowrap px-2 py-2 font-medium">
+              Password
+            </th>
+            <th className="px-3 py-2 text-right font-medium">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-[var(--fh-line)]">
-          {users.map((u) => (
-            <tr key={u.id}>
-              <td className="px-4 py-3 font-medium text-[var(--fh-ink)]">
-                {u.name}
-                {u.id === currentUserId ? (
-                  <span className="ml-2 text-xs text-[var(--fh-muted)]">(you)</span>
-                ) : null}
-              </td>
-              <td className="px-4 py-3 text-[var(--fh-muted)]">{u.email}</td>
-              <td className="px-4 py-3">{clearanceLabel[u.clearance]}</td>
-              <td className="px-4 py-3 text-[var(--fh-muted)]">
-                {u.department || "—"}
-              </td>
-              <td className="px-4 py-3 text-[var(--fh-muted)]">
-                {u.mustChangePassword ? "Must change" : "Set"}
-              </td>
-              <td className="px-4 py-3">
-                {u.id === currentUserId ? (
-                  <Link
-                    href="/settings"
-                    className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-                  >
-                    Settings
-                  </Link>
-                ) : (
-                  <div className="flex flex-wrap items-center gap-1">
-                    <EditIconLink
-                      href={`/users/${u.id}/edit`}
-                      label="Edit user"
-                    />
-                    {onDelete && (
-                      <DeleteIconButton
-                        onClick={() => onDelete(u)}
-                        label="Delete user"
-                      />
+          {users.map((u) => {
+            const self = u.id === currentUserId;
+            return (
+              <tr key={u.id} className="align-middle">
+                <td className="px-3 py-1.5 whitespace-nowrap text-[var(--fh-ink)]">
+                  <span className="font-medium">{u.name}</span>
+                  {self ? (
+                    <span className="ml-1.5 text-xs text-[var(--fh-muted)]">
+                      (you)
+                    </span>
+                  ) : null}
+                  <span className="ml-2 text-xs font-normal text-[var(--fh-muted)]">
+                    {u.email}
+                  </span>
+                </td>
+                <td className="px-3 py-1.5 whitespace-nowrap text-[var(--fh-muted)]">
+                  {u.department || "—"}
+                </td>
+                <td className="px-3 py-1.5 whitespace-nowrap">
+                  {clearanceLabel[u.clearance]}
+                </td>
+                <td className="w-px whitespace-nowrap px-2 py-1.5">
+                  <span
+                    className={cn(
+                      "inline-flex rounded px-1.5 py-0.5 text-[11px] leading-none font-medium",
+                      u.mustChangePassword
+                        ? "bg-amber-100 text-amber-800"
+                        : "bg-[var(--fh-bg)] text-[var(--fh-muted)]"
                     )}
-                    <ImpersonateButton userId={u.id} />
-                    <ResetPasswordRow user={u} />
-                  </div>
-                )}
-              </td>
-            </tr>
-          ))}
+                  >
+                    {u.mustChangePassword ? "Must change" : "Set"}
+                  </span>
+                </td>
+                <td className="px-3 py-1.5">
+                  {self ? (
+                    <div className="flex justify-end">
+                      <Link
+                        href="/settings"
+                        className={cn(
+                          buttonVariants({ variant: "outline", size: "sm" })
+                        )}
+                      >
+                        Settings
+                      </Link>
+                    </div>
+                  ) : (
+                    <OtherUserActions user={u} onDelete={onDelete} />
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

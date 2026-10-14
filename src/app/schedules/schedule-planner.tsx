@@ -13,6 +13,8 @@ import {
   type ScheduleItemInput,
   type ScheduleWindowInput,
 } from "@/lib/store";
+import { confirmAction } from "@/components/confirm-panel";
+import { confirmWorkspaceSave } from "@/lib/save-notice";
 import type { Contract } from "@/lib/types";
 import { SCHEDULE_DATE_NA, isScheduleDateNa } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -169,7 +171,6 @@ export function SchedulePlanner({
     .join("|");
   const [formStamp, setFormStamp] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   if (contract && !formDirty && formStamp !== scheduleStamp) {
     setFormStamp(scheduleStamp);
@@ -280,9 +281,10 @@ export function SchedulePlanner({
       contract.closureDate &&
       handoverDate > contract.closureDate
     ) {
-      const ok = window.confirm(
-        `Handover date is after the contract closure date (${contract.closureDate}). Save anyway? The closure date will show in red on the contracts list.`
-      );
+      const ok = await confirmAction({
+        message: `Handover date is after the contract closure date (${contract.closureDate}). Save anyway? The closure date will show in red on the contracts list.`,
+        action: "Save anyway",
+      });
       if (!ok) return;
     }
     setBusy(true);
@@ -317,12 +319,8 @@ export function SchedulePlanner({
         setErr(result.error);
         return;
       }
-      await flushWorkspace();
-      setMsg(
-        result.complete
-          ? `Complete schedule saved for ${contract.projectNo}.`
-          : `Schedule progress saved for ${contract.projectNo}.`
-      );
+      const saved = await confirmWorkspaceSave();
+      if (!saved) return;
       router.push("/schedules");
     } finally {
       setBusy(false);
@@ -332,9 +330,10 @@ export function SchedulePlanner({
   async function onDelete() {
     if (!contract || !canEdit) return;
     if (
-      !window.confirm(
-        `Delete the full schedule for ${contract.projectNo}? This removes all supply, installation, testing, and handover lines for this contract.`
-      )
+      !(await confirmAction({
+        message: `Delete the full schedule for ${contract.projectNo}? This removes all supply, installation, testing, and handover lines for this contract.`,
+        action: "Delete",
+      }))
     ) {
       return;
     }
@@ -442,12 +441,6 @@ export function SchedulePlanner({
           </p>
         )}
       </header>
-
-      {msg && (
-        <p className="rounded-md border border-[var(--fh-line)] bg-white px-3 py-2 text-sm">
-          {msg}
-        </p>
-      )}
 
       <div className="space-y-5 rounded-xl border border-[var(--fh-line)] bg-white p-5">
         <div className="grid gap-3 sm:grid-cols-3">

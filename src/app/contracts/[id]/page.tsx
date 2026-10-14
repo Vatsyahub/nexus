@@ -19,6 +19,7 @@ import {
   guaranteeAmount,
   orderedBillingTermKeys,
 } from "@/lib/types";
+import { confirmAction } from "@/components/confirm-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -341,7 +342,12 @@ export default function ContractDetailPage() {
 
   async function onDelete() {
     if (!isMaster) return;
-    if (!window.confirm(`Delete contract ${c.projectNo}? This cannot be undone.`)) {
+    if (
+      !(await confirmAction({
+        message: `Delete contract ${c.projectNo}? This cannot be undone.`,
+        action: "Delete",
+      }))
+    ) {
       return;
     }
     deleteContract(id);

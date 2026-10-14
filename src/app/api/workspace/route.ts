@@ -5,9 +5,15 @@ import {
   purgeExpiredNotifications,
   type NoticeAudienceMember,
 } from "@/lib/notification-ttl";
+import { purgeExpiredScheduleChangeLog } from "@/lib/schedule-change-log";
 import { EMPTY_NEXUS_COSTS, type FlowhubData } from "@/lib/types";
 import { normalizeNexusCosts } from "@/lib/nexus-core";
-import { defaultAccess, levelForPath, type AccessMap } from "@/lib/access";
+import { defaultAccess } from "@/lib/access";
+import {
+  resolveWorkspaceWrite,
+  workspaceForAccount,
+} from "@/lib/workspace-guard";
+import type { ClearanceRole } from "@/lib/clearance";
 
 const STORE_ID = "default";
 
@@ -57,7 +63,7 @@ function asFlowhubData(
     invoices: parsed.invoices ?? [],
     payments: parsed.payments ?? [],
     schedules: parsed.schedules ?? [],
-    scheduleChangeLog: parsed.scheduleChangeLog ?? [],
+    scheduleChangeLog: purgeExpiredScheduleChangeLog(parsed.scheduleChangeLog),
     // Unread: 21 days from creation. Read: 24 hours from that read.
     // Department rows stay until every recipient's case is spent.
     notifications: purgeExpiredNotifications(
@@ -73,17 +79,6 @@ function asFlowhubData(
   };
 }
 
-function isEmptyWorkspace(data: FlowhubData) {
-  return (
-    data.contracts.length === 0 &&
-    data.tasks.length === 0 &&
-    data.invoices.length === 0 &&
-    data.payments.length === 0 &&
-    data.schedules.length === 0 &&
-    data.itemCatalog.length === 0
-  );
-}
-
 export async function GET() {
   const session = await auth();
   if (!session?.user) {
@@ -95,19 +90,28 @@ export async function GET() {
   });
 
   const members = await audienceMembers();
-  const data = asFlowhubData(row?.data ?? empty, members);
-  const rawCount = Array.isArray((row?.data as FlowhubData | null)?.notifications)
-    ? ((row?.data as FlowhubData).notifications?.length ?? 0)
+  const stored = (row?.data ?? null) as FlowhubData | null;
+  const data = asFlowhubData(stored ?? empty, members);
+  const rawNotificationCount = Array.isArray(stored?.notifications)
+    ? stored.notifications.length
     : 0;
-  // Persist purge so day-old notifications leave the DB (no records kept).
-  if (row && data.notifications.length < rawCount) {
+  const rawLogCount = Array.isArray(stored?.scheduleChangeLog)
+    ? stored.scheduleChangeLog.length
+    : 0;
+  // Persist purge so spent notifications and 14-day change-log rows leave the DB.
+  if (
+    row &&
+    (data.notifications.length < rawNotificationCount ||
+      data.scheduleChangeLog.length < rawLogCount)
+  ) {
     await prisma.workspaceStore.update({
       where: { id: STORE_ID },
       data: { data },
     });
   }
 
-  return NextResponse.json(data);
+  const access = session.user.access ?? defaultAccess(session.user.clearance);
+  return NextResponse.json(workspaceForAccount(data, access));
 }
 
 export async function PUT(req: Request) {
@@ -125,60 +129,42 @@ export async function PUT(req: Request) {
 
   const access =
     session.user.access ?? defaultAccess(session.user.clearance);
-  const referer = req.headers.get("referer");
-  let path = "/";
-  if (referer) {
-    try {
-      path = new URL(referer).pathname;
-    } catch {
-      path = "/";
-    }
-  }
-  const level = levelForPath(path, access as AccessMap);
-  const quietPath = path === "/" || path.startsWith("/settings");
-  if (!quietPath && level !== "edit") {
-    return NextResponse.json(
-      { error: "This login can view this page, not change it." },
-      { status: 403 }
-    );
-  }
+  const clearance = (session.user.clearance ?? "user") as ClearanceRole;
 
   const members = await audienceMembers();
-  const data = asFlowhubData(body, members);
+  const incoming = asFlowhubData(body, members);
 
-  // Stale tabs often hydrate empty then flush — do not wipe a populated hub.
-  // A real delete of the last contract bumps workspaceRevision so that clear
-  // is newer than the data it replaces and is allowed through.
+  // The page address is ignored. Each slice follows this account's door.
+  // Stale revisions and empty overwrites are still refused.
   const existing = await prisma.workspaceStore.findUnique({
     where: { id: STORE_ID },
   });
   const current = asFlowhubData(existing?.data ?? empty, members);
-  const incomingRev = data.workspaceRevision ?? 0;
-  const currentRev = current.workspaceRevision ?? 0;
-  if (
-    isEmptyWorkspace(data) &&
-    !isEmptyWorkspace(current) &&
-    incomingRev <= currentRev
-  ) {
+  const decision = resolveWorkspaceWrite(
+    current,
+    incoming,
+    access,
+    clearance
+  );
+  if (decision.action === "skip") {
+    if (decision.skipped === "refuse-stale-revision") {
+      return NextResponse.json({
+        ok: true,
+        skipped: decision.skipped,
+        currentRevision: decision.currentRevision,
+        incomingRevision: decision.incomingRevision,
+      });
+    }
     return NextResponse.json({
       ok: true,
-      skipped: "refuse-empty-overwrite",
-    });
-  }
-  // Seeds bump workspaceRevision — refuse older browser caches overwriting them.
-  if (incomingRev < currentRev) {
-    return NextResponse.json({
-      ok: true,
-      skipped: "refuse-stale-revision",
-      currentRevision: currentRev,
-      incomingRevision: incomingRev,
+      skipped: decision.skipped,
     });
   }
 
   await prisma.workspaceStore.upsert({
     where: { id: STORE_ID },
-    create: { id: STORE_ID, data },
-    update: { data },
+    create: { id: STORE_ID, data: decision.data },
+    update: { data: decision.data },
   });
 
   return NextResponse.json({ ok: true });

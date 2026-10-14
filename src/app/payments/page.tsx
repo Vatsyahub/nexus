@@ -5,11 +5,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   addPayment,
-  flushWorkspace,
   paymentAccounted,
   paymentCash,
   useFlowhubData,
 } from "@/lib/store";
+import { confirmWorkspaceSave } from "@/lib/save-notice";
 import {
   PaymentForm,
   type PaymentFormValues,
@@ -35,7 +35,6 @@ export default function PaymentsPage() {
   const data = useFlowhubData();
   const router = useRouter();
   const [showForm, setShowForm] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
   const [q, setQ] = useState("");
 
   const [filterContract, setFilterContract] = useState("");
@@ -71,12 +70,11 @@ export default function PaymentsPage() {
   ]);
 
   async function onCreate(values: PaymentFormValues) {
-    setMsg(null);
     const pay = addPayment(values);
     if (!pay) return "Could not save payment.";
-    await flushWorkspace();
+    const saved = await confirmWorkspaceSave();
+    if (!saved) return null;
     setShowForm(false);
-    setMsg(`Payment recorded — cash ${formatMoney(paymentCash(pay))}.`);
     router.push(`/payments/${pay.id}`);
     return null;
   }
@@ -102,12 +100,6 @@ export default function PaymentsPage() {
         onChange={setQ}
         placeholder="Search date, project, invoice, amount…"
       />
-
-      {msg && (
-        <p className="rounded-md border border-[var(--fh-line)] bg-white px-3 py-2 text-sm">
-          {msg}
-        </p>
-      )}
 
       <section className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden rounded-xl border border-[var(--fh-line)] bg-white p-5">
         <h2 className="font-[family-name:var(--font-display)] text-xl text-[var(--fh-steel)]">

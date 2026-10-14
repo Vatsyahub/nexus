@@ -28,11 +28,11 @@ export function ChangePasswordForm({
   useEffect(() => {
     if (!state.ok || finishing) return;
     setFinishing(true);
-    // Refresh JWT from DB (mustChangePassword=false) then stay on the same
-    // public host — do not use Auth.js signOut redirect (breaks tunnels).
+    // The flag is already false in the database. This read copies that
+    // value into the cookie. Do not send mustChangePassword from the browser.
     void (async () => {
       try {
-        await update({ mustChangePassword: false });
+        await update();
       } catch {
         // Cookie may still refresh on next navigation
       }

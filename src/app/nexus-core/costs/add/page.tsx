@@ -20,6 +20,7 @@ import {
   formatCoreMoney,
   normalizeNexusCosts,
 } from "@/lib/nexus-core";
+import { confirmAction } from "@/components/confirm-panel";
 import { ContractTypeahead } from "@/components/contract-typeahead";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -66,7 +67,12 @@ export default function AddCostsPage() {
 
   async function onRemoveColumn(id: string, name: string) {
     if (!canEdit) return;
-    if (!window.confirm(`Remove the “${name}” cost column from every contract?`)) {
+    if (
+      !(await confirmAction({
+        message: `Remove the “${name}” cost column from every contract?`,
+        action: "Remove",
+      }))
+    ) {
       return;
     }
     removeNexusCostColumn(id);

@@ -5,10 +5,10 @@ import {
   amendContractBoq,
   boqAmendmentIssues,
   computeBoqLineDiffs,
-  flushWorkspace,
   nextAmendmentSeq,
   useFlowhubData,
 } from "@/lib/store";
+import { confirmWorkspaceSave } from "@/lib/save-notice";
 import {
   boqTotal,
   defaultAmendmentNumber,
@@ -81,7 +81,6 @@ export function BoqSection({
   contract,
   canAmend,
   actorName,
-  onMessage,
 }: {
   contract: Contract;
   canAmend: boolean;
@@ -216,12 +215,10 @@ export function BoqSection({
       setError(res.error);
       return;
     }
-    await flushWorkspace();
+    const saved = await confirmWorkspaceSave();
     setSaving(false);
+    if (!saved) return;
     setStep("closed");
-    onMessage(
-      `Amendment ${res.amendment.number} confirmed — contract / WO value now ${formatMoney(res.amendment.newOrderValue)}.`
-    );
   }
 
   return (
