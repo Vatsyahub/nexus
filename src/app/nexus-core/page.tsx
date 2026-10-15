@@ -135,8 +135,8 @@ export default function NexusCorePage() {
         <Link
           href="/nexus-core/costs"
           className={cn(
-            buttonVariants({ size: "sm" }),
-            "h-[26px] bg-[var(--fh-steel)] px-2.5 text-xs text-white hover:bg-[var(--fh-steel)]/90"
+            buttonVariants(),
+            "h-auto bg-[var(--fh-steel)] px-4 py-2 text-sm text-white hover:bg-[var(--fh-steel)]/90"
           )}
         >
           Cost centre
