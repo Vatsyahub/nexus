@@ -36,6 +36,7 @@ import {
   SCHEDULE_DATE_NA,
   isScheduleDateNa,
   guaranteeAmount,
+  guaranteeIdentitySaved,
   departmentDisplayName,
   boqTotal,
   defaultAmendmentNumber,
@@ -168,6 +169,19 @@ function completeHandedOverContracts(data: FlowhubData): FlowhubData {
   return { ...data, contracts };
 }
 
+/**
+ * A saved rupee amount stays. Percent × order value is only the starting
+ * figure when no amount has been stored yet.
+ */
+function savedGuaranteeAmount(
+  stored: number | null | undefined,
+  orderValue: number,
+  percent: number | null
+): number | null {
+  if (typeof stored === "number" && Number.isFinite(stored)) return stored;
+  return guaranteeAmount(orderValue, percent);
+}
+
 function normalizeContract(c: Contract & { orderEndDate?: string }): Contract {
   const legacy = c as Contract & {
     orderEndDate?: string;
@@ -206,7 +220,7 @@ function normalizeContract(c: Contract & { orderEndDate?: string }): Contract {
       typeof c.tdsPercent === "number" ? c.tdsPercent : DEFAULT_TDS_PERCENT,
     dlpMonths: typeof c.dlpMonths === "number" ? c.dlpMonths : 6,
     abgPercent,
-    abgValue: guaranteeAmount(c.orderValue, abgPercent),
+    abgValue: savedGuaranteeAmount(c.abgValue, c.orderValue, abgPercent),
     abgNumber,
     abgDate: c.abgDate ?? null,
     abgExpiry: c.abgExpiry ?? null,
@@ -214,7 +228,7 @@ function normalizeContract(c: Contract & { orderEndDate?: string }): Contract {
     abgRetrieved: Boolean(c.abgRetrieved),
     abgRetrievedDate: c.abgRetrieved ? (c.abgRetrievedDate ?? null) : null,
     pbgPercent,
-    pbgValue: guaranteeAmount(c.orderValue, pbgPercent),
+    pbgValue: savedGuaranteeAmount(c.pbgValue, c.orderValue, pbgPercent),
     pbgNumber,
     pbgDate: c.pbgDate ?? null,
     pbgExpiry: c.pbgExpiry ?? null,
@@ -297,12 +311,18 @@ function normalizeTask(t: Task & { assignee?: string | null }): Task {
     verificationRequestedBy: waiting
       ? (t.verificationRequestedBy ?? null)
       : null,
+    deletedAt: t.deletedAt ? String(t.deletedAt) : null,
     status,
   };
 }
 
+export function taskIsDeleted(t: Task): boolean {
+  return Boolean(t.deletedAt);
+}
+
 /** Closed tasks older than retention window are hidden from lists. */
 export function taskVisibleInLists(t: Task, now = new Date()): boolean {
+  if (taskIsDeleted(t)) return false;
   if (t.status !== "completed" && t.status !== "not_required") return true;
   const at = t.completedAt || t.createdAt;
   const done = new Date(at);
@@ -313,6 +333,7 @@ export function taskVisibleInLists(t: Task, now = new Date()): boolean {
 }
 
 export function taskIsOpen(t: Task) {
+  if (taskIsDeleted(t)) return false;
   return t.status !== "completed" && t.status !== "not_required";
 }
 
@@ -1573,6 +1594,7 @@ function systemTask(
     notesUpdatedAt: null,
     completedAt: null,
     notRequiredReason: null,
+    deletedAt: null,
     createdAt: new Date().toISOString(),
   };
 }
@@ -1690,22 +1712,31 @@ export function updateContract(
       nextPatch.status = "active";
     }
   }
+  // Retrieved guarantees are locked, including the rupee amount.
+  if (current.abgRetrieved || nextPatch.abgRetrieved) delete nextPatch.abgValue;
+  if (current.pbgRetrieved || nextPatch.pbgRetrieved) delete nextPatch.pbgValue;
+  // Not-required is only available until number, creation date, and bank are saved.
   if (
-    nextPatch.abgPercent != null ||
-    nextPatch.orderValue != null ||
-    nextPatch.pbgPercent != null
+    nextPatch.abgRequired === false &&
+    current.abgRequired &&
+    guaranteeIdentitySaved(
+      current.abgNumber,
+      current.abgDate,
+      current.abgBankName
+    )
   ) {
-    const orderValue = nextPatch.orderValue ?? current.orderValue;
-    const abgPercent =
-      nextPatch.abgPercent !== undefined
-        ? nextPatch.abgPercent
-        : current.abgPercent;
-    const pbgPercent =
-      nextPatch.pbgPercent !== undefined
-        ? nextPatch.pbgPercent
-        : current.pbgPercent;
-    nextPatch.abgValue = guaranteeAmount(orderValue, abgPercent);
-    nextPatch.pbgValue = guaranteeAmount(orderValue, pbgPercent);
+    delete nextPatch.abgRequired;
+  }
+  if (
+    nextPatch.pbgRequired === false &&
+    current.pbgRequired &&
+    guaranteeIdentitySaved(
+      current.pbgNumber,
+      current.pbgDate,
+      current.pbgBankName
+    )
+  ) {
+    delete nextPatch.pbgRequired;
   }
 
   let updated = normalizeContract({ ...current, ...nextPatch, id });
@@ -1742,6 +1773,13 @@ export function updateContract(
   }
 
   let tasks = data.tasks;
+
+  if (current.abgRequired && !updated.abgRequired) {
+    tasks = closeGuaranteeTasks(tasks, id, "ABG");
+  }
+  if (current.pbgRequired && !updated.pbgRequired) {
+    tasks = closeGuaranteeTasks(tasks, id, "PBG");
+  }
 
   if (
     updated.abgRequired &&
@@ -1804,6 +1842,41 @@ export function updateContract(
   });
   syncDatedSystemTasks();
   return updated;
+}
+
+/** Mark open Create and expiry-chase tasks not required, including their subtasks. */
+function closeGuaranteeTasks(
+  tasks: Task[],
+  contractId: string,
+  kind: "ABG" | "PBG"
+): Task[] {
+  const createKey = kind === "ABG" ? "create_abg" : "create_pbg";
+  const expiryKey = kind === "ABG" ? "bg_expiry_abg" : "bg_expiry_pbg";
+  const titlePrefix = kind === "ABG" ? "Create ABG" : "Create PBG";
+  const reason = `${kind} marked not required`;
+  const parentIds = new Set(
+    tasks
+      .filter(
+        (t) =>
+          t.contractId === contractId &&
+          !t.parentId &&
+          taskIsOpen(t) &&
+          (t.catalogKey === createKey ||
+            t.catalogKey === expiryKey ||
+            (t.source === "system" && t.title.startsWith(titlePrefix)))
+      )
+      .map((t) => t.id)
+  );
+  if (parentIds.size === 0) return tasks;
+  return tasks.map((t) => {
+    const hit =
+      parentIds.has(t.id) ||
+      (t.parentId != null && parentIds.has(t.parentId) && taskIsOpen(t));
+    if (!hit) return t;
+    return applyStatusFields(t, "not_required", {
+      notRequiredReason: reason,
+    });
+  });
 }
 
 function catalogKeysInUse(contracts: Contract[]): Set<string> {
@@ -2016,7 +2089,8 @@ export type AmendBoqResult =
 
 /**
  * Confirm a BOQ amendment: records it on the contract, replaces the BOQ,
- * sets orderValue (and BG values) to the confirmed figure, and closes any
+ * sets orderValue to the confirmed figure. A saved ABG or PBG amount
+ * stays as saved. Closes any
  * open "Finalise BOQ amendment" task for the contract.
  */
 export function amendContractBoq(input: {
@@ -3237,6 +3311,38 @@ export function confirmTaskVerification(
   return { ok: true };
 }
 
+/** Hide a task and its subtasks. The rows stay so sync does not recreate them. */
+export function deleteTask(id: string): boolean {
+  const data = read();
+  const current = data.tasks.find((t) => t.id === id);
+  if (!current || current.parentId || taskIsDeleted(current)) return false;
+  const at = new Date().toISOString();
+  write({
+    ...data,
+    tasks: data.tasks.map((t) =>
+      t.id === id || t.parentId === id
+        ? { ...t, deletedAt: t.deletedAt || at }
+        : t
+    ),
+  });
+  return true;
+}
+
+/** Hide one subtask. No other task is changed. */
+export function deleteSubtask(id: string): boolean {
+  const data = read();
+  const current = data.tasks.find((t) => t.id === id);
+  if (!current?.parentId || taskIsDeleted(current)) return false;
+  const at = new Date().toISOString();
+  write({
+    ...data,
+    tasks: data.tasks.map((t) =>
+      t.id === id ? { ...t, deletedAt: at } : t
+    ),
+  });
+  return true;
+}
+
 function todayIsoLocal() {
   const t = new Date();
   const m = String(t.getMonth() + 1).padStart(2, "0");
@@ -3282,6 +3388,21 @@ function hasOpenCatalogTask(
   );
 }
 
+/** A deleted system task is kept so sync does not create that step again. */
+function hasDeletedCatalogTask(
+  tasks: Task[],
+  contractId: string,
+  catalogKey: TaskCatalogKey
+) {
+  return tasks.some(
+    (t) =>
+      t.contractId === contractId &&
+      t.catalogKey === catalogKey &&
+      !t.parentId &&
+      taskIsDeleted(t)
+  );
+}
+
 function makeSystemTask(input: {
   title: string;
   contractId: string;
@@ -3306,6 +3427,7 @@ function makeSystemTask(input: {
     notesUpdatedAt: null,
     completedAt: null,
     notRequiredReason: null,
+    deletedAt: null,
     createdAt: new Date().toISOString(),
   };
 }
@@ -3376,7 +3498,10 @@ export function afterGadCompleted(
   }
 
   if (opts.boqChanged && opts.amendmentNeeded) {
-    if (!hasOpenCatalogTask(tasks, contractId, "boq_amendment")) {
+    if (
+      !hasDeletedCatalogTask(tasks, contractId, "boq_amendment") &&
+      !hasOpenCatalogTask(tasks, contractId, "boq_amendment")
+    ) {
       const exists = tasks.some(
         (t) =>
           t.contractId === contractId &&
@@ -3442,7 +3567,11 @@ export function syncDatedSystemTasks(): { created: Task[] } {
             t.dueDate === c.abgExpiry &&
             !t.parentId
         );
-        if (!open && !sameDue) {
+        if (
+          !open &&
+          !sameDue &&
+          !hasDeletedCatalogTask(tasks, c.id, "bg_expiry_abg")
+        ) {
           const t = makeSystemTask({
             title: `Chase ABG expiry — ${c.projectNo}`,
             contractId: c.id,
@@ -3468,7 +3597,11 @@ export function syncDatedSystemTasks(): { created: Task[] } {
             t.dueDate === c.pbgExpiry &&
             !t.parentId
         );
-        if (!open && !sameDue) {
+        if (
+          !open &&
+          !sameDue &&
+          !hasDeletedCatalogTask(tasks, c.id, "bg_expiry_pbg")
+        ) {
           const t = makeSystemTask({
             title: `Chase PBG expiry — ${c.projectNo}`,
             contractId: c.id,
@@ -3497,7 +3630,11 @@ export function syncDatedSystemTasks(): { created: Task[] } {
               t.dueDate === dlpEnd &&
               !t.parentId
           );
-          if (!open && !sameDue) {
+          if (
+            !open &&
+            !sameDue &&
+            !hasDeletedCatalogTask(tasks, c.id, "collect_retention")
+          ) {
             const t = makeSystemTask({
               title: `Collect retention — ${c.projectNo}`,
               contractId: c.id,

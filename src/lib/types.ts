@@ -156,7 +156,10 @@ export type Contract = {
   abgRequired: boolean;
   /** Percent of order value (net / before GST) */
   abgPercent: number | null;
-  /** Derived: orderValue × abgPercent / 100 */
+  /**
+   * Saved rupee amount. New contracts start at percent × order value.
+   * Later saves keep this figure; it is not rewritten from the percent.
+   */
   abgValue: number | null;
   abgNumber: string | null;
   abgDate: string | null;
@@ -293,6 +296,12 @@ export type Task = {
    */
   verificationDepartment?: string | null;
   verificationRequestedBy?: string | null;
+  /**
+   * Set when Master deletes the task. The row stays so a system task
+   * (including a bank-guarantee expiry chase) is not created again.
+   * Lists and counts skip it.
+   */
+  deletedAt?: string | null;
   createdAt: string;
 };
 
@@ -650,4 +659,16 @@ export function guaranteeAmount(
 ): number | null {
   if (percent == null || Number.isNaN(percent)) return null;
   return (orderValue * percent) / 100;
+}
+
+/**
+ * True once the guarantee number, creation date, and bank are all saved.
+ * Until then a required guarantee can still be marked not required.
+ */
+export function guaranteeIdentitySaved(
+  number: string | null | undefined,
+  date: string | null | undefined,
+  bank: string | null | undefined
+): boolean {
+  return Boolean(number?.trim() && date?.trim() && bank?.trim());
 }

@@ -240,10 +240,31 @@ function restoreContractCosts(
 }
 
 /**
+ * Task delete is Master only. A non-master save cannot drop a task or
+ * set the hidden delete mark, and cannot clear one that is already set.
+ */
+function keepTasksUnlessMaster(
+  current: FlowhubData["tasks"],
+  incoming: FlowhubData["tasks"]
+): FlowhubData["tasks"] {
+  const incomingById = new Map(incoming.map((task) => [task.id, task]));
+  const kept = current.map((prev) => {
+    const next = incomingById.get(prev.id);
+    if (!next) return prev;
+    return { ...next, deletedAt: prev.deletedAt ?? null };
+  });
+  const known = new Set(current.map((task) => task.id));
+  const added = incoming
+    .filter((task) => !known.has(task.id))
+    .map((task) => ({ ...task, deletedAt: null }));
+  return [...kept, ...added];
+}
+
+/**
  * Per-door save. The page address is not an input.
  * A door that is not edit keeps the stored slice.
- * Contract delete, tax-invoice delete, and clearing the whole change log
- * stay Master-only even when that door is edit.
+ * Contract delete, tax-invoice delete, task delete, and clearing the whole
+ * change log stay Master-only even when that door is edit.
  */
 export function mergeWorkspaceSave(
   current: FlowhubData,
@@ -280,6 +301,9 @@ export function mergeWorkspaceSave(
   let invoices = edits(access, "billing") ? incoming.invoices : current.invoices;
   let payments = edits(access, "payments") ? incoming.payments : current.payments;
   let tasks = edits(access, "tasks") ? incoming.tasks : current.tasks;
+  if (edits(access, "tasks") && !master) {
+    tasks = keepTasksUnlessMaster(current.tasks, tasks);
+  }
   let schedules = edits(access, "schedules")
     ? incoming.schedules
     : current.schedules;

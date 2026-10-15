@@ -290,7 +290,9 @@ export function buildProjectTaskRows(data: FlowhubData): ProjectTaskRow[] {
   const today = todayIso();
   return data.contracts
     .map((c) => {
-      const tasks = data.tasks.filter((t) => t.contractId === c.id);
+      const tasks = data.tasks.filter(
+        (t) => t.contractId === c.id && !t.deletedAt
+      );
       const open = tasks.filter(taskIsOpen);
       return {
         contractId: c.id,

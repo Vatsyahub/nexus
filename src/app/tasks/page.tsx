@@ -39,6 +39,7 @@ export default async function TasksPage() {
       role={role}
       currentUserName={currentUserName}
       currentUserDepartment={me?.department ?? null}
+      canDeleteTasks={role === "master" && session.user.impersonating !== true}
     />
   );
 }
