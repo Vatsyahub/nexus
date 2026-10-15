@@ -8,6 +8,12 @@ import {
   type NexusCosts,
 } from "@/lib/types";
 import { normalizeNexusCosts } from "@/lib/nexus-core";
+import {
+  mergeClearedNotices,
+  pruneClearedNotices,
+  stampClearedNotices,
+  unionNotificationClears,
+} from "@/lib/notification-ttl";
 
 /**
  * Company-file slices and the report doors that already show their figures.
@@ -401,6 +407,14 @@ export function mergeWorkspaceSave(
     scheduleChangeLog = current.scheduleChangeLog;
   }
 
+  const clearedNotices = pruneClearedNotices(
+    mergeClearedNotices(current.clearedNotices, incoming.clearedNotices)
+  );
+  notifications = stampClearedNotices(
+    unionNotificationClears(current.notifications, notifications),
+    clearedNotices
+  );
+
   return {
     ...incoming,
     workspaceRevision: incoming.workspaceRevision,
@@ -417,6 +431,7 @@ export function mergeWorkspaceSave(
     deliveryChallans,
     installationProgress,
     notifications,
+    clearedNotices,
     nexusCosts,
   };
 }

@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import {
+  pruneClearedNotices,
   purgeExpiredNotifications,
+  restrictNewClearsToUser,
+  stampClearedNotices,
   type NoticeAudienceMember,
 } from "@/lib/notification-ttl";
 import { purgeExpiredScheduleChangeLog } from "@/lib/schedule-change-log";
@@ -27,6 +30,7 @@ const empty: FlowhubData = {
   schedules: [],
   scheduleChangeLog: [],
   notifications: [],
+  clearedNotices: {},
   customDepartments: [],
   expenseCategories: [],
   deliveryChallans: [],
@@ -52,6 +56,7 @@ function asFlowhubData(
 ): FlowhubData {
   if (!raw || typeof raw !== "object") return empty;
   const parsed = { ...empty, ...(raw as FlowhubData) };
+  const clearedNotices = pruneClearedNotices(parsed.clearedNotices);
   return {
     workspaceRevision:
       typeof parsed.workspaceRevision === "number"
@@ -67,10 +72,11 @@ function asFlowhubData(
     // Unread: 21 days from creation. Read: 24 hours from that read.
     // Department rows stay until every recipient's case is spent.
     notifications: purgeExpiredNotifications(
-      parsed.notifications,
+      stampClearedNotices(parsed.notifications, clearedNotices),
       Date.now(),
       members
     ),
+    clearedNotices,
     customDepartments: parsed.customDepartments ?? [],
     expenseCategories: parsed.expenseCategories ?? [],
     deliveryChallans: parsed.deliveryChallans ?? [],
@@ -161,10 +167,28 @@ export async function PUT(req: Request) {
     });
   }
 
+  const userId = session.user.id;
+  const kept = userId
+    ? restrictNewClearsToUser(
+        current.notifications,
+        decision.data.notifications,
+        current.clearedNotices,
+        decision.data.clearedNotices,
+        userId
+      )
+    : null;
+  const saved = kept
+    ? {
+        ...decision.data,
+        notifications: kept.notifications,
+        clearedNotices: kept.clearedNotices,
+      }
+    : decision.data;
+
   await prisma.workspaceStore.upsert({
     where: { id: STORE_ID },
-    create: { id: STORE_ID, data: decision.data },
-    update: { data: decision.data },
+    create: { id: STORE_ID, data: saved },
+    update: { data: saved },
   });
 
   return NextResponse.json({ ok: true });
