@@ -6,7 +6,6 @@ import { useFlowhubData, useWorkspaceReady } from "@/lib/store";
 import { GST_RATE } from "@/lib/types";
 import { contractDisplayStatus, todayIso } from "@/lib/nexus-core";
 import { formatMoney } from "@/lib/format-money";
-import { formatOtherDeductions } from "@/lib/payment-display";
 import { formatDisplayDate } from "@/lib/dates";
 import {
   buildReconciliationDetail,
@@ -364,9 +363,7 @@ function DetailView({
                     <td className={reportMoney}>{formatMoney(p.gst)}</td>
                     <td className={reportMoney}>{formatMoney(p.retention)}</td>
                     <td className={reportMoney}>{formatMoney(p.tds)}</td>
-                    <td className={reportMoney}>
-                      {formatOtherDeductions(p.other, p.otherReason)}
-                    </td>
+                    <td className={reportMoney}>{formatMoney(p.other)}</td>
                     <td className={cn(reportMoney, "font-medium")}>
                       {formatMoney(p.paidTotal)}
                     </td>
@@ -515,7 +512,7 @@ function DetailView({
               p.gst,
               p.retention,
               p.tds,
-              formatOtherDeductions(p.other, p.otherReason),
+              p.other,
               p.paidTotal,
             ]),
           },

@@ -89,7 +89,6 @@ export type ReconciliationPaymentRow = {
   retention: number;
   tds: number;
   other: number;
-  otherReason: string;
   paidTotal: number;
   link: Payment["link"];
 };
@@ -176,7 +175,6 @@ function reconciliationPayments(
         retention: Number(p.retentionAmount) || 0,
         tds: Number(p.tdsAmount) || 0,
         other: Number(p.otherDeductions) || 0,
-        otherReason: (p.otherDeductionReason ?? "").trim(),
         paidTotal: paymentAccounted(p),
         link: p.link,
       };
