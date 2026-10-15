@@ -135,7 +135,6 @@ function InvoicesAndOutstandingsInner() {
       return matchesAny(needle, [
         r.projectNo,
         r.projectName,
-        r.client,
         r.city,
         r.number,
         `PI ${r.number}`,
@@ -307,16 +306,16 @@ function InvoicesTable({
       <ReportsTableScroll className="mt-4">
         <table className="w-full table-fixed text-left text-sm">
           <colgroup>
-            <col className="w-[18%]" />
+            <col className="w-[11%]" />
+            <col className="w-[5%]" />
+            <col className="w-[8%]" />
+            <col className="w-[8%]" />
+            <col className="w-[11%]" />
+            <col className="w-[11%]" />
+            <col className="w-[11%]" />
+            <col className="w-[11%]" />
             <col className="w-[8%]" />
             <col className="w-[7%]" />
-            <col className="w-[8%]" />
-            <col className="w-[9%]" />
-            <col className="w-[9%]" />
-            <col className="w-[9%]" />
-            <col className="w-[9%]" />
-            <col className="w-[8%]" />
-            <col className="w-[6%]" />
             <col className="w-[9%]" />
           </colgroup>
           <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] uppercase tracking-wide text-[var(--fh-muted)]">
@@ -442,18 +441,16 @@ function ProformasTable({
       <ReportsTableScroll className="mt-4">
         <table className="w-full table-fixed text-left text-sm">
           <colgroup>
-            <col className="w-[22%]" />
-            <col className="w-[18%]" />
-            <col className="w-[12%]" />
-            <col className="w-[12%]" />
-            <col className="w-[12%]" />
+            <col className="w-[16%]" />
+            <col className="w-[8%]" />
+            <col className="w-[16%]" />
             <col className="w-[14%]" />
-            <col className="w-[10%]" />
+            <col className="w-[28%]" />
+            <col className="w-[18%]" />
           </colgroup>
           <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] uppercase tracking-wide text-[var(--fh-muted)]">
             <tr>
               <th className={reportTh}>Project</th>
-              <th className={reportTh}>Client</th>
               <th className={reportTh}>City</th>
               <th className={reportTh}>PI number</th>
               <th className={reportTh}>Date</th>
@@ -465,7 +462,7 @@ function ProformasTable({
             {rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={6}
                   className="px-3 py-6 text-center text-[var(--fh-muted)]"
                 >
                   No open proformas match this search.
@@ -480,9 +477,6 @@ function ProformasTable({
                       projectName={row.projectName}
                       href={`/contracts/${row.contractId}`}
                     />
-                  </td>
-                  <td className={cn(reportTd, "break-words text-[var(--fh-muted)]")}>
-                    {row.client}
                   </td>
                   <td className={cn(reportTd, "break-words")}>{row.city}</td>
                   <td className={cn(reportTd, "break-all")}>
@@ -513,7 +507,6 @@ function ProformasTable({
         headers={[
           "Project",
           "Project no.",
-          "Client",
           "City",
           "PI number",
           "Date",
@@ -523,7 +516,6 @@ function ProformasTable({
         rows={rows.map((row) => [
           row.projectName,
           row.projectNo,
-          row.client,
           row.city,
           row.number,
           formatDisplayDate(row.date),

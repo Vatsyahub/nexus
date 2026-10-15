@@ -11,6 +11,11 @@ import {
 import { formatDisplayDate } from "@/lib/dates";
 import { buttonVariants } from "@/components/ui/button";
 import { EditIconLink } from "@/components/icon-actions";
+import {
+  ReportExportIcons,
+  reportFilterSummary,
+  type ReportExportSection,
+} from "@/components/report-export-icons";
 import { cn } from "@/lib/utils";
 
 function dateLabel(value: string | null | undefined): string {
@@ -126,6 +131,68 @@ export function ScheduleContractView({
     );
   }
 
+  const exportSections: ReportExportSection[] = [
+    {
+      heading: "Schedule lines",
+      headers: [
+        "Project no.",
+        "Project",
+        "City",
+        "Item",
+        "BOQ qty",
+        "Unit",
+        "Supply qty",
+        "Supply start date",
+        "Supply end date",
+        "Installation qty",
+        "Installation start date",
+        "Installation end date",
+      ],
+      rows: rows.map((row) => {
+        const install = row.installation;
+        return [
+          contract.projectNo,
+          contract.projectName,
+          contract.city || "",
+          row.itemName,
+          row.boqQty,
+          row.unit,
+          row.supply.quantity != null ? row.supply.quantity : "—",
+          dateLabel(row.supply.startDate),
+          dateLabel(row.supply.endDate || row.supply.startDate),
+          install?.quantity != null ? install.quantity : "—",
+          install ? dateLabel(install.startDate) : "—",
+          install
+            ? dateLabel(install.endDate || install.startDate)
+            : "—",
+        ];
+      }),
+      emptyMessage: "No dated supply lines for this contract yet.",
+    },
+  ];
+  if (rows.length > 0) {
+    exportSections.push({
+      heading: "Testing and handover",
+      headers: ["Project no.", "Project", "City", "Milestone", "Date"],
+      rows: [
+        [
+          contract.projectNo,
+          contract.projectName,
+          contract.city || "",
+          SCHEDULE_KIND_LABELS.testing,
+          testing ? dateLabel(testing.startDate) : "—",
+        ],
+        [
+          contract.projectNo,
+          contract.projectName,
+          contract.city || "",
+          SCHEDULE_KIND_LABELS.handover,
+          handover ? dateLabel(handover.startDate) : "—",
+        ],
+      ],
+    });
+  }
+
   return (
     <div className="space-y-6">
       {!embedded && (
@@ -136,12 +203,24 @@ export function ScheduleContractView({
           >
             Back to schedules
           </Link>
-          {canEdit && (
-            <EditIconLink
-              href={`/schedules/plan/${contract.id}?mode=edit`}
-              label="Edit schedule"
+          <div className="flex flex-wrap items-center gap-2">
+            <ReportExportIcons
+              className="mt-0"
+              filename={`schedule-export-${contract.projectNo}`}
+              title={`Schedule export — ${contract.projectNo}`}
+              filters={reportFilterSummary({
+                contract: `${contract.projectNo} · ${contract.projectName}`,
+                extra: [["City", contract.city]],
+              })}
+              sections={exportSections}
             />
-          )}
+            {canEdit && (
+              <EditIconLink
+                href={`/schedules/plan/${contract.id}?mode=edit`}
+                label="Edit schedule"
+              />
+            )}
+          </div>
         </div>
       )}
 

@@ -7,6 +7,9 @@
  * - Retention held / TDS held columns = actual sums from payment entries.
  * - Unlinked ret/TDS count in contract-level actual held; TI rows show linked only.
  * - Outstanding = Expected − Σ(net + GST + other); ret/TDS not subtracted.
+ * - Sales “Total outstanding net” = Σ (TI net − ret%×net − tds%×net − net received).
+ *   Net received is linked payment netAmount plus FIFO of unlinked netAmount only.
+ *   GST, extras, other deductions, retention cash, and TDS cash stay out.
  */
 
 import type { Contract, FlowhubData, Invoice, Payment } from "@/lib/types";
@@ -541,14 +544,92 @@ export type SalesContractRow = {
   leftoverBilling: number;
   /** Σ(net + GST + other) toward outstanding — same as I&O / reconciliation */
   totalPaid: number;
+  /**
+   * Σ per TI of (billed net − ret%×net − tds%×net − net received).
+   * Not totalOutstanding and not totalInvoiceNet.
+   */
+  totalOutstandingNet: number;
   /** Σ locked outstanding per TI — same helpers as I&O */
   totalOutstanding: number;
 };
 
+function linkedNetReceived(ti: Invoice, data: FlowhubData): number {
+  let net = 0;
+  for (const p of data.payments) {
+    if (p.invoiceId !== ti.id || !isTiLinkedPayment(p)) continue;
+    net += Number(p.netAmount) || 0;
+  }
+  return net;
+}
+
+/** Billed net − theoretical holds − linked netAmount. Unlinked net is not in yet. */
+function netOutstandingBeforeUnlinked(ti: Invoice, data: FlowhubData): number {
+  return (
+    (Number(ti.netAmount) || 0) -
+    invoiceRetentionHold(ti, data) -
+    invoiceTdsHold(ti, data) -
+    linkedNetReceived(ti, data)
+  );
+}
+
+/**
+ * FIFO-allocate unlinked payments’ netAmount across a contract’s tax invoices,
+ * against each TI’s net outstanding (billed net − holds − linked net).
+ * Uses payment.netAmount only — not paymentTowardOutstanding (net + GST + other).
+ */
+function unlinkedNetAmountAllocations(data: FlowhubData): Map<string, number> {
+  const allocated = new Map<string, number>();
+  const byContract = new Map<string, Payment[]>();
+  for (const p of data.payments) {
+    if (p.link !== "unlinked") continue;
+    const list = byContract.get(p.contractId) ?? [];
+    list.push(p);
+    byContract.set(p.contractId, list);
+  }
+
+  for (const [contractId, pays] of byContract) {
+    let pool = pays
+      .slice()
+      .sort(
+        (a, b) =>
+          a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt)
+      )
+      .reduce((s, p) => s + (Number(p.netAmount) || 0), 0);
+
+    for (const ti of contractTis(contractId, data)) {
+      const need = Math.max(0, netOutstandingBeforeUnlinked(ti, data));
+      const take = Math.min(pool, need);
+      if (take > 0) {
+        allocated.set(ti.id, take);
+        pool -= take;
+      }
+    }
+  }
+  return allocated;
+}
+
+/**
+ * Net outstanding on one tax invoice:
+ * billed net − retention hold − TDS hold − net received.
+ * Holds are invoiceRetentionHold / invoiceTdsHold (ret%×net, tds%×net).
+ * Net received is linked netAmount plus FIFO-allocated unlinked netAmount.
+ * GST, extra charges, other deductions, and payment retention/TDS stay out.
+ * A negative result is an overpayment and is returned as-is.
+ */
+export function invoiceNetOutstanding(
+  invoice: Invoice,
+  data: FlowhubData
+): number {
+  if (invoice.type !== "TI") return 0;
+  const allocated = unlinkedNetAmountAllocations(data).get(invoice.id) ?? 0;
+  return netOutstandingBeforeUnlinked(invoice, data) - allocated;
+}
+
 /**
  * Contract-level Sales → Contracts tab.
  * Total invoice = sum of TI net; leftover = WO − that sum.
- * Paid / outstanding reuse locked reconciliation helpers.
+ * Total outstanding reuses locked invoiceOutstanding.
+ * Total outstanding net is the sum of invoiceNetOutstanding.
  */
 export function buildSalesContractRows(data: FlowhubData): SalesContractRow[] {
   return data.contracts
@@ -558,6 +639,10 @@ export function buildSalesContractRows(data: FlowhubData): SalesContractRow[] {
       const tis = contractTis(c.id, data);
       const totals = totalsForContract(c.id, tis, data);
       const totalInvoiceNet = tis.reduce((s, ti) => s + ti.netAmount, 0);
+      const totalOutstandingNet = tis.reduce(
+        (s, ti) => s + invoiceNetOutstanding(ti, data),
+        0
+      );
       return {
         contractId: c.id,
         projectNo: c.projectNo,
@@ -567,6 +652,7 @@ export function buildSalesContractRows(data: FlowhubData): SalesContractRow[] {
         totalInvoiceNet,
         leftoverBilling: c.orderValue - totalInvoiceNet,
         totalPaid: totals.paid,
+        totalOutstandingNet,
         totalOutstanding: totals.outstanding,
       };
     });

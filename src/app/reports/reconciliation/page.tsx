@@ -10,7 +10,6 @@ import { formatDisplayDate } from "@/lib/dates";
 import {
   buildReconciliationDetail,
   buildReconciliationSummary,
-  listCities,
 } from "@/lib/reports";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -47,7 +46,6 @@ export default function ReconciliationReportPage() {
   const ready = useWorkspaceReady();
   const [scope, setScope] = useState<Scope>("all");
   const [contractId, setContractId] = useState("");
-  const [city, setCity] = useState("");
   const [q, setQ] = useState("");
 
   function openDetail(id: string) {
@@ -55,7 +53,6 @@ export default function ReconciliationReportPage() {
     setScope("one");
   }
 
-  const cities = useMemo(() => listCities(data), [data]);
   const contracts = useMemo(
     () =>
       [...data.contracts].sort((a, b) =>
@@ -67,9 +64,9 @@ export default function ReconciliationReportPage() {
   const summary = useMemo(
     () =>
       scope === "all"
-        ? buildReconciliationSummary(data, { city, q })
+        ? buildReconciliationSummary(data, { q })
         : [],
-    [data, scope, city, q]
+    [data, scope, q]
   );
 
   const detail = useMemo(() => {
@@ -127,31 +124,14 @@ export default function ReconciliationReportPage() {
               />
             </div>
           ) : (
-            <>
-              <div className="space-y-1">
-                <Label className="text-xs">City</Label>
-                <select
-                  className="flex h-8 w-full rounded-lg border border-input px-2 text-sm"
-                  value={city}
-                  onChange={(e) => setCity(e.target.value)}
-                >
-                  <option value="">All cities</option>
-                  {cities.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1 sm:col-span-2">
-                <Label className="text-xs">Search</Label>
-                <ListSearchBar
-                  value={q}
-                  onChange={setQ}
-                  placeholder="Project no., name, city…"
-                />
-              </div>
-            </>
+            <div className="space-y-1 sm:col-span-2">
+              <Label className="text-xs">Search</Label>
+              <ListSearchBar
+                value={q}
+                onChange={setQ}
+                placeholder="Project no., name, city…"
+              />
+            </div>
           )}
         </div>
       </section>
@@ -174,7 +154,6 @@ export default function ReconciliationReportPage() {
           filters={reportFilterSummary({
             tab: "All contracts (summary)",
             search: q,
-            extra: [["City", city || "All cities"]],
           })}
           totals={portfolioTotals}
           onSelectContract={openDetail}
