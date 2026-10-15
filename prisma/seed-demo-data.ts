@@ -886,6 +886,7 @@ function buildWorkspace(): FlowhubData {
       retentionAmount: money((invTiPaid.netAmount * 5) / 100),
       tdsAmount: money((invTiPaid.netAmount * 2) / 100),
       otherDeductions: 0,
+      otherDeductionReason: "",
       createdAt: isoDaysFromToday(-20) + "T14:00:00.000Z",
     },
     // Partial on invTiPartial — leave due
@@ -900,6 +901,7 @@ function buildWorkspace(): FlowhubData {
       retentionAmount: money((invTiPartial.netAmount * 5) / 100),
       tdsAmount: money((invTiPartial.netAmount * 2) / 100),
       otherDeductions: 500,
+      otherDeductionReason: "Freight shortfall",
       createdAt: isoDaysFromToday(-3) + "T14:00:00.000Z",
     },
     // PI-linked payment
@@ -914,6 +916,7 @@ function buildWorkspace(): FlowhubData {
       retentionAmount: 0,
       tdsAmount: 0,
       otherDeductions: 0,
+      otherDeductionReason: "",
       createdAt: isoDaysFromToday(-8) + "T14:00:00.000Z",
     },
     // Unlinked cash on past-due contract — auto-applies to oldest TI need
@@ -928,6 +931,7 @@ function buildWorkspace(): FlowhubData {
       retentionAmount: 0,
       tdsAmount: 0,
       otherDeductions: 0,
+      otherDeductionReason: "",
       createdAt: isoDaysFromToday(-15) + "T14:00:00.000Z",
     },
     // Payment on no-GST TI (ret/tds 0)
@@ -942,6 +946,7 @@ function buildWorkspace(): FlowhubData {
       retentionAmount: 0,
       tdsAmount: 0,
       otherDeductions: 0,
+      otherDeductionReason: "",
       createdAt: isoDaysFromToday(-10) + "T14:00:00.000Z",
     },
     // Closed contract settlement
@@ -960,6 +965,7 @@ function buildWorkspace(): FlowhubData {
       retentionAmount: money((invTiClosed.netAmount * 5) / 100),
       tdsAmount: money((invTiClosed.netAmount * 2) / 100),
       otherDeductions: 0,
+      otherDeductionReason: "",
       createdAt: isoDaysFromToday(-90) + "T14:00:00.000Z",
     },
   ];

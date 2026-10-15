@@ -19,6 +19,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { confirmAction } from "@/components/confirm-panel";
 import { DeleteIconButton, EditIconLink } from "@/components/icon-actions";
 import { formatDisplayDate } from "@/lib/dates";
+import { formatOtherDeductionsSuffix } from "@/lib/payment-display";
 import { cn } from "@/lib/utils";
 
 function formatMoney(n: number) {
@@ -235,7 +236,10 @@ export default function InvoiceDetailPage() {
                       : ""}
                     {p.tdsAmount ? ` · tds ${formatMoney(p.tdsAmount)}` : ""}
                     {p.otherDeductions
-                      ? ` · other ${formatMoney(p.otherDeductions)}`
+                      ? ` · other ${formatOtherDeductionsSuffix(
+                          p.otherDeductions,
+                          p.otherDeductionReason
+                        )}`
                       : ""}
                   </p>
                 </div>

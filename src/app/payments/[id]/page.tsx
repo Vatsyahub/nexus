@@ -19,6 +19,7 @@ import {
   EditIconLink,
 } from "@/components/icon-actions";
 import { formatDisplayDate } from "@/lib/dates";
+import { formatOtherDeductions } from "@/lib/payment-display";
 import { cn } from "@/lib/utils";
 
 function formatMoney(n: number) {
@@ -150,7 +151,10 @@ export default function PaymentDetailPage() {
           <Row label="TDS (held)" value={formatMoney(payment.tdsAmount)} />
           <Row
             label="Other deductions"
-            value={formatMoney(payment.otherDeductions)}
+            value={formatOtherDeductions(
+              payment.otherDeductions,
+              payment.otherDeductionReason
+            )}
           />
           <div className="flex justify-between border-t border-[var(--fh-line)] pt-2 text-base font-semibold">
             <span>Accounted toward invoice</span>

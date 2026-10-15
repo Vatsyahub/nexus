@@ -21,6 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { ListSearchBar } from "@/components/list-search";
 import { paymentMatchesQuery } from "@/lib/list-search";
 import { formatDisplayDate } from "@/lib/dates";
+import { formatOtherDeductionsSuffix } from "@/lib/payment-display";
 import { HubDataScroll, HubPage } from "@/components/hub-scroll";
 
 function formatMoney(n: number) {
@@ -191,7 +192,10 @@ export default function PaymentsPage() {
                             ? ` · tds ${formatMoney(p.tdsAmount)}`
                             : ""}
                           {p.otherDeductions
-                            ? ` · other ${formatMoney(p.otherDeductions)}`
+                            ? ` · other ${formatOtherDeductionsSuffix(
+                                p.otherDeductions,
+                                p.otherDeductionReason
+                              )}`
                             : ""}
                           {` · accounted ${formatMoney(paymentAccounted(p))}`}
                         </span>
