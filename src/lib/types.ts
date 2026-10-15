@@ -156,8 +156,16 @@ export type Contract = {
   abgRequired: boolean;
   /** Percent of order value (net / before GST) */
   abgPercent: number | null;
-  /** Derived: orderValue × abgPercent / 100 */
+  /**
+   * Saved ABG amount. Normally orderValue × abgPercent / 100.
+   * A plain BOQ edit leaves this amount as saved instead of re-deriving it.
+   */
   abgValue: number | null;
+  /**
+   * True after a plain BOQ edit so the saved ABG amount is not re-derived
+   * from a new order value. A BOQ amendment clears it and derives again.
+   */
+  abgValuePinned?: boolean;
   abgNumber: string | null;
   abgDate: string | null;
   abgExpiry: string | null;
@@ -168,7 +176,10 @@ export type Contract = {
   abgRetrievedDate: string | null;
   pbgRequired: boolean;
   pbgPercent: number | null;
+  /** Saved PBG amount. A plain BOQ edit does not re-derive this from order value. */
   pbgValue: number | null;
+  /** See abgValuePinned. A BOQ amendment clears it and derives the PBG amount again. */
+  pbgValuePinned?: boolean;
   pbgNumber: string | null;
   pbgDate: string | null;
   pbgExpiry: string | null;

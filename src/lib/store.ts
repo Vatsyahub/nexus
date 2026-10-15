@@ -154,6 +154,64 @@ function coerceContractStatus(status: string | undefined): Contract["status"] {
   return "active";
 }
 
+const BOQ_EPS = 1e-6;
+
+/**
+ * True when this contract still is the latest amendment: same confirmed
+ * value and the same BOQ lines. That save derives ABG/PBG from the new
+ * order value. A later plain edit moves off this snapshot and keeps the
+ * saved amounts instead.
+ */
+function amendmentSnapshotMatches(c: Contract): boolean {
+  const amendments = Array.isArray(c.amendments) ? c.amendments : [];
+  const latest = amendments[amendments.length - 1];
+  if (!latest) return false;
+  if (
+    Math.abs((Number(latest.newOrderValue) || 0) - (Number(c.orderValue) || 0)) >
+    0.005
+  ) {
+    return false;
+  }
+  const snap = latest.boqSnapshot ?? [];
+  const boq = c.boq ?? [];
+  if (snap.length !== boq.length) return false;
+  for (let i = 0; i < boq.length; i++) {
+    const saved = snap[i];
+    const line = boq[i];
+    if (!saved || !line) return false;
+    if (saved.id !== line.id) return false;
+    if ((saved.name || "").trim() !== (line.name || "").trim()) return false;
+    if ((saved.unit || "").trim() !== (line.unit || "").trim()) return false;
+    if (Math.abs((Number(saved.rate) || 0) - (Number(line.rate) || 0)) > BOQ_EPS) {
+      return false;
+    }
+    if (
+      Math.abs((Number(saved.quantity) || 0) - (Number(line.quantity) || 0)) >
+      BOQ_EPS
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function keptGuaranteeAmount(
+  saved: number | null,
+  pinned: boolean | undefined,
+  derived: number | null,
+  atAmendmentSnapshot: boolean
+): number | null {
+  if (
+    pinned === true &&
+    typeof saved === "number" &&
+    Number.isFinite(saved) &&
+    !atAmendmentSnapshot
+  ) {
+    return saved;
+  }
+  return derived;
+}
+
 /** Handed-over contracts are Completed. On hold and Active stay until then. */
 function completeHandedOverContracts(data: FlowhubData): FlowhubData {
   const today = nexusTodayIso();
@@ -192,12 +250,38 @@ function normalizeContract(c: Contract & { orderEndDate?: string }): Contract {
         : null;
   const abgNumber = c.abgNumber ?? null;
   const pbgNumber = c.pbgNumber ?? null;
+  const atAmendmentSnapshot =
+    c.abgValuePinned === true || c.pbgValuePinned === true
+      ? amendmentSnapshotMatches(c)
+      : false;
+  const abgValue = keptGuaranteeAmount(
+    c.abgValue,
+    c.abgValuePinned,
+    guaranteeAmount(c.orderValue, abgPercent),
+    atAmendmentSnapshot
+  );
+  const pbgValue = keptGuaranteeAmount(
+    c.pbgValue,
+    c.pbgValuePinned,
+    guaranteeAmount(c.orderValue, pbgPercent),
+    atAmendmentSnapshot
+  );
+  const keepAbgPin =
+    c.abgValuePinned === true &&
+    typeof abgValue === "number" &&
+    Number.isFinite(abgValue) &&
+    !atAmendmentSnapshot;
+  const keepPbgPin =
+    c.pbgValuePinned === true &&
+    typeof pbgValue === "number" &&
+    Number.isFinite(pbgValue) &&
+    !atAmendmentSnapshot;
   const retentionRecoveredAt =
     typeof legacy.retentionRecoveredAt === "string" &&
     legacy.retentionRecoveredAt.trim()
       ? legacy.retentionRecoveredAt.trim().slice(0, 10)
       : null;
-  return {
+  const normalized: Contract = {
     ...c,
     closureDate,
     retentionPercent:
@@ -206,7 +290,7 @@ function normalizeContract(c: Contract & { orderEndDate?: string }): Contract {
       typeof c.tdsPercent === "number" ? c.tdsPercent : DEFAULT_TDS_PERCENT,
     dlpMonths: typeof c.dlpMonths === "number" ? c.dlpMonths : 6,
     abgPercent,
-    abgValue: guaranteeAmount(c.orderValue, abgPercent),
+    abgValue,
     abgNumber,
     abgDate: c.abgDate ?? null,
     abgExpiry: c.abgExpiry ?? null,
@@ -214,7 +298,7 @@ function normalizeContract(c: Contract & { orderEndDate?: string }): Contract {
     abgRetrieved: Boolean(c.abgRetrieved),
     abgRetrievedDate: c.abgRetrieved ? (c.abgRetrievedDate ?? null) : null,
     pbgPercent,
-    pbgValue: guaranteeAmount(c.orderValue, pbgPercent),
+    pbgValue,
     pbgNumber,
     pbgDate: c.pbgDate ?? null,
     pbgExpiry: c.pbgExpiry ?? null,
@@ -231,6 +315,11 @@ function normalizeContract(c: Contract & { orderEndDate?: string }): Contract {
     guaranteeEdits: c.guaranteeEdits ?? [],
     status: coerceContractStatus(c.status),
   };
+  if (keepAbgPin) normalized.abgValuePinned = true;
+  else delete normalized.abgValuePinned;
+  if (keepPbgPin) normalized.pbgValuePinned = true;
+  else delete normalized.pbgValuePinned;
+  return normalized;
 }
 
 function normalizeAmendment(a: BoqAmendment, idx: number): BoqAmendment {
@@ -2116,6 +2205,236 @@ export function amendContractBoq(input: {
   });
   syncDatedSystemTasks();
   return { ok: true, amendment, contract: updated };
+}
+
+export type BoqLineUseKind = "invoice" | "schedule" | "delivery challan";
+
+/** Where this BOQ line is already used. Installation alone does not count. */
+export function boqLineUseKinds(
+  contractId: string,
+  boqItemId: string,
+  data?: FlowhubData
+): BoqLineUseKind[] {
+  const d = data ?? read();
+  const kinds: BoqLineUseKind[] = [];
+  if (
+    d.invoices.some(
+      (i) =>
+        i.contractId === contractId &&
+        i.lines.some((l) => l.boqItemId === boqItemId)
+    )
+  ) {
+    kinds.push("invoice");
+  }
+  if (
+    d.schedules.some(
+      (s) => s.contractId === contractId && s.boqItemId === boqItemId
+    )
+  ) {
+    kinds.push("schedule");
+  }
+  if (
+    d.deliveryChallans.some(
+      (dc) =>
+        dc.contractId === contractId &&
+        dc.lines.some((l) => l.boqItemId === boqItemId)
+    )
+  ) {
+    kinds.push("delivery challan");
+  }
+  return kinds;
+}
+
+export function boqLineIsUsed(
+  contractId: string,
+  boqItemId: string,
+  data?: FlowhubData
+): boolean {
+  return boqLineUseKinds(contractId, boqItemId, data).length > 0;
+}
+
+function boqUsePhrase(kinds: BoqLineUseKind[]): string {
+  const parts = kinds.map((k) =>
+    k === "invoice"
+      ? "an invoice"
+      : k === "schedule"
+        ? "a schedule"
+        : "a delivery challan"
+  );
+  if (parts.length <= 1) return parts[0] ?? "a record";
+  if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+  return `${parts.slice(0, -1).join(", ")}, and ${parts[parts.length - 1]}`;
+}
+
+/** Short label for the editor, or null when the line is unused. */
+export function describeBoqLineUse(
+  contractId: string,
+  boqItemId: string,
+  data?: FlowhubData
+): string | null {
+  const kinds = boqLineUseKinds(contractId, boqItemId, data);
+  if (!kinds.length) return null;
+  return boqUsePhrase(kinds);
+}
+
+function normalizePlainBoqLine(l: BoqItem): BoqItem {
+  const rate = Number(l.rate);
+  const quantity = Number(l.quantity);
+  return {
+    ...l,
+    id: l.id || crypto.randomUUID(),
+    name: (l.name || "").trim(),
+    unit: (l.unit || "").trim() || "Nos",
+    rate: Number.isFinite(rate) ? rate : Number.NaN,
+    quantity: Number.isFinite(quantity) ? quantity : Number.NaN,
+  };
+}
+
+function boqLinesDiffer(previous: BoqItem[], next: BoqItem[]): boolean {
+  if (previous.length !== next.length) return true;
+  for (let i = 0; i < previous.length; i++) {
+    const a = previous[i];
+    const b = next[i];
+    if (!a || !b) return true;
+    if (a.id !== b.id) return true;
+    if (a.name.trim() !== b.name.trim()) return true;
+    if ((a.unit || "").trim() !== (b.unit || "").trim()) return true;
+    if (Math.abs((Number(a.rate) || 0) - (Number(b.rate) || 0)) > BOQ_EPS) {
+      return true;
+    }
+    if (
+      Math.abs((Number(a.quantity) || 0) - (Number(b.quantity) || 0)) > BOQ_EPS
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Problems with a plain BOQ edit. Used lines (invoice, schedule, or delivery
+ * challan) cannot be deleted and keep their name and unit. Quantity and rate
+ * may change, including a quantity below what is already billed, scheduled,
+ * or delivered.
+ */
+export function boqPlainEditIssues(
+  contractId: string,
+  proposed: BoqItem[],
+  data?: FlowhubData
+): string[] {
+  const d = data ?? read();
+  const contract = d.contracts.find((c) => c.id === contractId);
+  if (!contract) return ["Contract not found."];
+  const issues: string[] = [];
+  const lines = proposed.map(normalizePlainBoqLine);
+  if (lines.length === 0) issues.push("BOQ needs at least one line.");
+  const names = new Set<string>();
+  const ids = new Set<string>();
+  for (const l of lines) {
+    if (!l.name) {
+      issues.push("Every BOQ line needs an item name.");
+      continue;
+    }
+    const key = l.name.toLowerCase();
+    if (names.has(key)) issues.push(`Duplicate BOQ item: ${l.name}.`);
+    names.add(key);
+    if (ids.has(l.id)) issues.push(`Duplicate BOQ line id for ${l.name}.`);
+    ids.add(l.id);
+    if (!Number.isFinite(l.rate) || l.rate < 0) {
+      issues.push(`Rate cannot be negative for ${l.name}.`);
+    }
+    if (!Number.isFinite(l.quantity) || l.quantity < 0) {
+      issues.push(`Qty cannot be negative for ${l.name}.`);
+    }
+    const original = contract.boq.find((b) => b.id === l.id);
+    if (!original) continue;
+    const kinds = boqLineUseKinds(contractId, original.id, d);
+    if (!kinds.length) continue;
+    const where = boqUsePhrase(kinds);
+    if (original.name.trim() !== l.name) {
+      issues.push(
+        `${original.name} is already on ${where}, so its name stays locked.`
+      );
+    }
+    if ((original.unit || "").trim() !== l.unit) {
+      issues.push(
+        `${original.name} is already on ${where}, so its unit stays locked.`
+      );
+    }
+  }
+  for (const b of contract.boq) {
+    if (ids.has(b.id)) continue;
+    const kinds = boqLineUseKinds(contractId, b.id, d);
+    if (!kinds.length) continue;
+    issues.push(
+      `${b.name} is already on ${boqUsePhrase(kinds)} and cannot be deleted.`
+    );
+  }
+  return issues;
+}
+
+export type EditBoqResult =
+  | { ok: true; contract: Contract }
+  | { ok: false; error: string };
+
+/**
+ * Replace the contract BOQ and set order value to the new BOQ total.
+ * Does not record an amendment and does not open or complete a
+ * Finalise BOQ amendment task. Saved ABG and PBG amounts stay as they are.
+ */
+export function editContractBoq(input: {
+  contractId: string;
+  boq: BoqItem[];
+}): EditBoqResult {
+  const data = read();
+  const current = data.contracts.find((c) => c.id === input.contractId);
+  if (!current) return { ok: false, error: "Contract not found." };
+
+  const proposed = input.boq.map(normalizePlainBoqLine);
+  const issues = boqPlainEditIssues(current.id, proposed, data);
+  if (issues.length) return { ok: false, error: issues[0] };
+
+  const newOrderValue = boqTotal(proposed);
+  const linesChanged = boqLinesDiffer(current.boq, proposed);
+  const valueChanged = Math.abs(newOrderValue - current.orderValue) > 0.005;
+  if (!linesChanged && !valueChanged) {
+    return { ok: false, error: "No BOQ changes to save." };
+  }
+
+  let next = data;
+  const boq = proposed.map((line) => {
+    const res = upsertCatalog(next, line.name, line.unit, line.rate);
+    next = res.data;
+    const original = current.boq.find((b) => b.id === line.id);
+    const renamed =
+      !original ||
+      original.name.trim().toLowerCase() !== line.name.trim().toLowerCase();
+    return {
+      ...line,
+      catalogKey: renamed ? res.catalogKey : line.catalogKey || res.catalogKey,
+    };
+  });
+
+  const pinAbg =
+    typeof current.abgValue === "number" && Number.isFinite(current.abgValue);
+  const pinPbg =
+    typeof current.pbgValue === "number" && Number.isFinite(current.pbgValue);
+  const updated = normalizeContract({
+    ...current,
+    boq,
+    orderValue: newOrderValue,
+    amendments: current.amendments,
+    abgValue: current.abgValue,
+    pbgValue: current.pbgValue,
+    abgValuePinned: pinAbg ? true : undefined,
+    pbgValuePinned: pinPbg ? true : undefined,
+  });
+
+  write({
+    ...next,
+    contracts: next.contracts.map((c) => (c.id === current.id ? updated : c)),
+  });
+  return { ok: true, contract: updated };
 }
 
 export function listExpenseCategories(data?: FlowhubData): string[] {

@@ -4,7 +4,10 @@ import { useMemo, useState, type FormEvent } from "react";
 import {
   amendContractBoq,
   boqAmendmentIssues,
+  boqPlainEditIssues,
   computeBoqLineDiffs,
+  describeBoqLineUse,
+  editContractBoq,
   nextAmendmentSeq,
   useFlowhubData,
 } from "@/lib/store";
@@ -79,10 +82,12 @@ function diffAmount(d: BoqAmendmentLineDiff): number {
 
 export function BoqSection({
   contract,
+  canEdit,
   canAmend,
   actorName,
 }: {
   contract: Contract;
+  canEdit: boolean;
   canAmend: boolean;
   actorName: string;
   onMessage: (msg: string) => void;
@@ -92,7 +97,9 @@ export function BoqSection({
   const total = boqTotal(c.boq);
   const amendments = c.amendments ?? [];
 
-  const [step, setStep] = useState<"closed" | "edit" | "confirm">("closed");
+  const [step, setStep] = useState<"closed" | "plain" | "edit" | "confirm">(
+    "closed"
+  );
   const [rows, setRows] = useState<DraftRow[]>([]);
   const [newName, setNewName] = useState("");
   const [newUnit, setNewUnit] = useState("Nos");
@@ -111,12 +118,38 @@ export function BoqSection({
     [c.boq, proposed]
   );
   const issues = useMemo(
-    () => (step === "closed" ? [] : boqAmendmentIssues(c.id, proposed, data)),
+    () =>
+      step === "edit" || step === "confirm"
+        ? boqAmendmentIssues(c.id, proposed, data)
+        : [],
     [step, c.id, proposed, data]
   );
+  const plainIssues = useMemo(
+    () => (step === "plain" ? boqPlainEditIssues(c.id, proposed, data) : []),
+    [step, c.id, proposed, data]
+  );
+  const lineUse = useMemo(() => {
+    const map = new Map<string, string>();
+    if (step !== "plain") return map;
+    for (const line of c.boq) {
+      const phrase = describeBoqLineUse(c.id, line.id, data);
+      if (phrase) map.set(line.id, phrase);
+    }
+    return map;
+  }, [step, c.boq, c.id, data]);
   const proposedTotal = boqTotal(proposed);
   const seq = nextAmendmentSeq(c);
   const valueGap = c.orderValue - total;
+
+  function openPlainEditor() {
+    setRows(rowsFromBoq(c.boq));
+    setNewName("");
+    setNewUnit("Nos");
+    setNewRate("");
+    setNewQty("");
+    setError(null);
+    setStep("plain");
+  }
 
   function openEditor() {
     setRows(rowsFromBoq(c.boq));
@@ -149,6 +182,48 @@ export function BoqSection({
       setNewUnit(hit.unit);
       setNewRate(String(hit.lastRate));
     }
+  }
+
+  function addPlainRow() {
+    setError(null);
+    const name = newName.trim();
+    if (!name) {
+      setError("New line needs an item name.");
+      return;
+    }
+    if (newRate.trim() === "" || newQty.trim() === "") {
+      setError("New line needs a rate and a qty.");
+      return;
+    }
+    const rate = Number(newRate);
+    const qty = Number(newQty);
+    if (!Number.isFinite(rate) || rate < 0 || !Number.isFinite(qty) || qty < 0) {
+      setError("New line needs a rate and qty of 0 or more.");
+      return;
+    }
+    if (
+      rows.some((r) => !r.removed && r.name.trim().toLowerCase() === name.toLowerCase())
+    ) {
+      setError(`${name} is already on the BOQ.`);
+      return;
+    }
+    setRows((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        catalogKey: name.toLowerCase(),
+        name,
+        unit: newUnit.trim() || "Nos",
+        rate: newRate,
+        qty: newQty,
+        isNew: true,
+        removed: false,
+      },
+    ]);
+    setNewName("");
+    setNewUnit("Nos");
+    setNewRate("");
+    setNewQty("");
   }
 
   function addRow() {
@@ -197,6 +272,28 @@ export function BoqSection({
     setStep("confirm");
   }
 
+  async function savePlain() {
+    setError(null);
+    if (plainIssues.length) {
+      setError(plainIssues[0]);
+      return;
+    }
+    setSaving(true);
+    const res = editContractBoq({
+      contractId: c.id,
+      boq: proposed,
+    });
+    if (!res.ok) {
+      setSaving(false);
+      setError(res.error);
+      return;
+    }
+    const saved = await confirmWorkspaceSave();
+    setSaving(false);
+    if (!saved) return;
+    setStep("closed");
+  }
+
   async function confirm(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -237,6 +334,11 @@ export function BoqSection({
         </h2>
         <div className="flex items-center gap-3">
           <span className="text-sm tabular-nums">{formatMoney(total)}</span>
+          {canEdit && step === "closed" && (
+            <Button type="button" size="sm" variant="outline" onClick={openPlainEditor}>
+              Edit BOQ
+            </Button>
+          )}
           {canAmend && step === "closed" && (
             <Button
               type="button"
@@ -278,6 +380,196 @@ export function BoqSection({
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {step === "plain" && (
+        <div className="mt-4 space-y-4 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)] p-4">
+          <div>
+            <p className="text-sm font-medium text-[var(--fh-steel)]">Edit BOQ</p>
+            <p className="text-xs text-[var(--fh-muted)]">
+              Add lines, or change a line that is not used yet. A line already
+              on an invoice, a schedule, or a delivery challan cannot be
+              deleted, and its name and unit stay locked. Its quantity and rate
+              can still change, including a quantity below what is already
+              billed, scheduled, or delivered. Saving sets the contract value
+              to this total. It does not create an amendment, and bank
+              guarantee amounts stay as saved.
+            </p>
+          </div>
+
+          <div className="overflow-x-auto rounded-lg border border-[var(--fh-line)] bg-white">
+            <table className="w-full min-w-[720px] text-left text-sm">
+              <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-xs uppercase tracking-wide text-[var(--fh-muted)]">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Item</th>
+                  <th className="px-3 py-2 font-medium">Unit</th>
+                  <th className="px-3 py-2 font-medium text-right">Rate</th>
+                  <th className="px-3 py-2 font-medium text-right">Qty</th>
+                  <th className="px-3 py-2 font-medium text-right">Amount</th>
+                  <th className="px-3 py-2 font-medium" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--fh-line)]">
+                {rows.map((r) => {
+                  const locked = !r.isNew && lineUse.has(r.id);
+                  const useText = lineUse.get(r.id);
+                  const qty = Number(r.qty) || 0;
+                  const rate = Number(r.rate) || 0;
+                  return (
+                    <tr key={r.id}>
+                      <td className="px-3 py-1.5">
+                        {locked ? (
+                          <div>
+                            <span className="font-medium">{r.name}</span>
+                            {useText && (
+                              <span className="mt-0.5 block text-xs font-normal text-[var(--fh-muted)]">
+                                On {useText} — name and unit locked
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <Input
+                            value={r.name}
+                            onChange={(e) => patchRow(r.id, { name: e.target.value })}
+                            aria-label={`Item name for ${r.name || "new line"}`}
+                            className="h-8"
+                          />
+                        )}
+                      </td>
+                      <td className="px-3 py-1.5">
+                        {locked ? (
+                          r.unit
+                        ) : (
+                          <Input
+                            value={r.unit}
+                            onChange={(e) => patchRow(r.id, { unit: e.target.value })}
+                            aria-label={`Unit for ${r.name || "new line"}`}
+                            className="h-8 w-24"
+                          />
+                        )}
+                      </td>
+                      <td className="px-3 py-1.5 text-right">
+                        <Input
+                          type="number"
+                          step="any"
+                          min={0}
+                          value={r.rate}
+                          onChange={(e) => patchRow(r.id, { rate: e.target.value })}
+                          className="ml-auto h-8 w-28 text-right"
+                          aria-label={`Rate for ${r.name || "new line"}`}
+                        />
+                      </td>
+                      <td className="px-3 py-1.5 text-right">
+                        <Input
+                          type="number"
+                          step="any"
+                          min={0}
+                          value={r.qty}
+                          onChange={(e) => patchRow(r.id, { qty: e.target.value })}
+                          className="ml-auto h-8 w-24 text-right"
+                          aria-label={`Qty for ${r.name || "new line"}`}
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums font-medium">
+                        {formatMoney(rate * qty)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {locked ? null : (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() =>
+                              setRows((prev) => prev.filter((x) => x.id !== r.id))
+                            }
+                          >
+                            Delete
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="space-y-2 rounded-lg border border-dashed border-[var(--fh-line)] bg-white p-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-[var(--fh-muted)]">
+              Add BOQ line
+            </p>
+            <div className="grid gap-2 sm:grid-cols-[2fr_1fr_1fr_1fr_auto] sm:items-end">
+              <div className="space-y-1">
+                <Label className="text-xs">Item name</Label>
+                <Input
+                  list="plain-boq-item-catalog"
+                  value={newName}
+                  onChange={(e) => onNewNameChange(e.target.value)}
+                  placeholder="Type to match previous items"
+                />
+                <datalist id="plain-boq-item-catalog">
+                  {data.itemCatalog.map((x) => (
+                    <option key={x.key} value={x.name} />
+                  ))}
+                </datalist>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Unit</Label>
+                <Input value={newUnit} onChange={(e) => setNewUnit(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Rate</Label>
+                <Input
+                  type="number"
+                  step="any"
+                  min={0}
+                  value={newRate}
+                  onChange={(e) => setNewRate(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Qty</Label>
+                <Input
+                  type="number"
+                  step="any"
+                  min={0}
+                  value={newQty}
+                  onChange={(e) => setNewQty(e.target.value)}
+                />
+              </div>
+              <Button type="button" variant="outline" onClick={addPlainRow}>
+                + Add line
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <p className="tabular-nums">
+              Contract value {formatMoney(c.orderValue)} →{" "}
+              <strong>{formatMoney(proposedTotal)}</strong>
+            </p>
+            <div className="flex gap-2">
+              <Button type="button" variant="ghost" onClick={cancel}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className="bg-[var(--fh-steel)]"
+                onClick={savePlain}
+                disabled={saving || plainIssues.length > 0}
+              >
+                {saving ? "Saving…" : "Save BOQ"}
+              </Button>
+            </div>
+          </div>
+          {plainIssues.length > 0 && (
+            <ul className="space-y-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              {plainIssues.map((i) => (
+                <li key={i}>{i}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
