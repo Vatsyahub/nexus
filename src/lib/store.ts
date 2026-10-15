@@ -1107,7 +1107,7 @@ export function saveContractSchedulePlan(
     nextDataBase
   );
 
-  let nextData = appendScheduleLog(
+  const nextData = appendScheduleLog(
     { ...nextDataBase, tasks },
     {
       by,
@@ -1146,7 +1146,7 @@ export function deleteContractSchedule(
       ? { ...t, status: "pending" as const, completedAt: null }
       : t
   );
-  let nextData = appendScheduleLog(
+  const nextData = appendScheduleLog(
     {
       ...data,
       schedules: data.schedules.filter((s) => s.contractId !== contractId),
@@ -1676,7 +1676,7 @@ export function updateContract(
   const current = data.contracts.find((c) => c.id === id);
   if (!current) return null;
 
-  let nextPatch = { ...patch };
+  const nextPatch = { ...patch };
   if (nextPatch.status !== undefined) {
     const handedOver = contractIsHandedOver(data, id, nexusTodayIso());
     if (handedOver) {
@@ -3650,7 +3650,7 @@ export function addSchedule(
 
   const schedules = [...data.schedules, full];
   const provisional: FlowhubData = { ...data, schedules };
-  let nextData = appendScheduleLog(
+  const nextData = appendScheduleLog(
     {
       ...provisional,
       tasks: completeCreateSchedulesTasks(
@@ -3756,7 +3756,7 @@ export function updateSchedule(
 
   if (cascade.length > 0) {
     // Save the edited line first; UI confirms cascade separately.
-    let nextData = appendScheduleLog(
+    const nextData = appendScheduleLog(
       {
         ...data,
         schedules: data.schedules.map((s) => (s.id === id ? next : s)),
@@ -3790,7 +3790,7 @@ export function updateSchedule(
       ? `Updated ${label} qty ${current.quantity} → ${next.quantity}${committedBit}`
       : `Updated ${label}${committedBit}`;
 
-  let nextData = appendScheduleLog(
+  const nextData = appendScheduleLog(
     {
       ...data,
       schedules: data.schedules.map((s) => (s.id === id ? next : s)),
@@ -3906,7 +3906,7 @@ export function applyCascadeProposals(
         `${p.label} ${formatScheduleDateRange(p.fromStartDate, p.fromEndDate)} to ${formatScheduleDateRange(p.startDate, p.endDate)}`
     )
     .join("; ")}`;
-  let nextData = appendScheduleLog(
+  const nextData = appendScheduleLog(
     { ...data, schedules },
     {
       by,
@@ -3949,7 +3949,7 @@ export function markScheduleDone(
     doneBy: done ? by : null,
     updatedAt: now,
   });
-  let nextData = appendScheduleLog(
+  const nextData = appendScheduleLog(
     {
       ...data,
       schedules: data.schedules.map((s) => (s.id === id ? next : s)),
@@ -3974,7 +3974,7 @@ export function deleteSchedule(
   const data = read();
   const current = data.schedules.find((s) => s.id === id);
   if (!current) return false;
-  let nextData = appendScheduleLog(
+  const nextData = appendScheduleLog(
     {
       ...data,
       schedules: data.schedules.filter((s) => s.id !== id),
@@ -4001,7 +4001,7 @@ export function resetSchedulesSlice(opts?: { by?: string }): {
   const cleared = data.schedules.length;
   const by = opts?.by ?? "Master";
   // Reopen create_schedules if contract has no schedules after reset
-  let tasks = data.tasks.map((t) =>
+  const tasks = data.tasks.map((t) =>
     t.catalogKey === "create_schedules" &&
     (t.status === "completed" || t.status === "not_required")
       ? {
