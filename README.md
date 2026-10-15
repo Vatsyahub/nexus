@@ -23,20 +23,6 @@ Settings stays because it is the password screen. First login, and a Master reco
 
 If Master forgets the password, set `MASTER_RECOVERY_CODE` in `.env` (at least 8 characters) and type that code in the password field. Nexus then asks for a new password. The code is not shown on the login screen. Other people still use Forgot password, which tells them to contact the administrator.
 
-### Beta 3
-
-This snapshot is the hub as saved on 14 Oct 2026: the handover date fix, contracts C-001 through C-011, and the four user accounts. `npm run db:restore-beta3` replaces the workspace and those accounts.
-
-```bash
-npm install
-cp .env.example .env
-npm run db:setup
-npm run db:restore-beta3
-npm run dev
-```
-
-Sign in with the same Master account as before. Set `DATABASE_URL` and `AUTH_SECRET` in `.env` first.
-
 ### Demo / test data
 
 Load a full sample workspace (contracts, tasks, invoices, payments, schedules, users of every clearance):

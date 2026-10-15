@@ -12,7 +12,6 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:seed-demo": "tsx prisma/seed-demo-data.ts",
     "db:setup": "prisma migrate dev && tsx prisma/seed.ts",
-    "db:restore-beta3": "tsx scripts/restore-beta3.ts",
     "postinstall": "prisma generate"
   },
   "prisma": {
