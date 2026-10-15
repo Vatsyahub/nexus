@@ -171,6 +171,10 @@ export type Contract = {
   abgRetrievedDate: string | null;
   pbgRequired: boolean;
   pbgPercent: number | null;
+  /**
+   * Saved rupee amount. New contracts start at percent × order value.
+   * Later saves keep this figure; it is not rewritten from the percent.
+   */
   pbgValue: number | null;
   pbgNumber: string | null;
   pbgDate: string | null;

@@ -693,6 +693,7 @@ export default function ContractDetailPage() {
 
       <BoqSection
         contract={c}
+        canEdit={contractOpen}
         canAmend={canAmend}
         actorName={actorName}
         onMessage={setMsg}
