@@ -32,7 +32,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const selectClass =
-  "h-[22px] max-w-[8.5rem] truncate rounded border border-[var(--fh-line)] bg-[var(--fh-panel)] px-1 text-[11px] text-[var(--fh-ink)]";
+  "h-[26px] max-w-[9.5rem] truncate rounded border border-[var(--fh-line)] bg-[var(--fh-panel)] px-1.5 text-[13px] text-[var(--fh-ink)]";
 
 const INK = "var(--fh-ink)";
 const STEEL = "var(--fh-steel)";
@@ -126,9 +126,9 @@ export default function NexusCorePage() {
   return (
     <div
       data-nexus-core-home
-      className="flex h-full min-h-0 w-full flex-col items-start gap-6 overflow-hidden pr-4"
+      className="flex h-full min-h-0 w-full flex-col gap-4 overflow-hidden"
     >
-      <header className="flex w-full shrink-0 items-end justify-between gap-4">
+      <header className="flex w-full shrink-0 items-center justify-between gap-4">
         <h1 className="font-[family-name:var(--font-display)] text-4xl font-semibold text-[var(--fh-steel)]">
           Nexus Core
         </h1>
@@ -165,16 +165,11 @@ export default function NexusCorePage() {
         />
       </section>
 
-      <div
-        className="flex h-0 min-h-0 w-full flex-1 items-start justify-start overflow-hidden"
-        style={{ containerType: "size" }}
-      >
+      <div className="flex min-h-0 w-full flex-1 overflow-hidden">
         <section
           data-core-grid
-          className="grid gap-6"
+          className="grid h-full min-h-0 w-full gap-4"
           style={{
-            width: "min(100cqw, 100cqh)",
-            height: "min(100cqw, 100cqh)",
             gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
             gridTemplateRows: "minmax(0, 1fr) minmax(0, 1fr)",
           }}
@@ -204,7 +199,7 @@ export default function NexusCorePage() {
         <ChartCard
           title="Billing progress"
           controls={
-            <label className="flex items-center gap-1 text-[10px] text-[var(--fh-muted)]">
+            <label className="flex items-center gap-1.5 text-[13px] text-[var(--fh-muted)]">
               City
               <select
                 id="bill-city"
@@ -257,21 +252,21 @@ function Stat({
   emphasize?: boolean;
 }) {
   return (
-    <div className="shrink-0 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-panel)] px-3 py-2">
-      <p className="whitespace-nowrap text-[11px] leading-4 text-[var(--fh-muted)]">
+    <div className="shrink-0 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-panel)] px-3.5 py-2">
+      <p className="whitespace-nowrap text-[13px] leading-[18px] text-[var(--fh-muted)]">
         {label}
       </p>
       <p
         className={cn(
-          "whitespace-nowrap font-[family-name:var(--font-display)] font-semibold tabular-nums leading-6",
+          "whitespace-nowrap font-[family-name:var(--font-display)] font-semibold tabular-nums leading-none",
           emphasize
-            ? "text-[22px] text-[var(--fh-steel)]"
-            : "text-xl text-[var(--fh-ink)]"
+            ? "text-[30px] text-[var(--fh-steel)]"
+            : "text-[26px] text-[var(--fh-ink)]"
         )}
       >
         {value}
       </p>
-      <p className="whitespace-nowrap text-[11px] leading-4 text-[var(--fh-muted)]">
+      <p className="whitespace-nowrap text-[13px] leading-[18px] text-[var(--fh-muted)]">
         {hint}
       </p>
     </div>
@@ -290,9 +285,9 @@ function ChartCard({
   className?: string;
 }) {
   return (
-    <section className={cn("flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-[var(--fh-line)] bg-[var(--fh-panel)] px-3 py-2.5", className)}>
+    <section className={cn("flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-[var(--fh-line)] bg-[var(--fh-panel)] px-3.5 py-3", className)}>
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-1">
-        <h2 className="shrink-0 text-xs font-semibold leading-4 text-[var(--fh-ink)]">
+        <h2 className="shrink-0 text-lg font-semibold leading-tight text-[var(--fh-ink)]">
           {title}
         </h2>
         {controls}
@@ -318,7 +313,7 @@ function Toggle({
       type="button"
       onClick={onClick}
       className={cn(
-        "whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] leading-none",
+        "whitespace-nowrap rounded px-2 py-1 text-[13px] leading-none",
         active
           ? "bg-[var(--fh-steel)] text-white"
           : "text-[var(--fh-muted)] hover:text-[var(--fh-ink)]"
@@ -332,7 +327,7 @@ function Toggle({
 function Swatch({ color }: { color: string }) {
   return (
     <span
-      className="inline-block size-2 shrink-0"
+      className="inline-block size-3 shrink-0"
       style={{ background: color }}
     />
   );
@@ -368,19 +363,13 @@ function CostPie({
   const empty = total <= 0.005;
 
   return (
-    <div
-      className="flex min-h-0 flex-1 items-center gap-3"
-      style={{ containerType: "size" }}
-    >
+    <div className="flex min-h-0 flex-1 items-center gap-7">
+      <div className="h-full max-w-[58%] shrink-0 aspect-square">
       <svg
         viewBox="0 0 100 100"
         role="img"
         aria-label="Cost against selling price"
-        className="shrink-0"
-        style={{
-          width: "min(100cqh, 48cqw)",
-          height: "min(100cqh, 48cqw)",
-        }}
+        className="h-full w-full"
       >
         {empty ? (
           <circle cx="50" cy="50" r="46" fill={TRACK} />
@@ -397,18 +386,19 @@ function CostPie({
         )}
         <circle cx="50" cy="50" r="24" fill={PANEL} />
       </svg>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col justify-center gap-1">
+      </div>
+      <div className="flex min-w-0 flex-col justify-center gap-4">
         {slices.map((slice) => (
-          <div key={slice.label} className="flex min-w-0 items-center gap-1.5">
+          <div key={slice.label} className="flex min-w-0 items-center gap-2.5">
             <Swatch color={slice.color} />
             <span
-              className="text-[12px] leading-4"
+              className="text-lg leading-5"
               style={{ color: slice.color === LOSS ? LOSS : INK }}
             >
               {slice.label}
             </span>
             <span
-              className="shrink-0 text-[11px] font-semibold tabular-nums leading-[14px]"
+              className="shrink-0 text-xl font-bold tabular-nums leading-5"
               style={{ color: slice.color === LOSS ? LOSS : INK }}
             >
               {formatCoreMoney(slice.value)}
@@ -416,7 +406,7 @@ function CostPie({
           </div>
         ))}
         <p
-          className="text-[10px] leading-[13px]"
+          className="text-[15px] leading-5"
           style={{
             color: loss ? LOSS : MUTED,
             fontWeight: loss ? 600 : 400,
@@ -458,56 +448,110 @@ function piePaths(
 
 function BillingChart({ bars }: { bars: BillingBar[] }) {
   if (!bars.length) {
-    return <p className="text-xs text-[var(--fh-muted)]">No contracts yet.</p>;
+    return <p className="text-sm text-[var(--fh-muted)]">No contracts yet.</p>;
   }
   const maxL = niceMax(
     Math.max(...bars.map((bar) => Math.max(bar.wo, bar.billed))) / 100000
   );
   const ticks = [0, maxL / 2, maxL];
+  const twoColumns = bars.length > 5;
+  const mid = Math.ceil(bars.length / 2);
+  const columns = twoColumns
+    ? [bars.slice(0, mid), bars.slice(mid)]
+    : [bars];
+  const rows = columns[0].length;
 
   return (
     <div
       role="img"
       aria-label="Billing progress: work-order value and amount billed by city"
-      className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-hidden"
+      className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
     >
-      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1">
+      <div className="mb-2 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1">
         <LegendItem color={STEEL} label="Work-order value" />
         <LegendItem color={GOLD} label="Amount billed" />
-        <span className="text-[11px] font-medium leading-4 text-[var(--fh-ink)]">
+        <span className="text-sm font-semibold leading-4 text-[var(--fh-ink)]">
           Value (L)
         </span>
       </div>
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]">
-        <div
-          className="grid w-full min-w-0 items-center gap-x-2 gap-y-1.5"
-          style={{ gridTemplateColumns: "max-content minmax(0, 1fr) auto" }}
-        >
-          {bars.map((bar) => (
-            <div key={bar.key} className="contents">
-              <div className="row-span-2 self-center whitespace-nowrap text-xs font-semibold leading-4 text-[var(--fh-ink)]">
-                {bar.label}
+      <div
+        className="grid h-full min-h-0 min-w-0 flex-1 gap-x-5"
+        style={{
+          gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))`,
+          overflow: "hidden",
+        }}
+      >
+        {columns.map((column, index) => (
+          <div
+            key={column[0]?.key ?? index}
+            className="grid h-full min-h-0 min-w-0"
+            style={{
+              gridTemplateRows: `repeat(${rows}, minmax(2.4rem, 1fr))`,
+              rowGap: "6px",
+            }}
+          >
+            {column.map((bar) => (
+              <div
+                key={bar.key}
+                className="grid min-h-0 items-stretch gap-x-2"
+                style={{
+                  gridTemplateColumns: "5.6rem minmax(0, 1fr)",
+                  gridTemplateRows: "minmax(14px, 1fr) minmax(14px, 1fr)",
+                  rowGap: "3px",
+                }}
+              >
+                <div
+                  className="row-span-2 self-center truncate text-sm font-semibold leading-4 text-[var(--fh-ink)]"
+                  title={bar.label}
+                >
+                  {bar.label}
+                </div>
+                <BillingPair amount={bar.wo} maxL={maxL} color={STEEL} />
+                <BillingPair amount={bar.billed} maxL={maxL} color={GOLD} />
               </div>
-              <BillingHBar amount={bar.wo} maxL={maxL} color={STEEL} />
-              <div className="flex items-center gap-1 whitespace-nowrap text-xs font-semibold leading-4 tabular-nums text-[var(--fh-ink)]">
-                <Swatch color={STEEL} />
-                {formatCoreMoney(bar.wo)}
-              </div>
-              <BillingHBar amount={bar.billed} maxL={maxL} color={GOLD} />
-              <div className="flex items-center gap-1 whitespace-nowrap text-xs font-semibold leading-4 tabular-nums text-[var(--fh-ink)]">
-                <Swatch color={GOLD} />
-                {formatCoreMoney(bar.billed)}
-              </div>
-            </div>
-          ))}
-          <span />
-          <div className="flex justify-between text-[11px] font-medium leading-4 text-[var(--fh-ink)]">
-            {ticks.map((tick) => (
-              <span key={tick}>{formatCoreMoney(tick * 100000)}</span>
             ))}
           </div>
-          <span />
-        </div>
+        ))}
+      </div>
+      <div
+        className="mt-1 grid shrink-0 gap-x-5"
+        style={{
+          gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))`,
+        }}
+      >
+        {columns.map((column, index) => (
+          <div
+            key={column[0]?.key ?? index}
+            className="grid grid-cols-[5.6rem_minmax(0,1fr)] gap-x-2"
+          >
+            <span />
+            <div className="flex min-w-0 justify-between gap-1 overflow-hidden pr-14 text-xs font-semibold leading-4 text-[var(--fh-ink)]">
+              {ticks.map((tick) => (
+                <span key={tick}>{formatCoreMoney(tick * 100000)}</span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BillingPair({
+  amount,
+  maxL,
+  color,
+}: {
+  amount: number;
+  maxL: number;
+  color: string;
+}) {
+  return (
+    <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5">
+      <BillingHBar amount={amount} maxL={maxL} color={color} />
+      <div className="flex items-center gap-1 whitespace-nowrap text-[13px] font-semibold leading-4 tabular-nums text-[var(--fh-ink)]">
+        <Swatch color={color} />
+        {formatCoreMoney(amount)}
       </div>
     </div>
   );
@@ -526,7 +570,7 @@ function BillingHBar({
   const width =
     amount <= 0.005 ? "0px" : `max(2px, ${(ratio * 100).toFixed(2)}%)`;
   return (
-    <div className="h-2.5 w-full min-w-0" style={{ background: TRACK }} title={formatCoreMoney(amount)}>
+    <div className="h-full min-h-3.5 w-full min-w-0" style={{ background: TRACK }} title={formatCoreMoney(amount)}>
       <div style={{ width, height: "100%", background: color }} />
     </div>
   );
@@ -534,7 +578,7 @@ function BillingHBar({
 
 function LegendItem({ color, label }: { color: string; label: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs leading-4 text-[var(--fh-ink)]">
+    <span className="inline-flex items-center gap-2 text-sm leading-4 text-[var(--fh-ink)]">
       <Swatch color={color} />
       {label}
     </span>
@@ -577,8 +621,8 @@ function OutstandingChart({
   ];
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-1">
-      <div className="flex min-h-0 flex-1 items-end justify-center gap-10">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="grid min-h-0 flex-1 grid-cols-2 items-end gap-9 px-4">
         {bars.map((bar) => {
           const ratio = maxL <= 0 ? 0 : Math.min(1, bar.amount / 100000 / maxL);
           const height =
@@ -588,22 +632,25 @@ function OutstandingChart({
           return (
             <div
               key={bar.label}
-              className="flex h-full w-[6.5rem] flex-col items-center"
+              className="flex h-full min-w-0 flex-col items-center"
             >
               <div
-                className="shrink-0 whitespace-nowrap text-xs font-semibold tabular-nums leading-4"
+                className="shrink-0 whitespace-nowrap font-[family-name:var(--font-display)] text-[32px] font-semibold tabular-nums leading-none"
                 style={{ color: bar.color }}
               >
                 {formatCoreMoney(bar.amount)}
               </div>
-              <div className="mt-1 flex min-h-[3rem] w-full flex-1 items-end justify-center">
-                <div className="w-7" style={{ height, background: bar.color }} />
+              <div className="mt-2 flex min-h-[3rem] w-full flex-1 items-end justify-center">
+                <div
+                  className="w-[38%] min-w-[84px] max-w-[140px]"
+                  style={{ height, background: bar.color }}
+                />
               </div>
-              <div className="mt-1 shrink-0 whitespace-nowrap text-xs font-semibold leading-4 text-[var(--fh-ink)]">
+              <div className="mt-2 shrink-0 whitespace-nowrap text-lg font-semibold leading-tight text-[var(--fh-ink)]">
                 {bar.label}
               </div>
               <div
-                className="shrink-0 whitespace-nowrap text-[11px] leading-4"
+                className="shrink-0 whitespace-nowrap text-sm leading-5"
                 style={{ color: bar.color }}
               >
                 {bar.count}
@@ -612,7 +659,7 @@ function OutstandingChart({
           );
         })}
       </div>
-      <div className="flex shrink-0 justify-between px-6 text-[11px] leading-4 text-[var(--fh-muted)]">
+      <div className="flex shrink-0 justify-between px-8 pt-1.5 text-[13px] leading-4 text-[var(--fh-muted)]">
         <span>0.00L</span>
         <span>{formatCoreMoney(maxL * 100000)}</span>
       </div>
@@ -626,34 +673,39 @@ function DepartmentChart({
   rows: { name: string; open: number; overdue: number }[];
 }) {
   if (!rows.length) {
-    return <p className="text-xs text-[var(--fh-muted)]">No open tasks.</p>;
+    return <p className="text-sm text-[var(--fh-muted)]">No open tasks.</p>;
   }
   const maxOpen = niceMax(Math.max(...rows.map((row) => row.open)));
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col overflow-auto">
-      <div className="my-1 flex shrink-0 flex-wrap gap-2.5">
+      <div className="mb-2 flex shrink-0 flex-wrap gap-4">
         <LegendItem color={STEEL} label="Open, not overdue" />
         <LegendItem color={GOLD} label="Overdue" />
       </div>
-      <div className="grid grid-cols-[4.75rem_minmax(0,1fr)] items-center gap-x-1.5 gap-y-[5px]">
-        <div className="text-[9px] leading-3 text-[var(--fh-muted)]">
+      <div className="grid shrink-0 grid-cols-[7.4rem_minmax(0,1fr)] items-center gap-x-3">
+        <div className="text-[13px] leading-4 text-[var(--fh-muted)]">
           Department
         </div>
-        <div className="text-[9px] leading-3 text-[var(--fh-muted)]">
+        <div className="text-[13px] leading-4 text-[var(--fh-muted)]">
           Open tasks (count)
         </div>
+      </div>
+      <div className="mt-2 flex min-h-0 flex-1 flex-col justify-between gap-3 overflow-auto">
         {rows.map((row) => {
           const resting = Math.max(0, row.open - row.overdue);
           return (
-            <div key={row.name} className="contents">
+            <div
+              key={row.name}
+              className="grid shrink-0 grid-cols-[7.4rem_minmax(0,1fr)] items-center gap-x-3"
+            >
               <div
-                className="truncate text-[11px] leading-[14px] text-[var(--fh-ink)]"
+                className="truncate text-[15px] leading-5 text-[var(--fh-ink)]"
                 title={row.name}
               >
                 {row.name}
               </div>
               <div>
-                <div className="flex h-2" style={{ background: TRACK }}>
+                <div className="flex h-7" style={{ background: TRACK }}>
                   <div
                     style={{
                       width: `${(resting / maxOpen) * 100}%`,
@@ -667,7 +719,7 @@ function DepartmentChart({
                     }}
                   />
                 </div>
-                <div className="text-[9px] tabular-nums leading-3 text-[var(--fh-muted)]">
+                <div className="mt-0.5 text-[13px] tabular-nums leading-4 text-[var(--fh-muted)]">
                   {row.open} open, {row.overdue} overdue
                 </div>
               </div>
@@ -675,9 +727,9 @@ function DepartmentChart({
           );
         })}
       </div>
-      <div className="mt-0.5 grid grid-cols-[4.75rem_minmax(0,1fr)]">
+      <div className="mt-1.5 grid grid-cols-[7.4rem_minmax(0,1fr)]">
         <span />
-        <div className="flex justify-between text-[9px] leading-3 text-[var(--fh-muted)]">
+        <div className="flex justify-between text-[13px] leading-4 text-[var(--fh-muted)]">
           <span>0</span>
           <span>{formatCountTick(maxOpen / 2)}</span>
           <span>{formatCountTick(maxOpen)}</span>
