@@ -2724,6 +2724,7 @@ function normalizePayment(
     contractId: p.contractId || invoice?.contractId || "",
     invoiceId,
     link,
+    otherDeductionReason: (p.otherDeductionReason ?? "").trim(),
   };
 }
 

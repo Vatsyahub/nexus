@@ -123,6 +123,7 @@ function payment(partial: Partial<Payment> = {}): Payment {
     retentionAmount: 0,
     tdsAmount: 0,
     otherDeductions: 0,
+    otherDeductionReason: "",
     createdAt: "2026-02-02T00:00:00.000Z",
     ...partial,
   };

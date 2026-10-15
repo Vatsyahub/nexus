@@ -92,6 +92,7 @@ test("deleting an invoice unlinks its payments and leaves them in the list", () 
     retentionAmount: 0,
     tdsAmount: 0,
     otherDeductions: 0,
+    otherDeductionReason: "",
   });
   assert.ok(payment);
   const unrelated = addPayment({
@@ -104,6 +105,7 @@ test("deleting an invoice unlinks its payments and leaves them in the list", () 
     retentionAmount: 0,
     tdsAmount: 0,
     otherDeductions: 0,
+    otherDeductionReason: "",
   });
   assert.ok(unrelated);
 

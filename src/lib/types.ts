@@ -353,6 +353,8 @@ export type Payment = {
   retentionAmount: number;
   tdsAmount: number;
   otherDeductions: number;
+  /** Optional note for otherDeductions; missing on old records → empty */
+  otherDeductionReason: string;
   createdAt: string;
 };
 

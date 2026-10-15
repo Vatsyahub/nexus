@@ -63,6 +63,9 @@ export function PaymentForm({
   const [other, setOther] = useState(
     initial ? String(initial.otherDeductions) : "0"
   );
+  const [otherReason, setOtherReason] = useState(
+    initial?.otherDeductionReason ?? ""
+  );
   const [prefilledFor, setPrefilledFor] = useState<string | null>(
     initial?.invoiceId ?? null
   );
@@ -122,6 +125,7 @@ export function PaymentForm({
     setGstAmount(String(round2(selected.gstAmount)));
     setNetAmount(String(round2(selected.netAmount + extra - ret - tdsHold)));
     setOther("0");
+    setOtherReason("");
     setPrefilledFor(selected.id);
   }, [selected, contract, data, prefilledFor]);
 
@@ -147,6 +151,7 @@ export function PaymentForm({
       retentionAmount: Number(retention) || 0,
       tdsAmount: Number(tds) || 0,
       otherDeductions: Number(other) || 0,
+      otherDeductionReason: otherReason.trim(),
     });
     setPending(false);
     if (err) setMsg(err);
@@ -242,6 +247,15 @@ export function PaymentForm({
         <Field label="Retention (held)" value={retention} onChange={setRetention} />
         <Field label="TDS (held)" value={tds} onChange={setTds} />
         <Field label="Other deductions" value={other} onChange={setOther} />
+        <div className="space-y-1">
+          <Label>Deduction reason</Label>
+          <Input
+            type="text"
+            value={otherReason}
+            onChange={(e) => setOtherReason(e.target.value)}
+            placeholder="Optional"
+          />
+        </div>
       </div>
 
       <div className="space-y-1 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)] px-3 py-2 text-xs text-[var(--fh-muted)]">

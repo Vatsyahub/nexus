@@ -212,6 +212,7 @@ function paymentMatchesToken(
     | "retentionAmount"
     | "tdsAmount"
     | "otherDeductions"
+    | "otherDeductionReason"
     | "link"
   >,
   contract:
@@ -236,6 +237,7 @@ function paymentMatchesToken(
       payment.retentionAmount,
       payment.tdsAmount,
       payment.otherDeductions,
+      payment.otherDeductionReason,
       payment.netAmount + payment.gstAmount,
     ]) ||
     (!!invoice &&
@@ -259,6 +261,7 @@ export function paymentMatchesQuery(
     | "retentionAmount"
     | "tdsAmount"
     | "otherDeductions"
+    | "otherDeductionReason"
     | "link"
   >,
   contract:
