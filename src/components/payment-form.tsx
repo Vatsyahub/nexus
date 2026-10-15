@@ -2,14 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  invoiceExpectedCash,
   invoiceExtraTotal,
   invoiceOutstanding,
   invoiceRetentionHold,
   invoiceTdsHold,
   useFlowhubData,
 } from "@/lib/store";
-import { DEFAULT_TDS_PERCENT, type Payment, type PaymentLink } from "@/lib/types";
+import { type Payment, type PaymentLink } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -70,7 +69,6 @@ export function PaymentForm({
     initial?.invoiceId ?? null
   );
 
-  const contract = data.contracts.find((c) => c.id === contractId);
   const invoicesForLink = useMemo(() => {
     if (!contractId || link === "unlinked") return [];
     return data.invoices
@@ -80,27 +78,6 @@ export function PaymentForm({
   }, [data.invoices, contractId, link]);
 
   const selected = data.invoices.find((i) => i.id === invoiceId);
-  const dueBefore =
-    selected?.type === "TI"
-      ? (() => {
-          const raw = invoiceOutstanding(selected, data);
-          if (!initial || initial.invoiceId !== selected.id) return raw;
-          // When editing a payment already on this TI, show balance as if this
-          // payment were removed so the form can target a clean settle.
-          // Outstanding only subtracts net+GST+other (not ret/TDS holds).
-          return (
-            raw +
-            (initial.netAmount + initial.gstAmount + initial.otherDeductions)
-          );
-        })()
-      : null;
-
-  const cash = (Number(netAmount) || 0) + (Number(gstAmount) || 0);
-  const accounted =
-    cash +
-    (Number(retention) || 0) +
-    (Number(tds) || 0) +
-    (Number(other) || 0);
 
   useEffect(() => {
     if (link === "unlinked") {
@@ -113,7 +90,7 @@ export function PaymentForm({
   }, [link, invoicesForLink, invoiceId]);
 
   useEffect(() => {
-    if (!selected || !contract) return;
+    if (!selected || !contractId) return;
     if (prefilledFor === selected.id) return;
     const ret = invoiceRetentionHold(selected, data);
     const tdsHold = invoiceTdsHold(selected, data);
@@ -127,7 +104,7 @@ export function PaymentForm({
     setOther("0");
     setOtherReason("");
     setPrefilledFor(selected.id);
-  }, [selected, contract, data, prefilledFor]);
+  }, [selected, contractId, data, prefilledFor]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -256,38 +233,6 @@ export function PaymentForm({
             placeholder="Optional"
           />
         </div>
-      </div>
-
-      <div className="space-y-1 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)] px-3 py-2 text-xs text-[var(--fh-muted)]">
-        <p>
-          Cash fields are money received in the bank. Retention and TDS are
-          held amounts — they settle the invoice but are not cash due. When you
-          pick an invoice, cash is prefilled as invoice total minus retention
-          and TDS (editable).
-        </p>
-        {contract && (
-          <p>
-            This contract: retention {contract.retentionPercent}% of net, TDS{" "}
-            {contract.tdsPercent ?? DEFAULT_TDS_PERCENT}% of net. Extra charges
-            are not reduced.
-          </p>
-        )}
-        <p>
-          This entry: cash {formatMoney(cash)} · accounted{" "}
-          {formatMoney(accounted)} (cash + retention + TDS + other).
-        </p>
-        {selected && (
-          <p>
-            Invoice {selected.number}: total {formatMoney(selected.finalAmount)}{" "}
-            · expected cash {formatMoney(invoiceExpectedCash(selected, data))}
-            {dueBefore != null
-              ? ` · balance before this entry ${balanceLabel(dueBefore)}`
-              : ""}
-            {selected.type === "TI"
-              ? ` · after this entry ${balanceLabel(dueBefore != null ? dueBefore - accounted : selected.finalAmount - accounted)}`
-              : ""}
-          </p>
-        )}
       </div>
 
       {msg && (
