@@ -2,7 +2,11 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { closureDateNeedsAttention, useFlowhubData } from "@/lib/store";
+import {
+  closureDateNeedsAttention,
+  taskIsOpen,
+  useFlowhubData,
+} from "@/lib/store";
 import { contractDisplayStatus, todayIso } from "@/lib/nexus-core";
 import { GST_RATE } from "@/lib/types";
 import { buttonVariants } from "@/components/ui/button";
@@ -103,11 +107,7 @@ export default function ContractsPage() {
                   .reduce((s, i) => s + (Number(i.netAmount) || 0), 0);
                 const yetToBill = c.orderValue - billedNet;
                 const pending = data.tasks.filter(
-                  (t) =>
-                    t.contractId === c.id &&
-                    !t.parentId &&
-                    t.status !== "completed" &&
-                    t.status !== "not_required"
+                  (t) => t.contractId === c.id && !t.parentId && taskIsOpen(t)
                 ).length;
                 return (
                   <TableRow key={c.id}>

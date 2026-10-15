@@ -112,8 +112,6 @@ test("plain BOQ edit updates lines and order value without an amendment or guara
   assert.equal(next.pbgValue, 25);
   assert.equal(next.abgPercent, 10);
   assert.equal(next.pbgPercent, 5);
-  assert.equal(next.abgValuePinned, true);
-  assert.equal(next.pbgValuePinned, true);
   assert.equal(next.amendments.length, 0);
   const renamed = next.boq.find((b) => b.id === free.id);
   assert.equal(renamed?.name, "Renamed item");
@@ -288,7 +286,7 @@ test("a used line can change rate and qty below what is already billed, schedule
   assert.match(amend.error, /dispatched\/installed/);
 });
 
-test("an amendment still records history, derives guarantee amounts, and closes its task", () => {
+test("an amendment still records history, keeps saved guarantee amounts, and closes its task", () => {
   const item = line("amd-item", "Amendment item", 10, 100);
   const contract = makeContract("C-PLAIN-AMD", [item]);
   const task = addManualTask({
@@ -313,9 +311,8 @@ test("an amendment still records history, derives guarantee amounts, and closes 
   assert.equal(first.amendment.note, "Client letter");
   assert.equal(first.amendment.newOrderValue, 1800);
   assert.equal(first.contract.orderValue, 1800);
-  assert.equal(first.contract.abgValue, 180);
-  assert.equal(first.contract.pbgValue, 90);
-  assert.equal(first.contract.abgValuePinned, undefined);
+  assert.equal(first.contract.abgValue, 100);
+  assert.equal(first.contract.pbgValue, 50);
   assert.equal(
     getData().tasks.find((t) => t.id === task.id)?.status,
     "completed"
@@ -328,8 +325,8 @@ test("an amendment still records history, derives guarantee amounts, and closes 
   assert.equal(plain.ok, true);
   const pinned = saved(contract.id);
   assert.equal(pinned.orderValue, 500);
-  assert.equal(pinned.abgValue, 180);
-  assert.equal(pinned.pbgValue, 90);
+  assert.equal(pinned.abgValue, 100);
+  assert.equal(pinned.pbgValue, 50);
   assert.equal(pinned.amendments.length, 1);
   assert.equal(pinned.amendments[0]?.number, "A1");
 
@@ -354,27 +351,27 @@ test("an amendment still records history, derives guarantee amounts, and closes 
   assert.equal(final.amendments[1]?.number, "A2");
   assert.equal(final.amendments[1]?.date, "2026-10-08");
   assert.equal(final.orderValue, 800);
-  assert.equal(final.abgValue, 80);
-  assert.equal(final.pbgValue, 40);
-  assert.equal(final.abgValuePinned, undefined);
-  assert.equal(final.pbgValuePinned, undefined);
+  assert.equal(final.abgValue, 100);
+  assert.equal(final.pbgValue, 50);
   assert.equal(getData().tasks.find((t) => t.id === again.id)?.status, "completed");
 });
 
-test("editing the contract order value still derives guarantee amounts", () => {
+test("editing the contract order value keeps saved guarantee amounts", () => {
   const contract = makeContract("C-PLAIN-ORDER", [line("order-item", "Order item", 2, 100)]);
   const edited = editContractBoq({
     contractId: contract.id,
     boq: [line("order-item", "Order item", 1, 100)],
   });
   assert.equal(edited.ok, true);
+  assert.equal(saved(contract.id).orderValue, 100);
   assert.equal(saved(contract.id).abgValue, 20);
+  assert.equal(saved(contract.id).pbgValue, 10);
   const updated = updateContract(contract.id, { orderValue: 4000 });
   assert.ok(updated);
   assert.equal(updated?.orderValue, 4000);
-  assert.equal(updated?.abgValue, 400);
-  assert.equal(updated?.pbgValue, 200);
-  assert.equal(saved(contract.id).abgValue, 400);
+  assert.equal(updated?.abgValue, 20);
+  assert.equal(updated?.pbgValue, 10);
+  assert.equal(saved(contract.id).abgValue, 20);
 });
 
 test("plain BOQ edit rejects an empty bill, duplicates, and a no-op save", () => {

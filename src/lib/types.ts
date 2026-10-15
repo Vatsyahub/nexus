@@ -157,15 +157,10 @@ export type Contract = {
   /** Percent of order value (net / before GST) */
   abgPercent: number | null;
   /**
-   * Saved ABG amount. Normally orderValue × abgPercent / 100.
-   * A plain BOQ edit leaves this amount as saved instead of re-deriving it.
+   * Saved rupee amount. New contracts start at percent × order value.
+   * Later saves keep this figure; it is not rewritten from the percent.
    */
   abgValue: number | null;
-  /**
-   * True after a plain BOQ edit so the saved ABG amount is not re-derived
-   * from a new order value. A BOQ amendment clears it and derives again.
-   */
-  abgValuePinned?: boolean;
   abgNumber: string | null;
   abgDate: string | null;
   abgExpiry: string | null;
@@ -176,10 +171,11 @@ export type Contract = {
   abgRetrievedDate: string | null;
   pbgRequired: boolean;
   pbgPercent: number | null;
-  /** Saved PBG amount. A plain BOQ edit does not re-derive this from order value. */
+  /**
+   * Saved rupee amount. New contracts start at percent × order value.
+   * Later saves keep this figure; it is not rewritten from the percent.
+   */
   pbgValue: number | null;
-  /** See abgValuePinned. A BOQ amendment clears it and derives the PBG amount again. */
-  pbgValuePinned?: boolean;
   pbgNumber: string | null;
   pbgDate: string | null;
   pbgExpiry: string | null;
@@ -304,6 +300,12 @@ export type Task = {
    */
   verificationDepartment?: string | null;
   verificationRequestedBy?: string | null;
+  /**
+   * Set when Master deletes the task. The row stays so a system task
+   * (including a bank-guarantee expiry chase) is not created again.
+   * Lists and counts skip it.
+   */
+  deletedAt?: string | null;
   createdAt: string;
 };
 
@@ -661,4 +663,16 @@ export function guaranteeAmount(
 ): number | null {
   if (percent == null || Number.isNaN(percent)) return null;
   return (orderValue * percent) / 100;
+}
+
+/**
+ * True once the guarantee number, creation date, and bank are all saved.
+ * Until then a required guarantee can still be marked not required.
+ */
+export function guaranteeIdentitySaved(
+  number: string | null | undefined,
+  date: string | null | undefined,
+  bank: string | null | undefined
+): boolean {
+  return Boolean(number?.trim() && date?.trim() && bank?.trim());
 }

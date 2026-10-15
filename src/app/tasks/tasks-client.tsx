@@ -21,6 +21,8 @@ import {
   completeTaskWithSubtasks,
   completionNeedsVerification,
   confirmTaskVerification,
+  deleteSubtask,
+  deleteTask,
   flushWorkspace,
   formatAssignees,
   listDepartments,
@@ -42,6 +44,8 @@ import {
   type TaskStatus,
 } from "@/lib/types";
 import type { ClearanceRole } from "@/lib/clearance";
+import { confirmAction } from "@/components/confirm-panel";
+import { DeleteIconButton } from "@/components/icon-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -177,11 +181,13 @@ export default function TasksClient({
   role,
   currentUserName,
   currentUserDepartment,
+  canDeleteTasks,
 }: {
   people: AssignablePerson[];
   role: ClearanceRole;
   currentUserName: string;
   currentUserDepartment: string | null;
+  canDeleteTasks: boolean;
 }) {
   return (
     <Suspense
@@ -194,6 +200,7 @@ export default function TasksClient({
         role={role}
         currentUserName={currentUserName}
         currentUserDepartment={currentUserDepartment}
+        canDeleteTasks={canDeleteTasks}
       />
     </Suspense>
   );
@@ -204,11 +211,13 @@ function TasksPageInner({
   role,
   currentUserName,
   currentUserDepartment,
+  canDeleteTasks,
 }: {
   people: AssignablePerson[];
   role: ClearanceRole;
   currentUserName: string;
   currentUserDepartment: string | null;
+  canDeleteTasks: boolean;
 }) {
   const data = useFlowhubData();
   const search = useSearchParams();
@@ -259,7 +268,7 @@ function TasksPageInner({
   useEffect(() => {
     if (!focusTaskId) return;
     const target = data.tasks.find((t) => t.id === focusTaskId);
-    if (!target) return;
+    if (!target || target.deletedAt) return;
     const rootId = target.parentId || target.id;
     setView("all");
     setPriorityFilter("all");
@@ -507,6 +516,7 @@ function TasksPageInner({
                 people={people}
                 departments={departments}
                 canAssignPeople={assignPeople}
+                canDeleteTasks={canDeleteTasks}
                 actor={actor}
                 expanded={expanded}
                 dimmed={expandedId != null && !expanded}
@@ -797,6 +807,7 @@ function TaskBlock({
   people,
   departments,
   canAssignPeople,
+  canDeleteTasks,
   actor,
   expanded,
   dimmed,
@@ -811,6 +822,7 @@ function TaskBlock({
   people: AssignablePerson[];
   departments: string[];
   canAssignPeople: boolean;
+  canDeleteTasks: boolean;
   actor: TaskActor;
   expanded: boolean;
   dimmed: boolean;
@@ -1014,6 +1026,7 @@ function TaskBlock({
             people={people}
             departments={departments}
             canAssignPeople={canAssignPeople}
+            canDeleteTasks={canDeleteTasks}
             actor={actor}
             expandedSubId={expandedSubId}
             setExpandedSubId={setExpandedSubId}
@@ -1106,6 +1119,7 @@ function TaskEditor({
   people,
   departments,
   canAssignPeople,
+  canDeleteTasks,
   actor,
   expandedSubId,
   setExpandedSubId,
@@ -1116,6 +1130,7 @@ function TaskEditor({
   people: AssignablePerson[];
   departments: string[];
   canAssignPeople: boolean;
+  canDeleteTasks: boolean;
   actor: TaskActor;
   expandedSubId: string | null;
   setExpandedSubId: (id: string | null) => void;
@@ -1257,6 +1272,26 @@ function TaskEditor({
     if (!saved) return;
     setClosing(false);
     applyStatusMessage(result);
+  }
+
+  async function removeTask() {
+    const ok = await confirmAction({
+      message: `Delete “${task.title}” and its subtasks? They leave every list.`,
+      action: "Delete",
+    });
+    if (!ok) return;
+    if (!deleteTask(task.id)) {
+      setErr("Task not found.");
+      return;
+    }
+    setErr(null);
+    const saved = await confirmWorkspaceSave();
+    if (saved) onClose();
+  }
+
+  function removeSubtask(id: string) {
+    deleteSubtask(id);
+    void flushWorkspace();
   }
 
   function answerGadRequired(yes: boolean) {
@@ -1456,22 +1491,44 @@ function TaskEditor({
             ) : (
               <ul className="space-y-1">
                 {subtasks.map((s) => (
-                  <li key={s.id}>{subtaskAsText(s)}</li>
+                  <li
+                    key={s.id}
+                    className="flex items-start justify-between gap-2"
+                  >
+                    <span>{subtaskAsText(s)}</span>
+                    {canDeleteTasks && (
+                      <DeleteIconButton
+                        label={`Delete ${s.title}`}
+                        onClick={() => removeSubtask(s.id)}
+                      />
+                    )}
+                  </li>
                 ))}
               </ul>
             )}
           </SummaryField>
         </dl>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="shrink-0"
-          aria-pressed={editing}
-          onClick={() => setEditing((open) => !open)}
-        >
-          {editing ? "Close edit" : "Edit"}
-        </Button>
+        <div className="flex shrink-0 gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            aria-pressed={editing}
+            onClick={() => setEditing((open) => !open)}
+          >
+            {editing ? "Close edit" : "Edit"}
+          </Button>
+          {canDeleteTasks && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => void removeTask()}
+            >
+              Delete
+            </Button>
+          )}
+        </div>
       </div>
 
       {editing && (
@@ -1716,6 +1773,12 @@ function TaskEditor({
                     >
                       {expandedSubId === s.id ? "Hide" : "Update"}
                     </Button>
+                    {canDeleteTasks && (
+                      <DeleteIconButton
+                        label={`Delete ${s.title}`}
+                        onClick={() => removeSubtask(s.id)}
+                      />
+                    )}
                   </div>
                 </div>
                 {expandedSubId === s.id && (

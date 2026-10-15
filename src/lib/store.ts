@@ -36,6 +36,7 @@ import {
   SCHEDULE_DATE_NA,
   isScheduleDateNa,
   guaranteeAmount,
+  guaranteeIdentitySaved,
   departmentDisplayName,
   boqTotal,
   defaultAmendmentNumber,
@@ -156,62 +157,6 @@ function coerceContractStatus(status: string | undefined): Contract["status"] {
 
 const BOQ_EPS = 1e-6;
 
-/**
- * True when this contract still is the latest amendment: same confirmed
- * value and the same BOQ lines. That save derives ABG/PBG from the new
- * order value. A later plain edit moves off this snapshot and keeps the
- * saved amounts instead.
- */
-function amendmentSnapshotMatches(c: Contract): boolean {
-  const amendments = Array.isArray(c.amendments) ? c.amendments : [];
-  const latest = amendments[amendments.length - 1];
-  if (!latest) return false;
-  if (
-    Math.abs((Number(latest.newOrderValue) || 0) - (Number(c.orderValue) || 0)) >
-    0.005
-  ) {
-    return false;
-  }
-  const snap = latest.boqSnapshot ?? [];
-  const boq = c.boq ?? [];
-  if (snap.length !== boq.length) return false;
-  for (let i = 0; i < boq.length; i++) {
-    const saved = snap[i];
-    const line = boq[i];
-    if (!saved || !line) return false;
-    if (saved.id !== line.id) return false;
-    if ((saved.name || "").trim() !== (line.name || "").trim()) return false;
-    if ((saved.unit || "").trim() !== (line.unit || "").trim()) return false;
-    if (Math.abs((Number(saved.rate) || 0) - (Number(line.rate) || 0)) > BOQ_EPS) {
-      return false;
-    }
-    if (
-      Math.abs((Number(saved.quantity) || 0) - (Number(line.quantity) || 0)) >
-      BOQ_EPS
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function keptGuaranteeAmount(
-  saved: number | null,
-  pinned: boolean | undefined,
-  derived: number | null,
-  atAmendmentSnapshot: boolean
-): number | null {
-  if (
-    pinned === true &&
-    typeof saved === "number" &&
-    Number.isFinite(saved) &&
-    !atAmendmentSnapshot
-  ) {
-    return saved;
-  }
-  return derived;
-}
-
 /** Handed-over contracts are Completed. On hold and Active stay until then. */
 function completeHandedOverContracts(data: FlowhubData): FlowhubData {
   const today = nexusTodayIso();
@@ -224,6 +169,19 @@ function completeHandedOverContracts(data: FlowhubData): FlowhubData {
   });
   if (!changed) return data;
   return { ...data, contracts };
+}
+
+/**
+ * A saved rupee amount stays. Percent × order value is only the starting
+ * figure when no amount has been stored yet.
+ */
+function savedGuaranteeAmount(
+  stored: number | null | undefined,
+  orderValue: number,
+  percent: number | null
+): number | null {
+  if (typeof stored === "number" && Number.isFinite(stored)) return stored;
+  return guaranteeAmount(orderValue, percent);
 }
 
 function normalizeContract(c: Contract & { orderEndDate?: string }): Contract {
@@ -250,32 +208,6 @@ function normalizeContract(c: Contract & { orderEndDate?: string }): Contract {
         : null;
   const abgNumber = c.abgNumber ?? null;
   const pbgNumber = c.pbgNumber ?? null;
-  const atAmendmentSnapshot =
-    c.abgValuePinned === true || c.pbgValuePinned === true
-      ? amendmentSnapshotMatches(c)
-      : false;
-  const abgValue = keptGuaranteeAmount(
-    c.abgValue,
-    c.abgValuePinned,
-    guaranteeAmount(c.orderValue, abgPercent),
-    atAmendmentSnapshot
-  );
-  const pbgValue = keptGuaranteeAmount(
-    c.pbgValue,
-    c.pbgValuePinned,
-    guaranteeAmount(c.orderValue, pbgPercent),
-    atAmendmentSnapshot
-  );
-  const keepAbgPin =
-    c.abgValuePinned === true &&
-    typeof abgValue === "number" &&
-    Number.isFinite(abgValue) &&
-    !atAmendmentSnapshot;
-  const keepPbgPin =
-    c.pbgValuePinned === true &&
-    typeof pbgValue === "number" &&
-    Number.isFinite(pbgValue) &&
-    !atAmendmentSnapshot;
   const retentionRecoveredAt =
     typeof legacy.retentionRecoveredAt === "string" &&
     legacy.retentionRecoveredAt.trim()
@@ -290,7 +222,7 @@ function normalizeContract(c: Contract & { orderEndDate?: string }): Contract {
       typeof c.tdsPercent === "number" ? c.tdsPercent : DEFAULT_TDS_PERCENT,
     dlpMonths: typeof c.dlpMonths === "number" ? c.dlpMonths : 6,
     abgPercent,
-    abgValue,
+    abgValue: savedGuaranteeAmount(c.abgValue, c.orderValue, abgPercent),
     abgNumber,
     abgDate: c.abgDate ?? null,
     abgExpiry: c.abgExpiry ?? null,
@@ -298,7 +230,7 @@ function normalizeContract(c: Contract & { orderEndDate?: string }): Contract {
     abgRetrieved: Boolean(c.abgRetrieved),
     abgRetrievedDate: c.abgRetrieved ? (c.abgRetrievedDate ?? null) : null,
     pbgPercent,
-    pbgValue,
+    pbgValue: savedGuaranteeAmount(c.pbgValue, c.orderValue, pbgPercent),
     pbgNumber,
     pbgDate: c.pbgDate ?? null,
     pbgExpiry: c.pbgExpiry ?? null,
@@ -315,10 +247,6 @@ function normalizeContract(c: Contract & { orderEndDate?: string }): Contract {
     guaranteeEdits: c.guaranteeEdits ?? [],
     status: coerceContractStatus(c.status),
   };
-  if (keepAbgPin) normalized.abgValuePinned = true;
-  else delete normalized.abgValuePinned;
-  if (keepPbgPin) normalized.pbgValuePinned = true;
-  else delete normalized.pbgValuePinned;
   return normalized;
 }
 
@@ -386,12 +314,18 @@ function normalizeTask(t: Task & { assignee?: string | null }): Task {
     verificationRequestedBy: waiting
       ? (t.verificationRequestedBy ?? null)
       : null,
+    deletedAt: t.deletedAt ? String(t.deletedAt) : null,
     status,
   };
 }
 
+export function taskIsDeleted(t: Task): boolean {
+  return Boolean(t.deletedAt);
+}
+
 /** Closed tasks older than retention window are hidden from lists. */
 export function taskVisibleInLists(t: Task, now = new Date()): boolean {
+  if (taskIsDeleted(t)) return false;
   if (t.status !== "completed" && t.status !== "not_required") return true;
   const at = t.completedAt || t.createdAt;
   const done = new Date(at);
@@ -402,6 +336,7 @@ export function taskVisibleInLists(t: Task, now = new Date()): boolean {
 }
 
 export function taskIsOpen(t: Task) {
+  if (taskIsDeleted(t)) return false;
   return t.status !== "completed" && t.status !== "not_required";
 }
 
@@ -1662,6 +1597,7 @@ function systemTask(
     notesUpdatedAt: null,
     completedAt: null,
     notRequiredReason: null,
+    deletedAt: null,
     createdAt: new Date().toISOString(),
   };
 }
@@ -1779,22 +1715,31 @@ export function updateContract(
       nextPatch.status = "active";
     }
   }
+  // Retrieved guarantees are locked, including the rupee amount.
+  if (current.abgRetrieved || nextPatch.abgRetrieved) delete nextPatch.abgValue;
+  if (current.pbgRetrieved || nextPatch.pbgRetrieved) delete nextPatch.pbgValue;
+  // Not-required is only available until number, creation date, and bank are saved.
   if (
-    nextPatch.abgPercent != null ||
-    nextPatch.orderValue != null ||
-    nextPatch.pbgPercent != null
+    nextPatch.abgRequired === false &&
+    current.abgRequired &&
+    guaranteeIdentitySaved(
+      current.abgNumber,
+      current.abgDate,
+      current.abgBankName
+    )
   ) {
-    const orderValue = nextPatch.orderValue ?? current.orderValue;
-    const abgPercent =
-      nextPatch.abgPercent !== undefined
-        ? nextPatch.abgPercent
-        : current.abgPercent;
-    const pbgPercent =
-      nextPatch.pbgPercent !== undefined
-        ? nextPatch.pbgPercent
-        : current.pbgPercent;
-    nextPatch.abgValue = guaranteeAmount(orderValue, abgPercent);
-    nextPatch.pbgValue = guaranteeAmount(orderValue, pbgPercent);
+    delete nextPatch.abgRequired;
+  }
+  if (
+    nextPatch.pbgRequired === false &&
+    current.pbgRequired &&
+    guaranteeIdentitySaved(
+      current.pbgNumber,
+      current.pbgDate,
+      current.pbgBankName
+    )
+  ) {
+    delete nextPatch.pbgRequired;
   }
 
   let updated = normalizeContract({ ...current, ...nextPatch, id });
@@ -1831,6 +1776,13 @@ export function updateContract(
   }
 
   let tasks = data.tasks;
+
+  if (current.abgRequired && !updated.abgRequired) {
+    tasks = closeGuaranteeTasks(tasks, id, "ABG");
+  }
+  if (current.pbgRequired && !updated.pbgRequired) {
+    tasks = closeGuaranteeTasks(tasks, id, "PBG");
+  }
 
   if (
     updated.abgRequired &&
@@ -1893,6 +1845,41 @@ export function updateContract(
   });
   syncDatedSystemTasks();
   return updated;
+}
+
+/** Mark open Create and expiry-chase tasks not required, including their subtasks. */
+function closeGuaranteeTasks(
+  tasks: Task[],
+  contractId: string,
+  kind: "ABG" | "PBG"
+): Task[] {
+  const createKey = kind === "ABG" ? "create_abg" : "create_pbg";
+  const expiryKey = kind === "ABG" ? "bg_expiry_abg" : "bg_expiry_pbg";
+  const titlePrefix = kind === "ABG" ? "Create ABG" : "Create PBG";
+  const reason = `${kind} marked not required`;
+  const parentIds = new Set(
+    tasks
+      .filter(
+        (t) =>
+          t.contractId === contractId &&
+          !t.parentId &&
+          taskIsOpen(t) &&
+          (t.catalogKey === createKey ||
+            t.catalogKey === expiryKey ||
+            (t.source === "system" && t.title.startsWith(titlePrefix)))
+      )
+      .map((t) => t.id)
+  );
+  if (parentIds.size === 0) return tasks;
+  return tasks.map((t) => {
+    const hit =
+      parentIds.has(t.id) ||
+      (t.parentId != null && parentIds.has(t.parentId) && taskIsOpen(t));
+    if (!hit) return t;
+    return applyStatusFields(t, "not_required", {
+      notRequiredReason: reason,
+    });
+  });
 }
 
 function catalogKeysInUse(contracts: Contract[]): Set<string> {
@@ -2105,7 +2092,8 @@ export type AmendBoqResult =
 
 /**
  * Confirm a BOQ amendment: records it on the contract, replaces the BOQ,
- * sets orderValue (and BG values) to the confirmed figure, and closes any
+ * sets orderValue to the confirmed figure. A saved ABG or PBG amount
+ * stays as saved. Closes any
  * open "Finalise BOQ amendment" task for the contract.
  */
 export function amendContractBoq(input: {
@@ -2415,10 +2403,6 @@ export function editContractBoq(input: {
     };
   });
 
-  const pinAbg =
-    typeof current.abgValue === "number" && Number.isFinite(current.abgValue);
-  const pinPbg =
-    typeof current.pbgValue === "number" && Number.isFinite(current.pbgValue);
   const updated = normalizeContract({
     ...current,
     boq,
@@ -2426,8 +2410,6 @@ export function editContractBoq(input: {
     amendments: current.amendments,
     abgValue: current.abgValue,
     pbgValue: current.pbgValue,
-    abgValuePinned: pinAbg ? true : undefined,
-    pbgValuePinned: pinPbg ? true : undefined,
   });
 
   write({
@@ -3556,6 +3538,38 @@ export function confirmTaskVerification(
   return { ok: true };
 }
 
+/** Hide a task and its subtasks. The rows stay so sync does not recreate them. */
+export function deleteTask(id: string): boolean {
+  const data = read();
+  const current = data.tasks.find((t) => t.id === id);
+  if (!current || current.parentId || taskIsDeleted(current)) return false;
+  const at = new Date().toISOString();
+  write({
+    ...data,
+    tasks: data.tasks.map((t) =>
+      t.id === id || t.parentId === id
+        ? { ...t, deletedAt: t.deletedAt || at }
+        : t
+    ),
+  });
+  return true;
+}
+
+/** Hide one subtask. No other task is changed. */
+export function deleteSubtask(id: string): boolean {
+  const data = read();
+  const current = data.tasks.find((t) => t.id === id);
+  if (!current?.parentId || taskIsDeleted(current)) return false;
+  const at = new Date().toISOString();
+  write({
+    ...data,
+    tasks: data.tasks.map((t) =>
+      t.id === id ? { ...t, deletedAt: at } : t
+    ),
+  });
+  return true;
+}
+
 function todayIsoLocal() {
   const t = new Date();
   const m = String(t.getMonth() + 1).padStart(2, "0");
@@ -3601,6 +3615,21 @@ function hasOpenCatalogTask(
   );
 }
 
+/** A deleted system task is kept so sync does not create that step again. */
+function hasDeletedCatalogTask(
+  tasks: Task[],
+  contractId: string,
+  catalogKey: TaskCatalogKey
+) {
+  return tasks.some(
+    (t) =>
+      t.contractId === contractId &&
+      t.catalogKey === catalogKey &&
+      !t.parentId &&
+      taskIsDeleted(t)
+  );
+}
+
 function makeSystemTask(input: {
   title: string;
   contractId: string;
@@ -3625,6 +3654,7 @@ function makeSystemTask(input: {
     notesUpdatedAt: null,
     completedAt: null,
     notRequiredReason: null,
+    deletedAt: null,
     createdAt: new Date().toISOString(),
   };
 }
@@ -3695,7 +3725,10 @@ export function afterGadCompleted(
   }
 
   if (opts.boqChanged && opts.amendmentNeeded) {
-    if (!hasOpenCatalogTask(tasks, contractId, "boq_amendment")) {
+    if (
+      !hasDeletedCatalogTask(tasks, contractId, "boq_amendment") &&
+      !hasOpenCatalogTask(tasks, contractId, "boq_amendment")
+    ) {
       const exists = tasks.some(
         (t) =>
           t.contractId === contractId &&
@@ -3761,7 +3794,11 @@ export function syncDatedSystemTasks(): { created: Task[] } {
             t.dueDate === c.abgExpiry &&
             !t.parentId
         );
-        if (!open && !sameDue) {
+        if (
+          !open &&
+          !sameDue &&
+          !hasDeletedCatalogTask(tasks, c.id, "bg_expiry_abg")
+        ) {
           const t = makeSystemTask({
             title: `Chase ABG expiry — ${c.projectNo}`,
             contractId: c.id,
@@ -3787,7 +3824,11 @@ export function syncDatedSystemTasks(): { created: Task[] } {
             t.dueDate === c.pbgExpiry &&
             !t.parentId
         );
-        if (!open && !sameDue) {
+        if (
+          !open &&
+          !sameDue &&
+          !hasDeletedCatalogTask(tasks, c.id, "bg_expiry_pbg")
+        ) {
           const t = makeSystemTask({
             title: `Chase PBG expiry — ${c.projectNo}`,
             contractId: c.id,
@@ -3816,7 +3857,11 @@ export function syncDatedSystemTasks(): { created: Task[] } {
               t.dueDate === dlpEnd &&
               !t.parentId
           );
-          if (!open && !sameDue) {
+          if (
+            !open &&
+            !sameDue &&
+            !hasDeletedCatalogTask(tasks, c.id, "collect_retention")
+          ) {
             const t = makeSystemTask({
               title: `Collect retention — ${c.projectNo}`,
               contractId: c.id,

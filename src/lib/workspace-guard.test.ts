@@ -375,6 +375,37 @@ test("a non-master edit cannot delete a contract or a tax invoice", () => {
   assert.equal(bills.invoices.find((i) => i.id === "pi-1"), undefined);
 });
 
+test("a non-master cannot delete a task or mark it deleted", () => {
+  const current = file({
+    tasks: [task(), task({ id: "task-2", title: "Keep me", parentId: "task-1" })],
+  });
+  const dropped = file({ tasks: [] });
+  const saved = save(current, dropped, access({ tasks: "edit" }), "user");
+  assert.equal(saved.tasks.length, 2);
+  assert.equal(saved.tasks.find((t) => t.id === "task-1")?.title, "Check site");
+
+  const marked = file({
+    tasks: [
+      task({ deletedAt: "2026-10-15T00:00:00.000Z", title: "Edited" }),
+      task({ id: "task-2", title: "Keep me", parentId: "task-1" }),
+    ],
+  });
+  const kept = save(current, marked, access({ tasks: "edit" }), "manager");
+  assert.equal(kept.tasks.find((t) => t.id === "task-1")?.deletedAt ?? null, null);
+  assert.equal(kept.tasks.find((t) => t.id === "task-1")?.title, "Edited");
+});
+
+test("master can hide a task with the delete mark", () => {
+  const current = file({ tasks: [task()] });
+  const incoming = file({
+    tasks: [task({ deletedAt: "2026-10-15T00:00:00.000Z" })],
+    workspaceRevision: 4,
+  });
+  const saved = save(current, incoming, access({ tasks: "edit" }), "master");
+  assert.equal(saved.tasks[0]?.deletedAt, "2026-10-15T00:00:00.000Z");
+  assert.equal(saved.tasks.length, 1);
+});
+
 test("master can delete a contract and a tax invoice", () => {
   const current = file({
     contracts: [contract()],

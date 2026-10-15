@@ -863,8 +863,8 @@ export function BoqSection({
 
           <p className="text-xs text-[var(--fh-muted)]">
             On confirm the BOQ is replaced with the amended lines and the
-            contract / WO value becomes the confirmed value everywhere (reports,
-            ABG/PBG amounts, billing leftover).
+            contract / WO value becomes the confirmed value. Saved ABG and PBG
+            amounts stay as they are.
           </p>
 
           <div className="flex flex-wrap gap-2">

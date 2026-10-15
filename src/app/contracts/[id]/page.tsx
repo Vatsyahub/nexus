@@ -17,6 +17,7 @@ import {
   canMarkRetentionRecovered,
   departmentDisplayName,
   guaranteeAmount,
+  guaranteeIdentitySaved,
   orderedBillingTermKeys,
 } from "@/lib/types";
 import { confirmAction } from "@/components/confirm-panel";
@@ -62,18 +63,20 @@ export default function ContractDetailPage() {
   );
   const data = useFlowhubData();
   const contract = data.contracts.find((c) => c.id === id);
-  const tasks = data.tasks.filter((t) => t.contractId === id);
+  const tasks = data.tasks.filter((t) => t.contractId === id && !t.deletedAt);
 
   const [abgNumber, setAbgNumber] = useState("");
   const [abgDate, setAbgDate] = useState("");
   const [abgExpiry, setAbgExpiry] = useState("");
   const [abgBankName, setAbgBankName] = useState("");
+  const [abgAmount, setAbgAmount] = useState("");
   const [editingAbg, setEditingAbg] = useState(false);
   const [abgRetrievedDate, setAbgRetrievedDate] = useState("");
   const [pbgNumber, setPbgNumber] = useState("");
   const [pbgDate, setPbgDate] = useState("");
   const [pbgExpiry, setPbgExpiry] = useState("");
   const [pbgBankName, setPbgBankName] = useState("");
+  const [pbgAmount, setPbgAmount] = useState("");
   const [editingPbg, setEditingPbg] = useState(false);
   const [pbgRetrievedDate, setPbgRetrievedDate] = useState("");
   const [retentionRecoverDate, setRetentionRecoverDate] = useState("");
@@ -112,6 +115,16 @@ export default function ContractDetailPage() {
       cancelled = true;
     };
   }, [session?.user?.clearance]);
+
+  useEffect(() => {
+    if (!contract) return;
+    setAbgAmount(contract.abgValue != null ? String(contract.abgValue) : "");
+  }, [contract?.id, contract?.abgValue]);
+
+  useEffect(() => {
+    if (!contract) return;
+    setPbgAmount(contract.pbgValue != null ? String(contract.pbgValue) : "");
+  }, [contract?.id, contract?.pbgValue]);
 
   const expenseTotal = useMemo(
     () =>
@@ -190,6 +203,7 @@ export default function ContractDetailPage() {
         abgDate: nextDate,
         abgExpiry: nextExpiry,
         abgBankName: nextBank,
+        abgValue: parseGuaranteeAmount(abgAmount, c.abgValue),
       },
       {
         editedBy: session?.user?.name || session?.user?.email || "User",
@@ -225,6 +239,7 @@ export default function ContractDetailPage() {
         pbgDate: nextDate,
         pbgExpiry: nextExpiry,
         pbgBankName: nextBank,
+        pbgValue: parseGuaranteeAmount(pbgAmount, c.pbgValue),
       },
       {
         editedBy: session?.user?.name || session?.user?.email || "User",
@@ -242,6 +257,24 @@ export default function ContractDetailPage() {
         ? "PBG details updated (edit recorded)."
         : "PBG details saved. Create PBG task completes when number, date, and expiry are filled."
     );
+  }
+
+  async function markAbgNotRequired() {
+    if (!contractOpen || c.abgRetrieved) return;
+    if (guaranteeIdentitySaved(c.abgNumber, c.abgDate, c.abgBankName)) return;
+    updateContract(id, { abgRequired: false });
+    await flushWorkspace();
+    setEditingAbg(false);
+    setMsg("ABG marked not required. Open create and expiry tasks are closed.");
+  }
+
+  async function markPbgNotRequired() {
+    if (!contractOpen || c.pbgRetrieved) return;
+    if (guaranteeIdentitySaved(c.pbgNumber, c.pbgDate, c.pbgBankName)) return;
+    updateContract(id, { pbgRequired: false });
+    await flushWorkspace();
+    setEditingPbg(false);
+    setMsg("PBG marked not required. Open create and expiry tasks are closed.");
   }
 
   async function markAbgRetrieved(e: FormEvent) {
@@ -590,6 +623,15 @@ export default function ContractDetailPage() {
             setFormExpiry={setAbgExpiry}
             formBankName={abgBankName}
             setFormBankName={setAbgBankName}
+            formAmount={abgAmount}
+            setFormAmount={setAbgAmount}
+            canMarkNotRequired={
+              contractOpen &&
+              c.abgRequired &&
+              !c.abgRetrieved &&
+              !guaranteeIdentitySaved(c.abgNumber, c.abgDate, c.abgBankName)
+            }
+            onMarkNotRequired={() => void markAbgNotRequired()}
             formRetrievedDate={abgRetrievedDate}
             setFormRetrievedDate={setAbgRetrievedDate}
             onSave={saveAbg}
@@ -617,6 +659,15 @@ export default function ContractDetailPage() {
             setFormExpiry={setPbgExpiry}
             formBankName={pbgBankName}
             setFormBankName={setPbgBankName}
+            formAmount={pbgAmount}
+            setFormAmount={setPbgAmount}
+            canMarkNotRequired={
+              contractOpen &&
+              c.pbgRequired &&
+              !c.pbgRetrieved &&
+              !guaranteeIdentitySaved(c.pbgNumber, c.pbgDate, c.pbgBankName)
+            }
+            onMarkNotRequired={() => void markPbgNotRequired()}
             formRetrievedDate={pbgRetrievedDate}
             setFormRetrievedDate={setPbgRetrievedDate}
             onSave={savePbg}
@@ -705,6 +756,16 @@ export default function ContractDetailPage() {
   );
 }
 
+function parseGuaranteeAmount(
+  raw: string,
+  fallback: number | null
+): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return fallback;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 function Info({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-[var(--fh-line)] bg-white p-4">
@@ -736,6 +797,10 @@ function GuaranteeBlock({
   setFormExpiry,
   formBankName,
   setFormBankName,
+  formAmount,
+  setFormAmount,
+  canMarkNotRequired,
+  onMarkNotRequired,
   formRetrievedDate,
   setFormRetrievedDate,
   onSave,
@@ -762,6 +827,10 @@ function GuaranteeBlock({
   setFormExpiry: (v: string) => void;
   formBankName: string;
   setFormBankName: (v: string) => void;
+  formAmount: string;
+  setFormAmount: (v: string) => void;
+  canMarkNotRequired: boolean;
+  onMarkNotRequired: () => void;
   formRetrievedDate: string;
   setFormRetrievedDate: (v: string) => void;
   onSave: (e: FormEvent) => void;
@@ -819,21 +888,33 @@ function GuaranteeBlock({
       id={anchor}
       className="space-y-3 rounded-lg border border-[var(--fh-line)] p-4 scroll-mt-20"
     >
-      <p className="text-sm font-medium">
-        {title}{" "}
-        {!filled ? (
-          <span className="text-red-700">(required)</span>
-        ) : (
-          <span className="text-[var(--fh-muted)]">
-            · {percent ?? 0}% · {formatMoney(amount)}
-          </span>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-medium">
+          {title}{" "}
+          {!filled ? (
+            <span className="text-red-700">(required)</span>
+          ) : (
+            <span className="text-[var(--fh-muted)]">
+              · {percent ?? 0}% · {formatMoney(amount)}
+            </span>
+          )}
+        </p>
+        {canMarkNotRequired && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={onMarkNotRequired}
+          >
+            Not required
+          </Button>
         )}
-      </p>
+      </div>
       {!filled && (
         <p className="text-xs text-[var(--fh-muted)]">
-          Enter number, creation date, expiry, and bank. Task stays pending
-          until number, date, and expiry are filled. Value from {percent ?? 0}%
-          of order: {formatMoney(amount)}.
+          Enter number, creation date, expiry, bank, and the rupee amount.
+          The percent stays {percent ?? 0}%. The task stays pending until
+          number, date, and expiry are filled.
         </p>
       )}
       {filled && !editing && (
@@ -915,6 +996,20 @@ function GuaranteeBlock({
               onChange={(e) => setFormBankName(e.target.value)}
               placeholder={bankName ?? "Issuing bank"}
             />
+          </div>
+          <div className="space-y-1">
+            <Label>Amount (₹)</Label>
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              value={formAmount}
+              onChange={(e) => setFormAmount(e.target.value)}
+            />
+            <p className="text-xs text-[var(--fh-muted)]">
+              Percent stays {percent ?? 0}%. A saved amount is not reset from
+              the order value.
+            </p>
           </div>
           <div className="flex gap-2">
             <Button type="submit" size="sm" className="bg-[var(--fh-steel)]">

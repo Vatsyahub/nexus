@@ -137,6 +137,7 @@ export function planDueNotices(
 ): { tasks: Task[]; hits: DueNoticeHit[] } {
   const hits: DueNoticeHit[] = [];
   const next = tasks.map((t) => {
+    if (t.deletedAt) return t;
     if (t.status === "completed" || t.status === "not_required") return t;
     const due = dueKey(t.dueDate);
     if (!due) return t;
