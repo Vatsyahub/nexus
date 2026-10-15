@@ -6,6 +6,7 @@ import {
   EMPTY_NEXUS_COSTS,
   type Contract,
   type FlowhubData,
+  type HubNotification,
   type Invoice,
   type Payment,
   type ScheduleChangeLogEntry,
@@ -17,6 +18,7 @@ import {
   resolveWorkspaceWrite,
   workspaceForAccount,
 } from "@/lib/workspace-guard";
+import { notificationVisibleForUser } from "@/lib/notification-ttl";
 
 function access(overrides: Partial<AccessMap> = {}): AccessMap {
   return { ...defaultAccess("user"), ...overrides };
@@ -576,6 +578,56 @@ test("a blocked door is omitted unless its report is open", () => {
   });
   assert.equal(viewSchedules.schedules.length, 1);
   assert.equal(viewSchedules.scheduleChangeLog.length, 1);
+});
+
+function notice(partial: Partial<HubNotification>): HubNotification {
+  return {
+    id: "shared",
+    createdAt: new Date().toISOString(),
+    kind: "task_assigned",
+    title: "Task assigned to you",
+    body: "Check drawings",
+    href: "/tasks",
+    taskId: "task-1",
+    contractId: "contract-1",
+    audienceUserNames: ["Alice", "Bob"],
+    audienceDepartment: null,
+    createdBy: null,
+    readByUserIds: ["alice"],
+    readAtByUserIds: { alice: new Date().toISOString() },
+    ...partial,
+  };
+}
+
+test("merge keeps a cleared notice out of that person's box", () => {
+  const clearedAt = new Date().toISOString();
+  const stored = notice({ clearedByUserIds: ["alice"] });
+  const current = file({
+    notifications: [stored],
+    clearedNotices: { shared: { alice: clearedAt } },
+  });
+  const incoming = file({
+    notifications: [notice({ clearedByUserIds: [], readByUserIds: [] })],
+    clearedNotices: {},
+  });
+  const merged = mergeWorkspaceSave(
+    current,
+    incoming,
+    access({ tasks: "edit" }),
+    "user"
+  );
+  assert.equal(merged.notifications.length, 1);
+  assert.equal(merged.notifications[0]?.id, "shared");
+  assert.ok(merged.notifications[0]?.clearedByUserIds?.includes("alice"));
+  assert.equal(merged.clearedNotices?.shared?.alice, clearedAt);
+  assert.equal(
+    notificationVisibleForUser(merged.notifications[0]!, "alice"),
+    false
+  );
+  assert.equal(
+    notificationVisibleForUser(merged.notifications[0]!, "bob"),
+    true
+  );
 });
 
 test("merge ignores anything but the account doors", () => {

@@ -474,13 +474,22 @@ export const NOTIFICATION_TTL_HOURS = 24;
 export const NOTIFICATION_UNREAD_TTL_DAYS = 21;
 
 /**
+ * noticeId → userId → ISO time that person cleared it from their own box.
+ * Kept for NOTIFICATION_UNREAD_TTL_DAYS after the clear so a later save
+ * cannot bring that notice back for them. The shared row stays while
+ * anyone else can still see it.
+ */
+export type ClearedNotices = Record<string, Record<string, string>>;
+
+/**
  * In-app notification. Audience is named people, or — when nobody is named —
  * managers of a department. Due-today rows include both. Master-only rows
  * set audienceClearance to "master".
  * Each client filters for the signed-in user.
  * An unread notice lasts NOTIFICATION_UNREAD_TTL_DAYS from createdAt.
  * Once a person has read it, that person's copy lasts NOTIFICATION_TTL_HOURS
- * from their read time. The row is hard-deleted when no recipient should
+ * from their read time, unless they clear it sooner. Clear removes it from
+ * that person's box only. The row is hard-deleted when no recipient should
  * still see it. Nothing is archived.
  */
 export type HubNotification = {
@@ -512,6 +521,11 @@ export type HubNotification = {
   readByUserIds: string[];
   /** ISO timestamps of when each user marked this read (drives the 24h post-read TTL). */
   readAtByUserIds: Record<string, string>;
+  /**
+   * User ids who removed this notice from their own box after opening it
+   * or marking it read. Absent on rows saved before Clear existed.
+   */
+  clearedByUserIds?: string[];
 };
 
 export type FlowhubData = {
@@ -530,6 +544,11 @@ export type FlowhubData = {
   scheduleChangeLog: ScheduleChangeLogEntry[];
   /** In-app notifications for task / job assignment */
   notifications: HubNotification[];
+  /**
+   * Who cleared which notice from their own box. Survives after the shared
+   * row is removed, so that notice does not return for them.
+   */
+  clearedNotices?: ClearedNotices;
   /** Custom departments Master adds (seed list always available too) */
   customDepartments: string[];
   /** Extra expense categories users typed (seed list always available too) */

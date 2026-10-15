@@ -7,6 +7,7 @@ import { useSession } from "next-auth/react";
 import { Bell } from "lucide-react";
 import {
   flushWorkspace,
+  clearReadNotifications,
   markAllNotificationsRead,
   markNotificationRead,
   notificationsForUser,
@@ -114,6 +115,8 @@ export function NotificationBell({
   const unread = mine.filter(
     (n) => user && !n.readByUserIds.includes(user.id)
   ).length;
+  const clearable =
+    !!user && mine.some((n) => n.readByUserIds.includes(user.id));
 
   if (!user) return null;
 
@@ -125,6 +128,11 @@ export function NotificationBell({
 
   async function onMarkAll() {
     markAllNotificationsRead(user!.id, user!);
+    await flushWorkspace();
+  }
+
+  async function onClear() {
+    clearReadNotifications(user!);
     await flushWorkspace();
   }
 
@@ -155,14 +163,27 @@ export function NotificationBell({
                 Unread stay until opened; then 24 hours
               </p>
             </div>
-            {unread > 0 && (
-              <button
-                type="button"
-                className="shrink-0 text-xs text-[var(--fh-muted)] hover:text-[var(--fh-steel)]"
-                onClick={() => void onMarkAll()}
-              >
-                Mark all read
-              </button>
+            {(clearable || unread > 0) && (
+              <div className="flex shrink-0 items-center gap-2">
+                {clearable && (
+                  <button
+                    type="button"
+                    className="shrink-0 text-xs text-[var(--fh-muted)] hover:text-[var(--fh-steel)]"
+                    onClick={() => void onClear()}
+                  >
+                    Clear
+                  </button>
+                )}
+                {unread > 0 && (
+                  <button
+                    type="button"
+                    className="shrink-0 text-xs text-[var(--fh-muted)] hover:text-[var(--fh-steel)]"
+                    onClick={() => void onMarkAll()}
+                  >
+                    Mark all read
+                  </button>
+                )}
+              </div>
             )}
           </div>
           <ul className="max-h-[min(20rem,60vh)] overflow-y-auto">

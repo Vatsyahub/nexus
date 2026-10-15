@@ -59,8 +59,12 @@ import {
   taskNotificationHref,
 } from "@/lib/notification-href";
 import {
+  clearReadNotices,
   notificationVisibleForUser,
+  pruneClearedNotices,
   purgeExpiredNotifications,
+  stampClearedNotices,
+  type NoticeAudienceMember,
 } from "@/lib/notification-ttl";
 import { purgeExpiredScheduleChangeLog } from "@/lib/schedule-change-log";
 import {
@@ -102,6 +106,7 @@ const empty: FlowhubData = {
   schedules: [],
   scheduleChangeLog: [],
   notifications: [],
+  clearedNotices: {},
   customDepartments: [],
   expenseCategories: [],
   deliveryChallans: [],
@@ -404,6 +409,19 @@ function normalizeInstallationProgress(
   };
 }
 
+function clearedNoticeState(raw: FlowhubData): Pick<
+  FlowhubData,
+  "notifications" | "clearedNotices"
+> {
+  const clearedNotices = pruneClearedNotices(raw.clearedNotices);
+  return {
+    clearedNotices,
+    notifications: purgeExpiredNotifications(
+      stampClearedNotices(raw.notifications, clearedNotices)
+    ),
+  };
+}
+
 function normalizeData(raw: FlowhubData): FlowhubData {
   const base: FlowhubData = {
     ...empty,
@@ -420,7 +438,9 @@ function normalizeData(raw: FlowhubData): FlowhubData {
     schedules: (raw.schedules ?? []).map(normalizeSchedule),
     scheduleChangeLog: purgeExpiredScheduleChangeLog(raw.scheduleChangeLog),
     // Unread notices last 21 days. A read notice lasts 24 hours from that read.
-    notifications: purgeExpiredNotifications(raw.notifications),
+    // A cleared notice stays hidden for that person. The row remains while
+    // anyone else can still see it.
+    ...clearedNoticeState(raw),
     customDepartments: raw.customDepartments ?? [],
     expenseCategories: raw.expenseCategories ?? [],
     deliveryChallans: (raw.deliveryChallans ?? []).map(normalizeDeliveryChallan),
@@ -468,6 +488,7 @@ function blankNotification(
     createdBy: spec.createdBy ?? null,
     readByUserIds: [],
     readAtByUserIds: {},
+    clearedByUserIds: [],
   };
 }
 
@@ -632,6 +653,24 @@ export function markAllNotificationsRead(userId: string, user: {
         },
       };
     }),
+  });
+}
+
+/** Drop opened or marked-read notices from this person's box only. */
+export function clearReadNotifications(user: NoticeAudienceMember) {
+  const data = read();
+  const rows = data.notifications ?? [];
+  const cleared = clearReadNotices(rows, data.clearedNotices, user);
+  if (
+    cleared.notifications === rows &&
+    cleared.clearedNotices === data.clearedNotices
+  ) {
+    return;
+  }
+  write({
+    ...data,
+    notifications: cleared.notifications,
+    clearedNotices: cleared.clearedNotices ?? {},
   });
 }
 
