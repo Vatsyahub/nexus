@@ -6,6 +6,7 @@ import type { Session } from "next-auth";
 import {
   hydrateWorkspace,
   isWorkspaceHydratedFromServer,
+  startWorkspaceRefresh,
 } from "@/lib/store";
 import { ConfirmPanel } from "@/components/confirm-panel";
 import { HubThemeSync } from "@/components/hub-theme";
@@ -18,6 +19,7 @@ function WorkspaceHydrator({ children }: { children: React.ReactNode }) {
     if (status !== "authenticated") return;
 
     let cancelled = false;
+    const stopRefresh = startWorkspaceRefresh();
 
     // Force retry after login — a prior anonymous 401 / race must not stick.
     // Brief backoff if the first GET races the session cookie.
@@ -31,6 +33,7 @@ function WorkspaceHydrator({ children }: { children: React.ReactNode }) {
 
     return () => {
       cancelled = true;
+      stopRefresh();
     };
   }, [status]);
 

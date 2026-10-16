@@ -1340,6 +1340,18 @@ function read(): FlowhubData {
   return clientSnapshot;
 }
 
+/** PUTs queued in this tab that have not finished. */
+let persistOutstanding = 0;
+/**
+ * Bumps on every local write. A refetch that started earlier must not
+ * paint over a save this tab has already applied locally.
+ */
+let persistEpoch = 0;
+
+function saveInFlight(): boolean {
+  return pendingLocalSave || persistOutstanding > 0;
+}
+
 function persistToServer(data: FlowhubData) {
   if (typeof window === "undefined") return;
   // Never push until a real Postgres GET succeeded — local-fallback unlock
@@ -1349,14 +1361,19 @@ function persistToServer(data: FlowhubData) {
   // Chrome drops keepalive fetches once the body reaches 64KB. The shared
   // workspace crosses that after a handful of contracts, so those saves
   // never reached Postgres and later contracts vanished on the next load.
+  persistOutstanding += 1;
   const job = persistChain.catch(() => undefined).then(async () => {
-    const res = await fetch("/api/workspace", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: payload,
-    });
-    if (!res.ok) {
-      throw new Error(`Could not save the workspace (${res.status}).`);
+    try {
+      const res = await fetch("/api/workspace", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+      });
+      if (!res.ok) {
+        throw new Error(`Could not save the workspace (${res.status}).`);
+      }
+    } finally {
+      persistOutstanding -= 1;
     }
   });
   lastPersist = job;
@@ -1381,6 +1398,7 @@ let pendingLocalSave = false;
 
 function write(data: FlowhubData): Promise<void> {
   if (workspaceWritesLocked) return persistChain;
+  persistEpoch += 1;
   setSnapshot(data);
   notify();
   if (!hydrateFromServerOk) pendingLocalSave = true;
@@ -1463,6 +1481,8 @@ export function hydrateWorkspace(opts?: { force?: boolean }): Promise<void> {
   hydrateRequested = true;
   // Reuse in-flight work before any force reset (React Strict Mode remounts).
   if (hydratePromise) return hydratePromise;
+  // The first successful GET stays put. Later loads go through refreshWorkspace
+  // so this path does not push local cache or recreate system tasks.
   if (hydrateFromServerOk) return Promise.resolve();
   if (serverHydrated && !opts?.force) return Promise.resolve();
   // Drop the loading-gate flag without notifying yet — success/failure paths
@@ -1570,6 +1590,94 @@ export function hydrateWorkspace(opts?: { force?: boolean }): Promise<void> {
   });
 
   return hydratePromise;
+}
+
+/** How often an open signed-in tab reloads the shared workspace. */
+const WORKSPACE_REFRESH_MS = 15_000;
+let refreshPromise: Promise<void> | null = null;
+
+/**
+ * GET the shared workspace again and replace this tab's snapshot.
+ * A guarantee save does not bump workspaceRevision, so the stored blob
+ * is applied even when the revision is unchanged.
+ * Skips while a save from this tab has not been stored yet.
+ */
+export function refreshWorkspace(): Promise<void> {
+  if (typeof window === "undefined") return Promise.resolve();
+  if (!hydrateFromServerOk) return Promise.resolve();
+  if (saveInFlight()) return Promise.resolve();
+  if (refreshPromise) return refreshPromise;
+
+  const epoch = persistEpoch;
+  refreshPromise = (async () => {
+    try {
+      const res = await fetch("/api/workspace", {
+        headers: { Accept: "application/json" },
+        credentials: "same-origin",
+      });
+      // A save started while this GET was in flight. Keep the local snapshot.
+      if (saveInFlight() || epoch !== persistEpoch) return;
+      if (!res.ok) return;
+      const ctype = res.headers.get("content-type") ?? "";
+      if (!ctype.includes("application/json")) return;
+      const payload = (await res.json()) as FlowhubData;
+      if (saveInFlight() || epoch !== persistEpoch) return;
+      setSnapshot(normalizeData(payload));
+      notify();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn("Workspace refresh failed", msg);
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
+}
+
+/**
+ * While someone is signed in: refetch when the tab becomes visible, and
+ * about every 15 seconds while the tab is open.
+ */
+export function startWorkspaceRefresh(): () => void {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return () => {};
+  }
+  const onVisible = () => {
+    if (document.visibilityState !== "visible") return;
+    void refreshWorkspace();
+  };
+  document.addEventListener("visibilitychange", onVisible);
+  const timer = window.setInterval(() => {
+    void refreshWorkspace();
+  }, WORKSPACE_REFRESH_MS);
+  return () => {
+    document.removeEventListener("visibilitychange", onVisible);
+    window.clearInterval(timer);
+  };
+}
+
+/** Drop client workspace state so tests can hydrate more than once. */
+export function resetWorkspaceClientForTests() {
+  clientSnapshot = empty;
+  clientHydrated = false;
+  serverHydrated = false;
+  hydratePromise = null;
+  persistChain = Promise.resolve();
+  lastPersist = persistChain;
+  pendingLocalSave = false;
+  persistOutstanding = 0;
+  persistEpoch = 0;
+  workspaceWritesLocked = false;
+  hydrateFromServerOk = false;
+  if (hydrateRetryTimer) {
+    clearTimeout(hydrateRetryTimer);
+    hydrateRetryTimer = null;
+  }
+  hydrateAttempts = 0;
+  unauthorizedStreak = 0;
+  hydrateRequested = false;
+  refreshPromise = null;
 }
 
 /** Flush pending saves if the tab is closing / navigating away. */
