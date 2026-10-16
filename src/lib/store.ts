@@ -1921,6 +1921,7 @@ export function updateContract(
   }
 
   let updated = normalizeContract({ ...current, ...nextPatch, id });
+  updated = keepEnteredLaterGuaranteeAmount(current, nextPatch, updated);
   const track = opts?.trackGuarantee;
   if (track) {
     const kinds: Array<"ABG" | "PBG"> =
@@ -1960,6 +1961,13 @@ export function updateContract(
   }
   if (current.pbgRequired && !updated.pbgRequired) {
     tasks = closeGuaranteeTasks(tasks, id, "PBG");
+  }
+
+  if (!current.abgRequired && updated.abgRequired && !updated.abgRetrieved) {
+    tasks = openCreateGuaranteeTask(tasks, updated, "ABG");
+  }
+  if (!current.pbgRequired && updated.pbgRequired && !updated.pbgRetrieved) {
+    tasks = openCreateGuaranteeTask(tasks, updated, "PBG");
   }
 
   if (
@@ -2278,6 +2286,65 @@ export function commitContractBillingTerms(
     invoices,
   });
   return { ok: true };
+}
+
+/**
+ * A later save that marks ABG or PBG required keeps a typed rupee amount.
+ * It is not replaced by percent × order value. An empty amount still follows
+ * the existing rule: percent × order value is only the starting figure when
+ * no amount has been stored. Amounts already saved on a required guarantee
+ * are left to that same rule.
+ */
+function keepEnteredLaterGuaranteeAmount(
+  current: Contract,
+  patch: Partial<Contract>,
+  updated: Contract
+): Contract {
+  let next = updated;
+  if (
+    !current.abgRequired &&
+    patch.abgRequired === true &&
+    !current.abgRetrieved &&
+    !patch.abgRetrieved &&
+    typeof patch.abgValue === "number" &&
+    Number.isFinite(patch.abgValue)
+  ) {
+    next = { ...next, abgValue: patch.abgValue };
+  }
+  if (
+    !current.pbgRequired &&
+    patch.pbgRequired === true &&
+    !current.pbgRetrieved &&
+    !patch.pbgRetrieved &&
+    typeof patch.pbgValue === "number" &&
+    Number.isFinite(patch.pbgValue)
+  ) {
+    next = { ...next, pbgValue: patch.pbgValue };
+  }
+  return next;
+}
+
+/**
+ * Open a Create ABG / Create PBG task the same way a new contract does,
+ * when a guarantee becomes required before number, date, and expiry are saved.
+ * A save that already has those three leaves no open Create task.
+ */
+function openCreateGuaranteeTask(
+  tasks: Task[],
+  contract: Contract,
+  kind: "ABG" | "PBG"
+): Task[] {
+  const catalogKey = kind === "ABG" ? "create_abg" : "create_pbg";
+  const number = kind === "ABG" ? contract.abgNumber : contract.pbgNumber;
+  const date = kind === "ABG" ? contract.abgDate : contract.pbgDate;
+  const expiry = kind === "ABG" ? contract.abgExpiry : contract.pbgExpiry;
+  if (number && date && expiry) return tasks;
+  if (hasOpenCatalogTask(tasks, contract.id, catalogKey)) return tasks;
+  const title =
+    kind === "ABG"
+      ? `Create ABG — ${contract.projectNo}`
+      : `Create PBG — ${contract.projectNo}`;
+  return [...tasks, systemTask(title, contract.id, catalogKey)];
 }
 
 /** Mark open Create and expiry-chase tasks not required, including their subtasks. */
