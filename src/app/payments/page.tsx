@@ -31,7 +31,6 @@ export default function PaymentsPage() {
   const data = useFlowhubData();
   const [q, setQ] = useState("");
 
-  const [filterContract, setFilterContract] = useState("");
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
 
@@ -43,7 +42,6 @@ export default function PaymentsPage() {
           ? data.invoices.find((i) => i.id === p.invoiceId)
           : null;
         if (!paymentMatchesQuery(p, c, inv, q)) return false;
-        if (filterContract && p.contractId !== filterContract) return false;
         if (filterFrom && p.date < filterFrom) return false;
         if (filterTo && p.date > filterTo) return false;
         return true;
@@ -53,19 +51,7 @@ export default function PaymentsPage() {
         (a, b) =>
           b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)
       );
-  }, [
-    data.payments,
-    data.contracts,
-    data.invoices,
-    q,
-    filterContract,
-    filterFrom,
-    filterTo,
-  ]);
-
-  const addHref = filterContract
-    ? `/payments/new?contractId=${encodeURIComponent(filterContract)}`
-    : "/payments/new";
+  }, [data.payments, data.contracts, data.invoices, q, filterFrom, filterTo]);
 
   return (
     <HubPage className="max-w-5xl">
@@ -76,7 +62,7 @@ export default function PaymentsPage() {
           </h1>
         </div>
         <Link
-          href={addHref}
+          href="/payments/new"
           className={cn(
             buttonVariants(),
             "bg-[var(--fh-accent)] text-[var(--fh-ink)] hover:bg-[#f0b01a]"
@@ -96,22 +82,7 @@ export default function PaymentsPage() {
         <h2 className="font-[family-name:var(--font-display)] text-xl text-[var(--fh-steel)]">
           Payment list
         </h2>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="space-y-1">
-            <Label className="text-xs">Project</Label>
-            <select
-              className="flex h-8 w-full rounded-lg border border-input px-2 text-sm"
-              value={filterContract}
-              onChange={(e) => setFilterContract(e.target.value)}
-            >
-              <option value="">All</option>
-              {data.contracts.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.projectNo}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1">
             <Label className="text-xs">From</Label>
             <Input
