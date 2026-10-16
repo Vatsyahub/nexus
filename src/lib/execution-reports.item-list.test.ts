@@ -82,7 +82,7 @@ function workspace(opts: {
   };
 }
 
-test("a city cell keeps BOQ and left, and a missing city stays blank", () => {
+test("a city cell is left for supply, and a missing city stays blank", () => {
   const data = workspace({
     contracts: [
       contract({
@@ -91,6 +91,7 @@ test("a city cell keeps BOQ and left, and a missing city stays blank", () => {
         boq: [
           line("m-panel", " panel ", 10, "Nos"),
           line("m-cable", "Cable", 4, "m"),
+          line("m-blank", "   ", 99),
         ],
       }),
       contract({
@@ -183,7 +184,6 @@ test("a city cell keeps BOQ and left, and a missing city stays blank", () => {
   const cities = itemListCities(data);
   assert.deepEqual(itemListHeaders(cities), [
     "Item name",
-    "Total BOQ qty",
     "Total supplied",
     "Left for supply",
     "Ahmedabad",
@@ -193,23 +193,16 @@ test("a city cell keeps BOQ and left, and a missing city stays blank", () => {
   ]);
   assert.deepEqual(itemListExportRow(cities, panel), [
     "panel",
-    27.5,
     16,
     11.5,
     "",
-    "BOQ 8\nLeft 0",
-    "BOQ 12.5\nLeft 6.5",
+    0,
+    6.5,
     "",
   ]);
-  assert.equal(
-    formatItemListCityCell(cable.byCity.Mumbai),
-    "BOQ 4\nLeft -2"
-  );
+  assert.equal(formatItemListCityCell(cable.byCity.Mumbai), -2);
   assert.equal(formatItemListCityCell(undefined), "");
-  assert.equal(
-    formatItemListCityCell({ boqQty: 0, leftForSupply: 0 }),
-    "BOQ 0\nLeft 0"
-  );
+  assert.equal(formatItemListCityCell({ boqQty: 0, leftForSupply: 0 }), 0);
 });
 
 test("a handed-over contract stays out of the item list", () => {
@@ -248,7 +241,7 @@ test("a handed-over contract stays out of the item list", () => {
   assert.deepEqual(row.byCity.Delhi, { boqQty: 3, leftForSupply: 3 });
 });
 
-test("an item that is in a city still shows zero BOQ and a negative left", () => {
+test("a city that has the item keeps zero and negative left", () => {
   const data = workspace({
     contracts: [
       contract({
@@ -270,9 +263,9 @@ test("an item that is in a city still shows zero BOQ and a negative left", () =>
   assert.deepEqual(over.byCity.Goa, { boqQty: 1, leftForSupply: -3 });
   assert.deepEqual(itemListExportRow(["Goa"], over), [
     "Over",
-    1,
     4,
     -3,
-    "BOQ 1\nLeft -3",
+    -3,
   ]);
+  assert.equal(formatItemListCityCell(blank.byCity.Goa), 0);
 });

@@ -10,8 +10,6 @@ import {
   SCHEDULE_FULFILMENT_LABELS,
   WORKORDER_STATUS_LABELS,
   buildExecutionSummaryRows,
-  ITEM_LIST_BOQ_LABEL,
-  ITEM_LIST_LEFT_LABEL,
   buildItemListRows,
   buildProjectTaskRows,
   buildScheduleFulfilmentRows,
@@ -21,7 +19,6 @@ import {
   itemListCities,
   itemListExportRow,
   itemListHeaders,
-  type ItemListCityFigures,
   type ScheduleFulfilmentStatus,
   type WorkorderStatus,
 } from "@/lib/execution-reports";
@@ -368,30 +365,6 @@ export function SummaryTab({ data }: { data: FlowhubData }) {
   );
 }
 
-function CitySupplyLines({
-  figures,
-}: {
-  figures: ItemListCityFigures | undefined;
-}) {
-  if (!figures) return null;
-  return (
-    <>
-      <span className="block whitespace-nowrap">
-        <span className="mr-1 text-[10px] font-medium uppercase tracking-wide text-[var(--fh-muted)]">
-          {ITEM_LIST_BOQ_LABEL}
-        </span>
-        {formatQty(figures.boqQty)}
-      </span>
-      <span className="block whitespace-nowrap">
-        <span className="mr-1 text-[10px] font-medium uppercase tracking-wide text-[var(--fh-muted)]">
-          {ITEM_LIST_LEFT_LABEL}
-        </span>
-        {formatQty(figures.leftForSupply)}
-      </span>
-    </>
-  );
-}
-
 export function ItemListTab({ data }: { data: FlowhubData }) {
   const [q, setQ] = useState("");
   const cities = useMemo(() => itemListCities(data), [data]);
@@ -403,8 +376,6 @@ export function ItemListTab({ data }: { data: FlowhubData }) {
     return all.filter((r) =>
       matchesAny(needle, [
         r.itemName,
-        r.totalQty,
-        formatQty(r.totalQty),
         r.totalSupplied,
         formatQty(r.totalSupplied),
         r.leftForSupply,
@@ -412,13 +383,7 @@ export function ItemListTab({ data }: { data: FlowhubData }) {
         ...cities.flatMap((city) => {
           const cell = r.byCity[city];
           if (!cell) return [];
-          return [
-            city,
-            cell.boqQty,
-            formatQty(cell.boqQty),
-            cell.leftForSupply,
-            formatQty(cell.leftForSupply),
-          ];
+          return [city, cell.leftForSupply, formatQty(cell.leftForSupply)];
         }),
       ])
     );
@@ -436,10 +401,9 @@ export function ItemListTab({ data }: { data: FlowhubData }) {
       <ReportsTableScroll className="mt-4">
         <table className="w-full table-fixed text-left text-sm">
           <colgroup>
-            <col style={{ width: cities.length === 0 ? "40%" : "18%" }} />
-            <col style={{ width: cities.length === 0 ? "20%" : "12%" }} />
-            <col style={{ width: cities.length === 0 ? "20%" : "12%" }} />
-            <col style={{ width: cities.length === 0 ? "20%" : "13%" }} />
+            <col style={{ width: cities.length === 0 ? "46%" : "22%" }} />
+            <col style={{ width: cities.length === 0 ? "27%" : "14%" }} />
+            <col style={{ width: cities.length === 0 ? "27%" : "16%" }} />
             {cities.map((city) => (
               <col key={city} />
             ))}
@@ -470,14 +434,16 @@ export function ItemListTab({ data }: { data: FlowhubData }) {
               rows.map((r) => (
                 <tr key={r.key}>
                   <td className={reportTd}>{r.itemName}</td>
-                  <td className={qtyCell}>{formatQty(r.totalQty)}</td>
                   <td className={qtyCell}>{formatQty(r.totalSupplied)}</td>
                   <td className={qtyCell}>{formatQty(r.leftForSupply)}</td>
-                  {cities.map((city) => (
-                    <td key={city} className={qtyCell}>
-                      <CitySupplyLines figures={r.byCity[city]} />
-                    </td>
-                  ))}
+                  {cities.map((city) => {
+                    const cell = r.byCity[city];
+                    return (
+                      <td key={city} className={qtyCell}>
+                        {cell ? formatQty(cell.leftForSupply) : null}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))
             )}
