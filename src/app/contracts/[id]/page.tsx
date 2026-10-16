@@ -1,19 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
+  commitContractBillingTerms,
+  contractInvoiceUsesBillingTerm,
   deleteContract,
-  deleteContractBillingTerm,
   flushWorkspace,
-  renameContractBillingTerm,
-  saveContractBillingTerms,
   updateContract,
   useFlowhubData,
 } from "@/lib/store";
 import {
+  addCustomBillingTerm,
   billingTermLabel,
   billingTermsTotal,
   deleteCustomBillingTerm,
@@ -24,7 +24,6 @@ import {
   GST_RATE,
   canAmendBoq,
   canMarkRetentionRecovered,
-  departmentDisplayName,
   guaranteeAmount,
   guaranteeIdentitySaved,
   orderedBillingTermKeys,
@@ -58,8 +57,15 @@ type BillingEditorState = {
   id: string;
   terms: BillingTerms;
   renames: Record<string, string>;
+  /** Draft key → saved key. Added terms are absent. */
+  origins: Record<string, string>;
   error: string | null;
+  editing: boolean;
 };
+
+function billingOrigins(terms: BillingTerms): Record<string, string> {
+  return Object.fromEntries(Object.keys(terms).map((key) => [key, key]));
+}
 
 function formatMoney(n: number) {
   return new Intl.NumberFormat("en-IN", {
@@ -80,7 +86,6 @@ export default function ContractDetailPage() {
   );
   const data = useFlowhubData();
   const contract = data.contracts.find((c) => c.id === id);
-  const tasks = data.tasks.filter((t) => t.contractId === id && !t.deletedAt);
 
   const [abgNumber, setAbgNumber] = useState("");
   const [abgDate, setAbgDate] = useState("");
@@ -102,6 +107,7 @@ export default function ContractDetailPage() {
   const [billingEditor, setBillingEditor] = useState<BillingEditorState | null>(
     null
   );
+  const [newTermName, setNewTermName] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [department, setDepartment] = useState<string | null>(null);
   const access =
@@ -154,18 +160,12 @@ export default function ContractDetailPage() {
         id: contract.id,
         terms: { ...contract.billingTerms },
         renames: {},
+        origins: billingOrigins(contract.billingTerms),
         error: null,
+        editing: false,
       };
     });
   }, [contract]);
-
-  const expenseTotal = useMemo(
-    () =>
-      (contract?.expenses ?? [])
-        .filter((e) => !e.deletedAt)
-        .reduce((s, e) => s + e.amount, 0),
-    [contract]
-  );
 
   // Notification deep-links land on #abg / #pbg / #retention with the entry form open.
   useEffect(() => {
@@ -385,11 +385,18 @@ export default function ContractDetailPage() {
     setMsg("Contractor assignment saved.");
   }
 
+  const billingEditing =
+    contractOpen && billingEditor?.id === c.id && billingEditor.editing;
   const termsForEdit =
-    billingEditor?.id === c.id ? billingEditor.terms : c.billingTerms;
+    billingEditing && billingEditor ? billingEditor.terms : c.billingTerms;
   const renameDrafts =
-    billingEditor?.id === c.id ? billingEditor.renames : {};
-  const billingError = billingEditor?.id === c.id ? billingEditor.error : null;
+    billingEditing && billingEditor ? billingEditor.renames : {};
+  const billingOriginsForEdit =
+    billingEditing && billingEditor
+      ? billingEditor.origins
+      : billingOrigins(c.billingTerms);
+  const billingError =
+    billingEditing && billingEditor ? billingEditor.error : null;
   const billingTotal = billingTermsTotal(termsForEdit);
 
   function patchBillingEditor(
@@ -403,34 +410,66 @@ export default function ContractDetailPage() {
               id,
               terms: { ...c.billingTerms },
               renames: {},
+              origins: billingOrigins(c.billingTerms),
               error: null,
+              editing: true,
             };
       return patch(base);
     });
   }
 
-  async function renameSavedTerm(fromKey: string) {
-    const result = renameContractBillingTerm(
+  function startBillingEdit() {
+    if (!contractOpen) return;
+    setBillingEditor({
       id,
-      fromKey,
-      renameDrafts[fromKey] ?? ""
+      terms: { ...c.billingTerms },
+      renames: {},
+      origins: billingOrigins(c.billingTerms),
+      error: null,
+      editing: true,
+    });
+    setNewTermName("");
+  }
+
+  function cancelBillingEdit() {
+    setBillingEditor((current) =>
+      current && current.id === id
+        ? { ...current, editing: false, error: null, renames: {} }
+        : current
     );
+    setNewTermName("");
+  }
+
+  function addSavedTerm() {
+    const result = addCustomBillingTerm(termsForEdit, newTermName);
     if (!result.ok) {
-      patchBillingEditor((current) => ({ ...current, error: result.error }));
+      if (newTermName.trim()) {
+        patchBillingEditor((current) => ({ ...current, error: result.error }));
+      }
       return;
     }
+    patchBillingEditor((current) => ({
+      ...current,
+      terms: result.terms,
+      error: null,
+    }));
+    setNewTermName("");
+  }
+
+  function renameSavedTerm(fromKey: string) {
+    const raw = renameDrafts[fromKey] ?? "";
     patchBillingEditor((current) => {
-      const renamed = renameCustomBillingTerm(
-        current.terms,
-        fromKey,
-        renameDrafts[fromKey] ?? ""
-      );
+      const renamed = renameCustomBillingTerm(current.terms, fromKey, raw);
       if (!renamed.ok) return { ...current, error: renamed.error };
       const renames = { ...current.renames };
       delete renames[fromKey];
-      return { ...current, terms: renamed.terms, renames, error: null };
+      const origins = { ...current.origins };
+      if (Object.prototype.hasOwnProperty.call(origins, fromKey)) {
+        origins[renamed.toKey] = origins[fromKey];
+        if (renamed.toKey !== fromKey) delete origins[fromKey];
+      }
+      return { ...current, terms: renamed.terms, renames, origins, error: null };
     });
-    await flushWorkspace();
   }
 
   async function deleteSavedTerm(key: string) {
@@ -440,9 +479,15 @@ export default function ContractDetailPage() {
       action: "Delete",
     });
     if (!confirmed) return;
-    const result = deleteContractBillingTerm(id, key);
-    if (!result.ok) {
-      patchBillingEditor((current) => ({ ...current, error: result.error }));
+    const original = billingOriginsForEdit[key];
+    if (
+      original &&
+      contractInvoiceUsesBillingTerm(id, original)
+    ) {
+      patchBillingEditor((current) => ({
+        ...current,
+        error: "This term is used on an invoice and cannot be deleted.",
+      }));
       return;
     }
     patchBillingEditor((current) => {
@@ -450,19 +495,36 @@ export default function ContractDetailPage() {
       if (!removed.ok) return { ...current, error: removed.error };
       const renames = { ...current.renames };
       delete renames[key];
-      return { ...current, terms: removed.terms, renames, error: null };
+      const origins = { ...current.origins };
+      delete origins[key];
+      return { ...current, terms: removed.terms, renames, origins, error: null };
     });
-    await flushWorkspace();
   }
 
   async function saveBillingTerms(e: FormEvent) {
     e.preventDefault();
-    const result = saveContractBillingTerms(id, termsForEdit);
+    const result = commitContractBillingTerms(
+      id,
+      termsForEdit,
+      billingOriginsForEdit
+    );
     if (!result.ok) {
       patchBillingEditor((current) => ({ ...current, error: result.error }));
       return;
     }
-    patchBillingEditor((current) => ({ ...current, error: null }));
+    setBillingEditor((current) =>
+      current && current.id === id
+        ? {
+            ...current,
+            terms: { ...termsForEdit },
+            origins: billingOrigins(termsForEdit),
+            renames: {},
+            error: null,
+            editing: false,
+          }
+        : current
+    );
+    setNewTermName("");
     await flushWorkspace();
     setMsg("Billing terms saved.");
   }
@@ -697,7 +759,7 @@ export default function ContractDetailPage() {
           <h2 className="font-[family-name:var(--font-display)] text-xl text-[var(--fh-steel)]">
             Billing terms
           </h2>
-          {contractOpen && (
+          {billingEditing ? (
             <Badge
               variant={
                 Math.abs(billingTotal - 100) < 0.01 ? "default" : "destructive"
@@ -705,9 +767,18 @@ export default function ContractDetailPage() {
             >
               Total {billingTotal}%
             </Badge>
-          )}
+          ) : contractOpen ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={startBillingEdit}
+            >
+              Edit
+            </Button>
+          ) : null}
         </div>
-        {contractOpen ? (
+        {billingEditing ? (
           <form onSubmit={saveBillingTerms} className="mt-3 space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
               {orderedBillingTermKeys(termsForEdit).map((key) => {
@@ -750,7 +821,7 @@ export default function ContractDetailPage() {
                         <Button
                           type="button"
                           variant="outline"
-                          onClick={() => void renameSavedTerm(key)}
+                          onClick={() => renameSavedTerm(key)}
                         >
                           Rename
                         </Button>
@@ -767,6 +838,18 @@ export default function ContractDetailPage() {
                 );
               })}
             </div>
+            <div className="flex flex-wrap gap-2">
+              <Input
+                placeholder="Add custom term name"
+                value={newTermName}
+                onChange={(e) => setNewTermName(e.target.value)}
+                className="max-w-xs"
+                aria-label="Add custom term name"
+              />
+              <Button type="button" variant="outline" onClick={addSavedTerm}>
+                Add term
+              </Button>
+            </div>
             {billingError && (
               <p
                 className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
@@ -775,12 +858,17 @@ export default function ContractDetailPage() {
                 {billingError}
               </p>
             )}
-            <Button
-              type="submit"
-              className="bg-[var(--fh-steel)] hover:bg-[#244a5e]"
-            >
-              Save billing terms
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="submit"
+                className="bg-[var(--fh-steel)] hover:bg-[#244a5e]"
+              >
+                Save billing terms
+              </Button>
+              <Button type="button" variant="outline" onClick={cancelBillingEdit}>
+                Cancel
+              </Button>
+            </div>
           </form>
         ) : (
           <ul className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -901,60 +989,6 @@ export default function ContractDetailPage() {
         actorName={actorName}
         onMessage={setMsg}
       />
-
-      <section className="rounded-xl border border-[var(--fh-line)] bg-white p-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-[family-name:var(--font-display)] text-xl text-[var(--fh-steel)]">
-            Expenses
-          </h2>
-          <span className="text-sm tabular-nums">
-            Total {formatMoney(expenseTotal)}
-          </span>
-        </div>
-      </section>
-
-      <section className="rounded-xl border border-[var(--fh-line)] bg-white p-5">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="font-[family-name:var(--font-display)] text-xl text-[var(--fh-steel)]">
-            Tasks for this contract
-          </h2>
-          <Link
-            href={`/tasks?contractId=${id}`}
-            className={cn(buttonVariants({ size: "sm", variant: "outline" }))}
-          >
-            Open on Tasks
-          </Link>
-        </div>
-        <ul className="mt-3 space-y-2">
-          {tasks.map((t) => (
-            <li
-              key={t.id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--fh-line)] px-3 py-2 text-sm"
-            >
-              <span>
-                {t.title}
-                <span className="ml-2 text-xs text-[var(--fh-muted)]">
-                  {t.department || t.assignees?.length
-                    ? [
-                        t.department
-                          ? departmentDisplayName(t.department)
-                          : null,
-                        t.assignees?.length
-                          ? t.assignees.length === 1
-                            ? t.assignees[0]
-                            : `${t.assignees[0]} +${t.assignees.length - 1}`
-                          : null,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")
-                    : "Unassigned"}
-                </span>
-              </span>
-              <Badge variant="secondary">{t.status}</Badge>
-            </li>
-          ))}
-        </ul>
-      </section>
     </div>
   );
 }
