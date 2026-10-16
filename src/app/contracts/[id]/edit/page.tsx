@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { updateContract, useFlowhubData } from "@/lib/store";
 import { confirmWorkspaceSave } from "@/lib/save-notice";
+import { DLP_MONTHS_RANGE_MESSAGE, acceptedDlpMonths } from "@/lib/dlp-months";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -81,6 +82,11 @@ export default function EditContractPage() {
       setError("Fill name, project no., and order value.");
       return;
     }
+    const dlp = acceptedDlpMonths(dlpMonths);
+    if (dlp == null) {
+      setError(DLP_MONTHS_RANGE_MESSAGE);
+      return;
+    }
     updateContract(id, {
       projectName: projectName.trim(),
       projectNo: projectNo.trim(),
@@ -94,7 +100,7 @@ export default function EditContractPage() {
       paymentDueDays: Number(paymentDueDays) || 30,
       retentionPercent: Number(retentionPercent) || 0,
       tdsPercent: Number(tdsPercent) || 0,
-      dlpMonths: Number(dlpMonths) || 12,
+      dlpMonths: dlp,
       contractorAssigned: contractorAssigned.trim(),
     });
     const saved = await confirmWorkspaceSave();

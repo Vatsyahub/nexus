@@ -151,7 +151,7 @@ export type Contract = {
   retentionPercent: number;
   /** TDS % of invoice net — default 2; editable per contract */
   tdsPercent: number;
-  /** DLP whole months (6–60); clock starts from actual handover */
+  /** DLP whole months (3–60); clock starts from actual handover */
   dlpMonths: number;
   abgRequired: boolean;
   /** Percent of order value (net / before GST) */
