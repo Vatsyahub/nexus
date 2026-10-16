@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  addCustomBillingTerm,
+  billingTermLabel,
   deleteCustomBillingTerm,
   renameCustomBillingTerm,
   startingBillingTerms,
@@ -77,18 +79,18 @@ test("rename keeps the percent and rejects a name already on the form", () => {
   const renamed = renameCustomBillingTerm(terms, "site_visit", "  Final Stage  ");
   assert.equal(renamed.ok, true);
   if (!renamed.ok) return;
-  assert.equal(renamed.toKey, "final_stage");
-  assert.equal(renamed.terms.final_stage, 25);
+  assert.equal(renamed.toKey, "Final Stage");
+  assert.equal(renamed.terms["Final Stage"], 25);
   assert.equal(Object.hasOwn(renamed.terms, "site_visit"), false);
   assert.equal(renamed.terms.advance, 75);
   assert.equal(terms.site_visit, 25);
 
-  const duplicate = renameCustomBillingTerm(renamed.terms, "final_stage", "Advance");
+  const duplicate = renameCustomBillingTerm(renamed.terms, "Final Stage", "Advance");
   assert.deepEqual(duplicate, {
     ok: false,
     error: "A term with that name already exists.",
   });
-  assert.equal(renamed.terms.final_stage, 25);
+  assert.equal(renamed.terms["Final Stage"], 25);
 
   const builtin = renameCustomBillingTerm(terms, "advance", "Mobilization");
   assert.equal(builtin.ok, false);
@@ -175,13 +177,13 @@ test("rename moves termKey on that contract's invoices and keeps amounts", () =>
   const beforeOther = structuredClone(invoiceById(other.id));
 
   const renamed = renameContractBillingTerm(left.id, "stage_payment", "Final Stage");
-  assert.deepEqual(renamed, { ok: true, toKey: "final_stage" });
-  assert.equal(contractTerms(left.id).final_stage, 40);
+  assert.deepEqual(renamed, { ok: true, toKey: "Final Stage" });
+  assert.equal(contractTerms(left.id)["Final Stage"], 40);
   assert.equal(Object.hasOwn(contractTerms(left.id), "stage_payment"), false);
   assert.equal(contractTerms(right.id).stage_payment, 40);
 
   const afterMoved = invoiceById(moved.id);
-  assert.equal(afterMoved.lines[0]?.termKey, "final_stage");
+  assert.equal(afterMoved.lines[0]?.termKey, "Final Stage");
   assert.equal(afterMoved.lines[1]?.termKey, "supply");
   assert.deepEqual(
     { ...afterMoved.lines[0], termKey: beforeMoved.lines[0]?.termKey },
@@ -194,13 +196,17 @@ test("rename moves termKey on that contract's invoices and keeps amounts", () =>
   assert.deepEqual(afterMoved.extraCharges, beforeMoved.extraCharges);
   assert.deepEqual(invoiceById(other.id), beforeOther);
 
-  const duplicate = renameContractBillingTerm(left.id, "final_stage", "Supply");
+  const duplicate = renameContractBillingTerm(left.id, "Final Stage", "Supply");
   assert.deepEqual(duplicate, {
     ok: false,
     error: "A term with that name already exists.",
   });
-  assert.equal(invoiceById(moved.id).lines[0]?.termKey, "final_stage");
-  assert.equal(contractTerms(left.id).final_stage, 40);
+  assert.equal(invoiceById(moved.id).lines[0]?.termKey, "Final Stage");
+  assert.equal(contractTerms(left.id)["Final Stage"], 40);
+
+  const caseOnly = renameContractBillingTerm(left.id, "Final Stage", "supply");
+  assert.equal(caseOnly.ok, false);
+  assert.equal(invoiceById(moved.id).lines[0]?.termKey, "Final Stage");
 });
 
 test("delete on a saved contract refuses when an invoice uses the term", () => {
@@ -356,4 +362,87 @@ test("a custom term on one contract is absent from a new contract's starting ter
   assert.equal(fresh.billingTerms.mobilization, undefined);
   assert.deepEqual(Object.keys(fresh.billingTerms), [...DEFAULT_BILLING_TERM_KEYS]);
   assert.equal(contractTerms(saved.id).mobilization, 15);
+});
+
+test("a typed custom term keeps capitals and spaces, and a case-only match is rejected", () => {
+  const added = addCustomBillingTerm(startingBillingTerms(), "  GAD 2nd half  ");
+  assert.equal(added.ok, true);
+  if (!added.ok) return;
+  assert.equal(added.toKey, "GAD 2nd half");
+  assert.equal(added.terms["GAD 2nd half"], 0);
+  assert.equal(Object.hasOwn(added.terms, "gad_2nd_half"), false);
+  assert.equal(billingTermLabel("GAD 2nd half"), "GAD 2nd half");
+  assert.equal(billingTermLabel("gad"), "GAD");
+  assert.equal(billingTermLabel("advance"), "Advance");
+  assert.equal(billingTermLabel("supply"), "Supply");
+
+  const lower = addCustomBillingTerm(added.terms, "gad 2nd half");
+  assert.deepEqual(lower, {
+    ok: false,
+    error: "A term with that name already exists.",
+  });
+  const builtin = addCustomBillingTerm(added.terms, "Supply");
+  assert.deepEqual(builtin, {
+    ok: false,
+    error: "A term with that name already exists.",
+  });
+  assert.equal(Object.hasOwn(added.terms, "GAD 2nd half"), true);
+  assert.equal(added.terms.supply, 0);
+});
+
+test("an old slug stays until rename, which updates invoice termKeys and keeps amounts", () => {
+  const contract = makeContract("C-TERM-SLUG", {
+    supply: 60,
+    gad_2nd_half: 40,
+  });
+  const invoice = addInvoice({
+    type: "TI",
+    number: "TI-TERM-SLUG",
+    date: "2026-10-14",
+    contractId: contract.id,
+    lines: [
+      {
+        boqItemId: `boq-${contract.projectNo}`,
+        itemName: "Item",
+        termKey: "gad_2nd_half",
+        billedQty: 2,
+        rate: 100,
+        termPercent: 40,
+        lineNet: 80,
+      },
+    ],
+  });
+  assert.ok(invoice);
+
+  const saved = saveContractBillingTerms(contract.id, {
+    supply: 70,
+    gad_2nd_half: 30,
+  });
+  assert.equal(saved.ok, true);
+  assert.equal(contractTerms(contract.id).gad_2nd_half, 30);
+  assert.equal(Object.hasOwn(contractTerms(contract.id), "GAD 2nd half"), false);
+  assert.equal(invoiceById(invoice.id).lines[0]?.termKey, "gad_2nd_half");
+  assert.equal(invoiceById(invoice.id).lines[0]?.termPercent, 40);
+  assert.equal(billingTermLabel("gad_2nd_half"), "gad_2nd_half");
+
+  const before = structuredClone(invoiceById(invoice.id));
+  const renamed = renameContractBillingTerm(
+    contract.id,
+    "gad_2nd_half",
+    "  GAD 2nd half  "
+  );
+  assert.deepEqual(renamed, { ok: true, toKey: "GAD 2nd half" });
+  assert.equal(contractTerms(contract.id)["GAD 2nd half"], 30);
+  assert.equal(Object.hasOwn(contractTerms(contract.id), "gad_2nd_half"), false);
+  assert.equal(billingTermLabel("GAD 2nd half"), "GAD 2nd half");
+
+  const after = invoiceById(invoice.id);
+  assert.equal(after.lines[0]?.termKey, "GAD 2nd half");
+  assert.equal(after.lines[0]?.termPercent, before.lines[0]?.termPercent);
+  assert.equal(after.lines[0]?.lineNet, before.lines[0]?.lineNet);
+  assert.equal(after.lines[0]?.billedQty, before.lines[0]?.billedQty);
+  assert.equal(after.lines[0]?.rate, before.lines[0]?.rate);
+  assert.equal(after.netAmount, before.netAmount);
+  assert.equal(after.gstAmount, before.gstAmount);
+  assert.equal(after.finalAmount, before.finalAmount);
 });

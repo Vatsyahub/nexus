@@ -10,9 +10,9 @@ import {
   updateInvoice,
   useFlowhubData,
 } from "@/lib/store";
+import { billingTermLabel } from "@/lib/billing-terms";
 import {
   GST_RATE,
-  TERM_LABELS,
   orderedBillingTermKeys,
   type InvoiceExtraCharge,
   type InvoiceLine,
@@ -281,7 +281,7 @@ export default function EditInvoicePage() {
                         >
                           {termKeys.map((k) => (
                             <option key={k} value={k}>
-                              {TERM_LABELS[k] ?? k} ({contract.billingTerms[k]}%)
+                              {billingTermLabel(k)} ({contract.billingTerms[k]}%)
                             </option>
                           ))}
                         </select>
