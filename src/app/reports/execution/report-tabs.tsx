@@ -376,6 +376,8 @@ export function ItemListTab({ data }: { data: FlowhubData }) {
     return all.filter((r) =>
       matchesAny(needle, [
         r.itemName,
+        r.totalQty,
+        formatQty(r.totalQty),
         r.totalSupplied,
         formatQty(r.totalSupplied),
         r.leftForSupply,
@@ -401,12 +403,13 @@ export function ItemListTab({ data }: { data: FlowhubData }) {
       <ReportsTableScroll className="mt-4">
         <table className="w-full table-fixed text-left text-sm">
           <colgroup>
-            <col style={{ width: cities.length === 0 ? "46%" : "22%" }} />
-            <col style={{ width: cities.length === 0 ? "27%" : "14%" }} />
-            <col style={{ width: cities.length === 0 ? "27%" : "16%" }} />
+            <col style={{ width: cities.length === 0 ? "40%" : "18%" }} />
+            <col style={{ width: cities.length === 0 ? "20%" : "12%" }} />
             {cities.map((city) => (
               <col key={city} />
             ))}
+            <col style={{ width: cities.length === 0 ? "20%" : "12%" }} />
+            <col style={{ width: cities.length === 0 ? "20%" : "13%" }} />
           </colgroup>
           <thead className={theadClass}>
             <tr>
@@ -434,8 +437,7 @@ export function ItemListTab({ data }: { data: FlowhubData }) {
               rows.map((r) => (
                 <tr key={r.key}>
                   <td className={reportTd}>{r.itemName}</td>
-                  <td className={qtyCell}>{formatQty(r.totalSupplied)}</td>
-                  <td className={qtyCell}>{formatQty(r.leftForSupply)}</td>
+                  <td className={qtyCell}>{formatQty(r.totalQty)}</td>
                   {cities.map((city) => {
                     const cell = r.byCity[city];
                     return (
@@ -444,6 +446,8 @@ export function ItemListTab({ data }: { data: FlowhubData }) {
                       </td>
                     );
                   })}
+                  <td className={qtyCell}>{formatQty(r.totalSupplied)}</td>
+                  <td className={qtyCell}>{formatQty(r.leftForSupply)}</td>
                 </tr>
               ))
             )}
