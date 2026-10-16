@@ -9,6 +9,12 @@ import {
 } from "@/lib/store";
 import { confirmWorkspaceSave } from "@/lib/save-notice";
 import {
+  DLP_MONTHS_MAX,
+  DLP_MONTHS_MIN,
+  DLP_MONTHS_RANGE_MESSAGE,
+  acceptedDlpMonths,
+} from "@/lib/dlp-months";
+import {
   addCustomBillingTerm,
   billingTermLabel,
   billingTermsTotalIs100,
@@ -237,9 +243,9 @@ export default function NewContractPage() {
       setError("TDS % must be between 0 and 100.");
       return;
     }
-    const dlp = Number(dlpMonths);
-    if (!Number.isInteger(dlp) || dlp < 6 || dlp > 60) {
-      setError("DLP must be whole months from 6 to 60.");
+    const dlp = acceptedDlpMonths(dlpMonths);
+    if (dlp == null) {
+      setError(DLP_MONTHS_RANGE_MESSAGE);
       return;
     }
     const dueDays = Number(paymentDueDays);
@@ -393,7 +399,7 @@ export default function NewContractPage() {
             required
           />
           <Field
-            label="DLP period (months, 6–60)"
+            label={`DLP period (months, ${DLP_MONTHS_MIN}–${DLP_MONTHS_MAX})`}
             value={dlpMonths}
             onChange={setDlpMonths}
             type="number"
