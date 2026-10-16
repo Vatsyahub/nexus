@@ -785,7 +785,7 @@ function TaskBlock({
       </button>
 
       {expanded && (
-        <div className="border-t-4 border-[var(--fh-accent)] bg-[var(--fh-bg)]/50 px-4 py-5 sm:px-5">
+        <div className="border-t-4 border-[var(--fh-accent)] bg-[var(--fh-bg)]/50 px-3 py-2">
           <TaskEditor
             task={task}
             subtasks={subtasks}
@@ -870,11 +870,11 @@ function SummaryField({
   className?: string;
 }) {
   return (
-    <div className={className}>
+    <div className={cn("min-w-0", className)}>
       <dt className="text-[10px] uppercase tracking-wide text-[var(--fh-muted)]">
         {label}
       </dt>
-      <dd className="mt-0.5 text-sm text-[var(--fh-ink)]">{children}</dd>
+      <dd className="mt-0.5 min-w-0 text-sm text-[var(--fh-ink)]">{children}</dd>
     </div>
   );
 }
@@ -1111,7 +1111,7 @@ function TaskEditor({
   }
 
   return (
-    <div className="space-y-4" onClick={(e) => e.stopPropagation()}>
+    <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Button size="sm" variant="outline" onClick={onClose}>
           Hide details
@@ -1216,9 +1216,9 @@ function TaskEditor({
 
       <div
         data-task-summary
-        className="flex items-start gap-4 border border-[var(--fh-line)] bg-white p-4"
+        className="flex items-start gap-2 border border-[var(--fh-line)] bg-white p-2"
       >
-        <dl className="grid min-w-0 flex-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+        <dl className="grid min-w-0 flex-1 grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-3 lg:grid-cols-6">
           <SummaryField label="Department">
             {task.department ? departmentDisplayName(task.department) : "—"}
           </SummaryField>
@@ -1242,16 +1242,14 @@ function TaskEditor({
               {formatDisplayDate(task.completedAt)}
             </SummaryField>
           )}
-          <SummaryField
-            label="Latest note"
-            className="sm:col-span-2 lg:col-span-3"
-          >
-            {(task.notes ?? "").trim() ? task.notes : "—"}
+          <SummaryField label="Latest note" className="col-span-full">
+            <div className="max-w-full min-w-0 overflow-x-auto">
+              <div className="whitespace-nowrap">
+                {(task.notes ?? "").trim() ? task.notes : "—"}
+              </div>
+            </div>
           </SummaryField>
-          <SummaryField
-            label="Subtasks"
-            className="sm:col-span-2 lg:col-span-3"
-          >
+          <SummaryField label="Subtasks" className="col-span-full">
             {subtasks.length === 0 ? (
               "No subtasks."
             ) : (
@@ -1298,10 +1296,10 @@ function TaskEditor({
       </div>
 
       {editing && (
-      <div className="space-y-6 border border-[var(--fh-line)] bg-white p-4">
-      <div className="space-y-3">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="space-y-1">
+      <div className="space-y-3 border border-[var(--fh-line)] bg-white p-2">
+      <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 lg:grid-cols-12">
+          <div className="min-w-0 space-y-1 lg:col-span-3">
             <Label className="text-xs">Department</Label>
             <select
               className="flex h-9 w-full rounded-lg border border-input bg-white px-2 text-sm"
@@ -1316,16 +1314,16 @@ function TaskEditor({
               ))}
             </select>
           </div>
-          <div className="space-y-1">
+          <div className="min-w-0 space-y-1 lg:col-span-3">
             <Label className="text-xs">Deadline</Label>
             <Input
               type="date"
-              className="bg-white"
+              className="min-w-0 bg-white"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
             />
           </div>
-          <div className="space-y-1">
+          <div className="col-span-2 min-w-0 space-y-1 lg:col-span-2">
             <Label className="text-xs">Priority</Label>
             <select
               className="flex h-9 w-full rounded-lg border border-input bg-white px-2 text-sm"
@@ -1340,9 +1338,9 @@ function TaskEditor({
             </select>
           </div>
           {canAssignPeople && (
-            <div className="space-y-1 sm:col-span-2 lg:col-span-3">
+            <div className="col-span-2 min-w-0 space-y-1 lg:col-span-4">
               <Label className="text-xs">People</Label>
-              <div className="flex flex-wrap gap-2 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)]/40 p-2">
+              <div className="flex flex-wrap gap-x-3 gap-y-1 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)]/40 px-2 py-1">
                 {department === "none" ? (
                   <p className="text-xs text-[var(--fh-muted)]">
                     Select a department to choose people.
@@ -1375,8 +1373,8 @@ function TaskEditor({
         </Button>
       </div>
 
-      <div className="space-y-3 border-t border-[var(--fh-line)] pt-4">
-        <div className="grid gap-3 sm:grid-cols-[12rem_1fr]">
+      <div className="space-y-2 border-t border-[var(--fh-line)] pt-2">
+        <div className="grid gap-x-3 gap-y-1.5 sm:grid-cols-[9rem_minmax(0,1fr)]">
           <div className="space-y-1">
             <Label className="text-xs">Status</Label>
             <select
@@ -1403,10 +1401,12 @@ function TaskEditor({
           </div>
         </div>
         {task.notes && (
-          <p className="text-xs text-[var(--fh-muted)]">
-            Latest note: {task.notes}
-            {task.notesUpdatedAt ? ` · ${formatLastUpdated(task)}` : ""}
-          </p>
+          <div className="max-w-full min-w-0 overflow-x-auto text-xs text-[var(--fh-muted)]">
+            <div className="whitespace-nowrap">
+              Latest note: {task.notes}
+              {task.notesUpdatedAt ? ` · ${formatLastUpdated(task)}` : ""}
+            </div>
+          </div>
         )}
         {task.status === "awaiting_verification" && (
           <p className="text-sm text-[var(--fh-ink)]">{waitingForCopy(task)}</p>
@@ -1427,7 +1427,7 @@ function TaskEditor({
         </div>
 
         {closing && (
-          <div className="space-y-3 border border-[var(--fh-accent)] bg-[var(--fh-accent)]/10 p-3">
+          <div className="space-y-2 border border-[var(--fh-accent)] bg-[var(--fh-accent)]/10 p-2">
             <p className="text-sm font-medium text-[var(--fh-steel)]">
               Close open subtasks before completing
             </p>
@@ -1499,22 +1499,23 @@ function TaskEditor({
         )}
       </div>
 
-      <div className="space-y-3 border-t border-[var(--fh-line)] pt-4">
-        <ul className="space-y-2">
+      <div className="space-y-2 border-t border-[var(--fh-line)] pt-2">
+        <ul className="space-y-1">
           {subtasks.length === 0 ? (
             <li className="text-sm text-[var(--fh-muted)]">No subtasks yet.</li>
           ) : (
             subtasks.map((s) => (
               <li
                 key={s.id}
-                className="border border-[var(--fh-line)] bg-[var(--fh-bg)]/30 px-3 py-3 text-sm"
+                className="border border-[var(--fh-line)] bg-[var(--fh-bg)]/30 px-2 py-1.5 text-sm"
               >
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
+                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                  <p className="min-w-0">
                     <span className="font-medium text-[var(--fh-steel)]">
                       {s.title}
                     </span>
-                    <span className="mt-0.5 block text-xs text-[var(--fh-muted)]">
+                    <span className="text-xs text-[var(--fh-muted)]">
+                      {" · "}
                       {[
                         s.department
                           ? departmentDisplayName(s.department)
@@ -1527,7 +1528,7 @@ function TaskEditor({
                         .filter(Boolean)
                         .join(" · ")}
                     </span>
-                  </div>
+                  </p>
                   <div className="flex items-center gap-2">
                     <StatusPill status={s.status} />
                     <Button
@@ -1548,7 +1549,7 @@ function TaskEditor({
                   </div>
                 </div>
                 {expandedSubId === s.id && (
-                  <div className="mt-3 border-t border-[var(--fh-line)] pt-3">
+                  <div className="mt-2 border-t border-[var(--fh-line)] pt-2">
                     <SubtaskEditor
                       task={s}
                       people={people}
@@ -1563,7 +1564,7 @@ function TaskEditor({
             ))
           )}
         </ul>
-        <div className="flex flex-wrap items-end gap-2 border-t border-[var(--fh-line)] pt-3">
+        <div className="flex flex-wrap items-end gap-2 border-t border-[var(--fh-line)] pt-2">
           <div className="space-y-1">
             <Label className="text-xs">Add subtask</Label>
             <Input
@@ -1649,8 +1650,8 @@ function SubtaskEditor({
   const selectable = peopleForDepartment(people, department);
 
   return (
-    <div className="mt-2 w-full space-y-2 border-t border-[var(--fh-line)] pt-2">
-      <div className="grid gap-2 sm:grid-cols-3">
+    <div className="mt-1 w-full space-y-1.5 border-t border-[var(--fh-line)] pt-1.5">
+      <div className="grid gap-1.5 sm:grid-cols-3">
         <select
           className="flex h-9 rounded-lg border border-input bg-white px-2 text-sm"
           value={department}
