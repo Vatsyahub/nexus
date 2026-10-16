@@ -14,10 +14,14 @@ import { formatMoney } from "@/lib/format-money";
 import { formatDisplayDate, isDateInInclusiveRange } from "@/lib/dates";
 import {
   buildBankGuaranteeRows,
+  buildCollectionRows,
   buildExpenseReportRows,
   buildRetentionHeldRows,
+  filterCollectionRows,
   formatRetentionStatusLabel,
+  sumCollectionCashReceived,
   type BankGuaranteeRow,
+  type CollectionReportRow,
   type ExpenseReportRow,
   type RetentionHeldRow,
 } from "@/lib/reports";
@@ -46,12 +50,13 @@ import {
   reportTh,
 } from "../reports-shell";
 
-type Tab = "guarantees" | "retentions" | "expenses";
+type Tab = "collections" | "guarantees" | "retentions" | "expenses";
 
 function parseTab(raw: string | null): Tab {
+  if (raw === "guarantees") return "guarantees";
   if (raw === "retentions") return "retentions";
   if (raw === "expenses") return "expenses";
-  return "guarantees";
+  return "collections";
 }
 
 export default function AccountsReportPage() {
@@ -72,6 +77,8 @@ function AccountsReportInner() {
   const searchParams = useSearchParams();
   const [tab, setTab] = useState<Tab>(() => parseTab(searchParams.get("tab")));
   const [q, setQ] = useState("");
+  const [collectionFrom, setCollectionFrom] = useState("");
+  const [collectionTo, setCollectionTo] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [recoveringId, setRecoveringId] = useState<string | null>(null);
@@ -87,15 +94,26 @@ function AccountsReportInner() {
     setMsg(null);
     setRecoveringId(null);
     const params = new URLSearchParams(searchParams.toString());
-    if (next === "guarantees") params.delete("tab");
+    if (next === "collections") params.delete("tab");
     else params.set("tab", next);
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }
 
+  const allCollectionRows = useMemo(() => buildCollectionRows(data), [data]);
   const allBgRows = useMemo(() => buildBankGuaranteeRows(data), [data]);
   const allRetentionRows = useMemo(() => buildRetentionHeldRows(data), [data]);
   const allExpenseRows = useMemo(() => buildExpenseReportRows(data), [data]);
+
+  const collectionRows = useMemo(
+    () =>
+      filterCollectionRows(allCollectionRows, {
+        q,
+        dateFrom: collectionFrom,
+        dateTo: collectionTo,
+      }),
+    [allCollectionRows, q, collectionFrom, collectionTo]
+  );
 
   const bgRows = useMemo(() => {
     const needle = q.trim();
@@ -153,6 +171,10 @@ function AccountsReportInner() {
     () => expenseRows.reduce((s, r) => s + r.amount, 0),
     [expenseRows]
   );
+  const cashReceivedTotal = useMemo(
+    () => sumCollectionCashReceived(collectionRows),
+    [collectionRows]
+  );
   const retentionTotal = useMemo(
     () => retentionRows.reduce((s, r) => s + r.retentionHeld, 0),
     [retentionRows]
@@ -176,11 +198,13 @@ function AccountsReportInner() {
   }
 
   const emptyForTab =
-    tab === "guarantees"
-      ? allBgRows.length === 0
-      : tab === "retentions"
-        ? allRetentionRows.length === 0
-        : allExpenseRows.length === 0;
+    tab === "collections"
+      ? allCollectionRows.length === 0
+      : tab === "guarantees"
+        ? allBgRows.length === 0
+        : tab === "retentions"
+          ? allRetentionRows.length === 0
+          : allExpenseRows.length === 0;
 
   return (
     <HubPage>
@@ -195,11 +219,13 @@ function AccountsReportInner() {
           <TabBar tab={tab} onSelect={selectTab} />
           <ReportsEmpty
             message={
-              tab === "guarantees"
-                ? "No bank guarantees with details entered yet."
-                : tab === "retentions"
-                  ? "No retention held on payments yet."
-                  : "No expenses recorded yet."
+              tab === "collections"
+                ? "No payments recorded yet."
+                : tab === "guarantees"
+                  ? "No bank guarantees with details entered yet."
+                  : tab === "retentions"
+                    ? "No retention held on payments yet."
+                    : "No expenses recorded yet."
             }
           />
         </section>
@@ -207,6 +233,16 @@ function AccountsReportInner() {
         <section className={reportPanelClass}>
           <div className="flex flex-wrap items-end justify-between gap-3">
             <TabBar tab={tab} onSelect={selectTab} />
+            {tab === "collections" ? (
+              <div className="text-right">
+                <p className="text-xs uppercase tracking-wide text-[var(--fh-muted)]">
+                  Total cash received
+                </p>
+                <p className="mt-0.5 font-[family-name:var(--font-display)] text-xl tabular-nums text-[var(--fh-steel)]">
+                  {formatMoney(cashReceivedTotal)}
+                </p>
+              </div>
+            ) : null}
             {tab === "retentions" ? (
               <div className="text-right">
                 <p className="text-xs uppercase tracking-wide text-[var(--fh-muted)]">
@@ -235,15 +271,23 @@ function AccountsReportInner() {
             </p>
           ) : null}
 
-          {tab === "expenses" ? (
+          {tab === "collections" || tab === "expenses" ? (
             <ListSearchWithDateRange
               value={q}
               onChange={setQ}
-              placeholder="Search project, type, person, amount…"
-              dateFrom={dateFrom}
-              dateTo={dateTo}
-              onDateFromChange={setDateFrom}
-              onDateToChange={setDateTo}
+              placeholder={
+                tab === "collections"
+                  ? "Search date, contract, against, amounts…"
+                  : "Search project, type, person, amount…"
+              }
+              dateFrom={tab === "collections" ? collectionFrom : dateFrom}
+              dateTo={tab === "collections" ? collectionTo : dateTo}
+              onDateFromChange={
+                tab === "collections" ? setCollectionFrom : setDateFrom
+              }
+              onDateToChange={
+                tab === "collections" ? setCollectionTo : setDateTo
+              }
             />
           ) : (
             <ListSearchBar
@@ -258,7 +302,18 @@ function AccountsReportInner() {
             />
           )}
 
-          {tab === "guarantees" ? (
+          {tab === "collections" ? (
+            <CollectionsTable
+              rows={collectionRows}
+              filters={reportFilterSummary({
+                tab: "Collections",
+                search: q,
+                dateFrom: collectionFrom,
+                dateTo: collectionTo,
+                dateLabel: "Payment date",
+              })}
+            />
+          ) : tab === "guarantees" ? (
             <GuaranteesTable
               rows={bgRows}
               filters={reportFilterSummary({ tab: "Bank guarantees", search: q })}
@@ -311,6 +366,11 @@ function TabBar({
       className="flex flex-wrap gap-1 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)] p-1"
     >
       <TabButton
+        active={tab === "collections"}
+        onClick={() => onSelect("collections")}
+        label="Collections"
+      />
+      <TabButton
         active={tab === "guarantees"}
         onClick={() => onSelect("guarantees")}
         label="Bank guarantees"
@@ -353,6 +413,115 @@ function TabButton({
     >
       {label}
     </button>
+  );
+}
+
+function CollectionsTable({
+  rows,
+  filters,
+}: {
+  rows: CollectionReportRow[];
+  filters: string;
+}) {
+  return (
+    <>
+      <ReportsTableScroll className="mt-4">
+        <table className="w-full table-fixed text-left text-sm">
+          <colgroup>
+            <col className="w-[11%]" />
+            <col className="w-[22%]" />
+            <col className="w-[15%]" />
+            <col className="w-[13%]" />
+            <col className="w-[13%]" />
+            <col className="w-[13%]" />
+            <col className="w-[13%]" />
+          </colgroup>
+          <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-[var(--fh-muted)]">
+            <tr>
+              <th className={reportTh}>Date</th>
+              <th className={reportTh}>Contract</th>
+              <th className={reportTh}>Against</th>
+              <th className={cn(reportTh, "text-right")}>Cash received</th>
+              <th className={cn(reportTh, "text-right")}>Retention</th>
+              <th className={cn(reportTh, "text-right")}>TDS</th>
+              <th className={cn(reportTh, "text-right")}>Other deductions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--fh-line)]">
+            {rows.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={7}
+                  className="px-3 py-6 text-center text-[var(--fh-muted)]"
+                >
+                  No matching payments.
+                </td>
+              </tr>
+            ) : (
+              rows.map((r) => (
+                <tr key={r.paymentId}>
+                  <td className={cn(reportTd, "tabular-nums")}>
+                    {formatDisplayDate(r.date)}
+                  </td>
+                  <td className={reportTd}>
+                    <ProjectIdentity
+                      projectNo={r.projectNo}
+                      projectName={r.projectName}
+                      href={
+                        r.contractId ? `/contracts/${r.contractId}` : undefined
+                      }
+                    />
+                  </td>
+                  <td className={cn(reportTd, "break-all")}>
+                    {r.invoiceId ? (
+                      <Link
+                        href={`/billing/${r.invoiceId}`}
+                        className="font-medium text-[var(--fh-steel)] hover:underline"
+                      >
+                        {r.against}
+                      </Link>
+                    ) : (
+                      r.against
+                    )}
+                  </td>
+                  <td className={reportMoney}>{formatMoney(r.cashReceived)}</td>
+                  <td className={reportMoney}>{formatMoney(r.retention)}</td>
+                  <td className={reportMoney}>{formatMoney(r.tds)}</td>
+                  <td className={reportMoney}>
+                    {formatMoney(r.otherDeductions)}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </ReportsTableScroll>
+      <ReportExportIcons
+        filename="collections"
+        title="Accounts Report — Collections"
+        filters={filters}
+        headers={[
+          "Date",
+          "Contract",
+          "Project no.",
+          "Against",
+          "Cash received",
+          "Retention",
+          "TDS",
+          "Other deductions",
+        ]}
+        rows={rows.map((r) => [
+          formatDisplayDate(r.date),
+          r.projectName,
+          r.projectNo,
+          r.against,
+          r.cashReceived,
+          r.retention,
+          r.tds,
+          r.otherDeductions,
+        ])}
+      />
+    </>
   );
 }
 

@@ -15,6 +15,8 @@
 import type { Contract, FlowhubData, Invoice, Payment } from "@/lib/types";
 import { isScheduleDateNa } from "@/lib/types";
 import { matchesAny } from "@/lib/list-search";
+import { dateSearchForms, isDateInInclusiveRange } from "@/lib/dates";
+import { formatMoney } from "@/lib/format-money";
 import {
   contractActualRetentionHold,
   contractActualTdsHold,
@@ -871,6 +873,131 @@ export function buildExpenseReportRows(data: FlowhubData): ExpenseReportRow[] {
       a.projectNo.localeCompare(b.projectNo) ||
       a.expenseId.localeCompare(b.expenseId)
   );
+}
+
+export type CollectionReportRow = {
+  paymentId: string;
+  contractId: string;
+  /** Set when Against is an invoice number that still exists. */
+  invoiceId: string | null;
+  projectNo: string;
+  projectName: string;
+  date: string;
+  /** Tax invoice number, proforma number, “Recoverable”, or “Unlinked”. */
+  against: string;
+  /** Payment net + GST only. Retention, TDS, other deductions, and recovered stay out. */
+  cashReceived: number;
+  retention: number;
+  tds: number;
+  otherDeductions: number;
+};
+
+/**
+ * Cash received on a collection row: payment net + GST.
+ * Retention, TDS, other deductions, and a `recovered` amount (when that field
+ * exists) are not part of this figure.
+ */
+export function collectionCashReceived(p: Payment): number {
+  return (Number(p.netAmount) || 0) + (Number(p.gstAmount) || 0);
+}
+
+function paymentLinkValue(p: Payment): string {
+  return String((p as { link?: string | null }).link ?? "");
+}
+
+/** Against label for one payment. A `recoverable` link wins over any invoice. */
+export function collectionAgainstLabel(
+  p: Payment,
+  invoice: Invoice | undefined
+): string {
+  const link = paymentLinkValue(p);
+  if (link === "recoverable") return "Recoverable";
+  if (link === "unlinked") return "Unlinked";
+  const number = invoice?.number?.trim();
+  if (number) return number;
+  return "Unlinked";
+}
+
+/**
+ * One row per payment, including proforma and unlinked payments.
+ * Newest payment date first. Does not read a `recovered` field.
+ */
+export function buildCollectionRows(data: FlowhubData): CollectionReportRow[] {
+  const contracts = new Map(data.contracts.map((c) => [c.id, c]));
+  const invoices = new Map(data.invoices.map((i) => [i.id, i]));
+
+  return (data.payments ?? [])
+    .slice()
+    .sort((a, b) => {
+      const byDate = String(b.date ?? "").localeCompare(String(a.date ?? ""));
+      if (byDate) return byDate;
+      const projectA = contracts.get(a.contractId)?.projectNo ?? "";
+      const projectB = contracts.get(b.contractId)?.projectNo ?? "";
+      const byProject = projectA.localeCompare(projectB);
+      if (byProject) return byProject;
+      const byCreated = (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
+      if (byCreated) return byCreated;
+      return a.id.localeCompare(b.id);
+    })
+    .map((p) => {
+      const contract = contracts.get(p.contractId);
+      const invoice = p.invoiceId ? invoices.get(p.invoiceId) : undefined;
+      const link = paymentLinkValue(p);
+      const against = collectionAgainstLabel(p, invoice);
+      const linkedInvoice =
+        against !== "Recoverable" &&
+        against !== "Unlinked" &&
+        link !== "unlinked" &&
+        invoice
+          ? invoice.id
+          : null;
+      return {
+        paymentId: p.id,
+        contractId: contract ? p.contractId : "",
+        invoiceId: linkedInvoice,
+        projectNo: contract?.projectNo ?? "—",
+        projectName: contract?.projectName ?? "—",
+        date: p.date,
+        against,
+        cashReceived: collectionCashReceived(p),
+        retention: Number(p.retentionAmount) || 0,
+        tds: Number(p.tdsAmount) || 0,
+        otherDeductions: Number(p.otherDeductions) || 0,
+      };
+    });
+}
+
+/** Payment date is inclusive. An empty from or to leaves that side open. */
+export function filterCollectionRows(
+  rows: CollectionReportRow[],
+  opts?: { q?: string; dateFrom?: string; dateTo?: string }
+): CollectionReportRow[] {
+  const needle = (opts?.q ?? "").trim();
+  const dateFrom = opts?.dateFrom ?? "";
+  const dateTo = opts?.dateTo ?? "";
+  return rows.filter((r) => {
+    if (!isDateInInclusiveRange(r.date, dateFrom, dateTo)) return false;
+    if (!needle) return true;
+    return matchesAny(needle, [
+      r.projectNo,
+      r.projectName,
+      r.against,
+      r.cashReceived,
+      r.retention,
+      r.tds,
+      r.otherDeductions,
+      formatMoney(r.cashReceived),
+      formatMoney(r.retention),
+      formatMoney(r.tds),
+      formatMoney(r.otherDeductions),
+      ...dateSearchForms(r.date),
+    ]);
+  });
+}
+
+/** Sum of cash received on the rows still in the list. Holds and deductions stay out. */
+export function sumCollectionCashReceived(rows: CollectionReportRow[]): number {
+  return rows.reduce((sum, row) => sum + row.cashReceived, 0);
 }
 
 export function formatRetentionStatusLabel(status: RetentionReportStatus): string {
