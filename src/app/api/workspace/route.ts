@@ -144,7 +144,8 @@ export async function PUT(req: Request) {
   const incoming = asFlowhubData(body, members);
 
   // The page address is ignored. Each slice follows this account's door.
-  // Stale revisions and empty overwrites are still refused.
+  // An equal or older revision is refused, and so is an empty overwrite
+  // that is not newer than the hub it would replace.
   const existing = await prisma.workspaceStore.findUnique({
     where: { id: STORE_ID },
   });

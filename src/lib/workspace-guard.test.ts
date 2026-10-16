@@ -191,7 +191,13 @@ function save(
   map: AccessMap,
   clearance: ClearanceRole = "user"
 ) {
-  const result = resolveWorkspaceWrite(current, incoming, map, clearance);
+  const currentRev = current.workspaceRevision ?? 0;
+  const incomingRev = incoming.workspaceRevision ?? 0;
+  const stamped =
+    incomingRev > currentRev
+      ? incoming
+      : { ...incoming, workspaceRevision: currentRev + 1 };
+  const result = resolveWorkspaceWrite(current, stamped, map, clearance);
   assert.equal(result.action, "save");
   if (result.action !== "save") throw new Error("expected save");
   return result.data;
@@ -460,25 +466,52 @@ test("nexus core follows its own door", () => {
   assert.equal(cleared.contracts.length, 0);
 });
 
-test("empty overwrite and an older revision are still refused", () => {
+test("an equal or older revision is refused and a newer revision is stored", () => {
   const current = file({
-    contracts: [contract()],
+    contracts: [contract({ abgNumber: "ABG/SERVER/1", pbgNumber: "PBG/SERVER/1" })],
     workspaceRevision: 4,
   });
-  const empty = file({ workspaceRevision: 4 });
-  const wiped = resolveWorkspaceWrite(current, empty, access(), "master");
-  assert.equal(wiped.action, "skip");
-  if (wiped.action === "skip") {
-    assert.equal(wiped.skipped, "refuse-empty-overwrite");
-  }
-  const stale = resolveWorkspaceWrite(
+  const equal = resolveWorkspaceWrite(
     current,
-    file({ contracts: [contract({ projectName: "New" })], workspaceRevision: 2 }),
+    file({
+      contracts: [contract({ abgNumber: "ABG/STALE/1", pbgNumber: "PBG/STALE/1" })],
+      workspaceRevision: 4,
+    }),
     access(),
     "master"
   );
-  assert.equal(stale.action, "skip");
-  if (stale.action === "skip") assert.equal(stale.skipped, "refuse-stale-revision");
+  assert.equal(equal.action, "skip");
+  if (equal.action === "skip") {
+    assert.equal(equal.skipped, "refuse-stale-revision");
+    assert.equal(equal.incomingRevision, 4);
+  }
+  const older = resolveWorkspaceWrite(
+    current,
+    file({
+      contracts: [contract({ abgNumber: "ABG/OLDER/1" })],
+      workspaceRevision: 2,
+    }),
+    access(),
+    "master"
+  );
+  assert.equal(older.action, "skip");
+  if (older.action === "skip") assert.equal(older.skipped, "refuse-stale-revision");
+  const newer = resolveWorkspaceWrite(
+    current,
+    file({
+      contracts: [
+        contract({ abgNumber: "ABG/NEW/1", pbgNumber: "PBG/NEW/1" }),
+      ],
+      workspaceRevision: 5,
+    }),
+    access(),
+    "master"
+  );
+  assert.equal(newer.action, "save");
+  if (newer.action !== "save") return;
+  assert.equal(newer.data.workspaceRevision, 5);
+  assert.equal(newer.data.contracts[0]?.abgNumber, "ABG/NEW/1");
+  assert.equal(newer.data.contracts[0]?.pbgNumber, "PBG/NEW/1");
   const intentional = resolveWorkspaceWrite(
     current,
     file({ workspaceRevision: 5 }),

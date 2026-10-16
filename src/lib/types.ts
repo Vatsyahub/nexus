@@ -530,8 +530,8 @@ export type HubNotification = {
 
 export type FlowhubData = {
   /**
-   * Monotonic revision from seeds / repairs. Stale browser tabs with a lower
-   * revision cannot overwrite newer Postgres data on PUT.
+   * Monotonic revision. Each successful save increments it. A tab still
+   * holding an equal or older number cannot overwrite the stored workspace.
    */
   workspaceRevision?: number;
   contracts: Contract[];
