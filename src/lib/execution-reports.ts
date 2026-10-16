@@ -359,16 +359,26 @@ export function formatQty(n: number): string {
     : n.toLocaleString("en-IN", { maximumFractionDigits: 3 });
 }
 
+/** BOQ and left for supply for one city that has this item on an Active contract. */
+export type ItemListCityFigures = {
+  boqQty: number;
+  /** City BOQ qty minus delivery-challan qty on those same BOQ lines. */
+  leftForSupply: number;
+};
+
+export const ITEM_LIST_BOQ_LABEL = "BOQ";
+export const ITEM_LIST_LEFT_LABEL = "Left";
+
 export type ItemListRow = {
   /** Trimmed, lowercased item name */
   key: string;
   itemName: string;
   /**
-   * Summed BOQ qty for cities that have this item on an Active contract.
-   * A missing city means the item is on no Active contract in that city
-   * (render blank, not 0).
+   * Present only when the item is on an Active contract in that city.
+   * A missing city means render blank, not 0. Zero and negative left stay
+   * when the item is in the city.
    */
-  qtyByCity: Record<string, number>;
+  byCity: Record<string, ItemListCityFigures>;
   /** BOQ quantity of Active contracts only */
   totalQty: number;
   /**
@@ -379,6 +389,43 @@ export type ItemListRow = {
   /** Active-contract BOQ qty minus total supplied. Negative when supply exceeds BOQ. */
   leftForSupply: number;
 };
+
+export type ItemListExportCell = string | number;
+
+/**
+ * Two labeled lines for a city cell. Empty when the item is not on an
+ * Active contract in that city, so a missing city does not export as 0.
+ */
+export function formatItemListCityCell(
+  figures: ItemListCityFigures | undefined
+): string {
+  if (!figures) return "";
+  return `${ITEM_LIST_BOQ_LABEL} ${formatQty(figures.boqQty)}\n${ITEM_LIST_LEFT_LABEL} ${formatQty(figures.leftForSupply)}`;
+}
+
+/** Item name, the three totals, then one column per city. */
+export function itemListHeaders(cities: string[]): string[] {
+  return [
+    "Item name",
+    "Total BOQ qty",
+    "Total supplied",
+    "Left for supply",
+    ...cities,
+  ];
+}
+
+export function itemListExportRow(
+  cities: string[],
+  row: ItemListRow
+): ItemListExportCell[] {
+  return [
+    row.itemName,
+    row.totalQty,
+    row.totalSupplied,
+    row.leftForSupply,
+    ...cities.map((city) => formatItemListCityCell(row.byCity[city])),
+  ];
+}
 
 function contractCity(city: string | null | undefined): string {
   return String(city ?? "").trim();
@@ -419,13 +466,16 @@ export function itemListCities(data: FlowhubData): string[] {
  * Total supplied sums delivery-challan qty on those same BOQ lines.
  * Left for supply is that BOQ total minus supplied, and stays negative when
  * the challans exceed the ordered quantity.
+ * A city's left is that city's Active-contract BOQ qty minus delivery-challan
+ * qty on those same lines. On hold and Completed challans stay out.
  */
 export function buildItemListRows(data: FlowhubData): ItemListRow[] {
+  type CityAcc = { boqQty: number; supplied: number };
   type Acc = {
     itemName: string;
     totalQty: number;
     totalSupplied: number;
-    qtyByCity: Record<string, number>;
+    byCity: Record<string, CityAcc>;
   };
   const groups = new Map<string, Acc>();
 
@@ -440,26 +490,41 @@ export function buildItemListRows(data: FlowhubData): ItemListRow[] {
       const key = itemName.toLowerCase();
       let acc = groups.get(key);
       if (!acc) {
-        acc = { itemName, totalQty: 0, totalSupplied: 0, qtyByCity: {} };
+        acc = { itemName, totalQty: 0, totalSupplied: 0, byCity: {} };
         groups.set(key, acc);
       }
       const raw = Number(line.quantity);
       const qty = Number.isFinite(raw) ? raw : 0;
+      const supplied = suppliedQty(contract.id, line.id, data);
       acc.totalQty += qty;
-      acc.totalSupplied += suppliedQty(contract.id, line.id, data);
-      if (city) acc.qtyByCity[city] = (acc.qtyByCity[city] ?? 0) + qty;
+      acc.totalSupplied += supplied;
+      if (city) {
+        const cell = acc.byCity[city] ?? { boqQty: 0, supplied: 0 };
+        cell.boqQty += qty;
+        cell.supplied += supplied;
+        acc.byCity[city] = cell;
+      }
     }
   }
 
   return [...groups.values()]
-    .map((acc) => ({
-      key: acc.itemName.trim().toLowerCase(),
-      itemName: acc.itemName,
-      qtyByCity: acc.qtyByCity,
-      totalQty: acc.totalQty,
-      totalSupplied: acc.totalSupplied,
-      leftForSupply: acc.totalQty - acc.totalSupplied,
-    }))
+    .map((acc) => {
+      const byCity: Record<string, ItemListCityFigures> = {};
+      for (const [city, cell] of Object.entries(acc.byCity)) {
+        byCity[city] = {
+          boqQty: cell.boqQty,
+          leftForSupply: cell.boqQty - cell.supplied,
+        };
+      }
+      return {
+        key: acc.itemName.trim().toLowerCase(),
+        itemName: acc.itemName,
+        byCity,
+        totalQty: acc.totalQty,
+        totalSupplied: acc.totalSupplied,
+        leftForSupply: acc.totalQty - acc.totalSupplied,
+      };
+    })
     .sort((a, b) =>
       a.itemName.localeCompare(b.itemName, undefined, { sensitivity: "base" })
     );
