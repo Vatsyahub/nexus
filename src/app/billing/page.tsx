@@ -85,26 +85,28 @@ export default function BillingHomePage() {
         <h2 className="font-[family-name:var(--font-display)] text-xl text-[var(--fh-steel)]">
           All invoices
         </h2>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="space-y-1">
-            <Label className="text-xs">Type</Label>
-            <select
-              className="flex h-8 w-full rounded-lg border border-input px-2 text-sm"
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)}
-            >
-              <option value="ALL">All</option>
-              <option value="PI">Proforma Invoice</option>
-              <option value="TI">Tax Invoice</option>
-            </select>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">From date</Label>
-            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">To date</Label>
-            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+        <div className="w-full sm:w-1/2">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Type</Label>
+              <select
+                className="flex h-8 w-full rounded-lg border border-input px-2 text-sm"
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)}
+              >
+                <option value="ALL">All</option>
+                <option value="PI">Proforma Invoice</option>
+                <option value="TI">Tax Invoice</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">From date</Label>
+              <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">To date</Label>
+              <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+            </div>
           </div>
         </div>
 
