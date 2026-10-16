@@ -115,10 +115,12 @@ function cellTextWidth(v: ReportExportCell): number {
 }
 
 function rowLineCount(row: ReportExportCell[]): number {
-  return row.reduce((max, v) => {
-    if (typeof v !== "string" || !v.includes("\n")) return max;
-    return Math.max(max, v.split("\n").length);
-  }, 1);
+  let max = 1;
+  for (const v of row) {
+    if (typeof v !== "string" || !v.includes("\n")) continue;
+    max = Math.max(max, v.split("\n").length);
+  }
+  return max;
 }
 
 /** Columns where every non-empty cell is a number get right-aligned. */
