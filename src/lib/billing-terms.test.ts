@@ -10,6 +10,7 @@ import {
 import {
   addContract,
   addInvoice,
+  commitContractBillingTerms,
   deleteContractBillingTerm,
   getData,
   renameContractBillingTerm,
@@ -445,4 +446,87 @@ test("an old slug stays until rename, which updates invoice termKeys and keeps a
   assert.equal(after.netAmount, before.netAmount);
   assert.equal(after.gstAmount, before.gstAmount);
   assert.equal(after.finalAmount, before.finalAmount);
+});
+
+test("saving a billing-term draft keeps an old slug until rename and requires 100%", () => {
+  const contract = makeContract("C-TERM-DRAFT", {
+    supply: 60,
+    gad_2nd_half: 40,
+  });
+  const invoice = addInvoice({
+    type: "TI",
+    number: "TI-TERM-DRAFT",
+    date: "2026-10-14",
+    contractId: contract.id,
+    lines: [
+      {
+        boqItemId: `boq-${contract.projectNo}`,
+        itemName: "Item",
+        termKey: "gad_2nd_half",
+        billedQty: 2,
+        rate: 100,
+        termPercent: 40,
+        lineNet: 80,
+      },
+    ],
+  });
+  assert.ok(invoice);
+  const before = structuredClone(invoiceById(invoice.id));
+  const kept = commitContractBillingTerms(
+    contract.id,
+    { supply: 70, gad_2nd_half: 30 },
+    { supply: "supply", gad_2nd_half: "gad_2nd_half" }
+  );
+  assert.equal(kept.ok, true);
+  assert.equal(contractTerms(contract.id).gad_2nd_half, 30);
+  assert.equal(Object.hasOwn(contractTerms(contract.id), "GAD 2nd half"), false);
+  assert.deepEqual(invoiceById(invoice.id), before);
+
+  const refused = commitContractBillingTerms(
+    contract.id,
+    { supply: 50, "GAD 2nd half": 40 },
+    { supply: "supply", "GAD 2nd half": "gad_2nd_half" }
+  );
+  assert.equal(refused.ok, false);
+  assert.equal(contractTerms(contract.id).gad_2nd_half, 30);
+  assert.equal(invoiceById(invoice.id).lines[0]?.termKey, "gad_2nd_half");
+  assert.equal(invoiceById(invoice.id).lines[0]?.termPercent, 40);
+
+  const renamed = commitContractBillingTerms(
+    contract.id,
+    { supply: 75, "GAD 2nd half": 25 },
+    { supply: "supply", "GAD 2nd half": "gad_2nd_half" }
+  );
+  assert.equal(renamed.ok, true);
+  assert.equal(contractTerms(contract.id)["GAD 2nd half"], 25);
+  assert.equal(Object.hasOwn(contractTerms(contract.id), "gad_2nd_half"), false);
+  const after = invoiceById(invoice.id);
+  assert.equal(after.lines[0]?.termKey, "GAD 2nd half");
+  assert.equal(after.lines[0]?.termPercent, 40);
+  assert.equal(after.lines[0]?.lineNet, 80);
+  assert.equal(after.lines[0]?.billedQty, 2);
+  assert.equal(after.lines[0]?.rate, 100);
+  assert.equal(after.netAmount, before.netAmount);
+  assert.equal(after.finalAmount, before.finalAmount);
+
+  const blocked = commitContractBillingTerms(
+    contract.id,
+    { supply: 100 },
+    { supply: "supply" }
+  );
+  assert.deepEqual(blocked, {
+    ok: false,
+    error: "This term is used on an invoice and cannot be deleted.",
+  });
+  assert.equal(contractTerms(contract.id)["GAD 2nd half"], 25);
+
+  const added = commitContractBillingTerms(
+    contract.id,
+    { supply: 70, "GAD 2nd half": 20, "Site visit": 10 },
+    { supply: "supply", "GAD 2nd half": "GAD 2nd half" }
+  );
+  assert.equal(added.ok, true);
+  assert.equal(contractTerms(contract.id)["Site visit"], 10);
+  assert.equal(billingTermLabel("Site visit"), "Site visit");
+  assert.equal(invoiceById(invoice.id).lines[0]?.termPercent, 40);
 });

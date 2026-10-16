@@ -88,6 +88,7 @@ import {
   billingTermsTotal,
   billingTermsTotalIs100,
   deleteCustomBillingTerm,
+  isBuiltinBillingTerm,
   renameCustomBillingTerm,
 } from "@/lib/billing-terms";
 
@@ -1935,16 +1936,9 @@ export function renameContractBillingTerm(
   if (!renamed.ok) return renamed;
   if (renamed.toKey === fromKey) return { ok: true, toKey: fromKey };
 
-  const invoices = data.invoices.map((invoice) => {
-    if (invoice.contractId !== contractId) return invoice;
-    if (!invoice.lines.some((line) => line.termKey === fromKey)) return invoice;
-    return {
-      ...invoice,
-      lines: invoice.lines.map((line) =>
-        line.termKey === fromKey ? { ...line, termKey: renamed.toKey } : line
-      ),
-    };
-  });
+  const invoices = invoicesWithRenamedTerms(data.invoices, contractId, [
+    [fromKey, renamed.toKey],
+  ]);
 
   write({
     ...data,
@@ -2037,6 +2031,142 @@ export function saveContractBillingTerms(
     contracts: data.contracts.map((c) =>
       c.id === contractId ? { ...c, billingTerms: next } : c
     ),
+  });
+  return { ok: true };
+}
+
+export function contractInvoiceUsesBillingTerm(
+  contractId: string,
+  termKey: string
+): boolean {
+  return read().invoices.some(
+    (invoice) =>
+      invoice.contractId === contractId &&
+      invoice.lines.some((line) => line.termKey === termKey)
+  );
+}
+
+function billingTermNamesCollide(terms: BillingTerms): boolean {
+  const seen = new Set<string>();
+  for (const key of Object.keys(terms)) {
+    const folded = key.toLowerCase();
+    if (seen.has(folded)) return true;
+    seen.add(folded);
+  }
+  return false;
+}
+
+function hasOwnTerm(terms: BillingTerms, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(terms, key);
+}
+
+/**
+ * Move termKey on this contract's invoice lines. Other line fields and
+ * invoice amounts stay as stored.
+ */
+function invoicesWithRenamedTerms(
+  invoices: Invoice[],
+  contractId: string,
+  renames: Array<[string, string]>
+): Invoice[] {
+  const renameTo = new Map(renames.filter(([fromKey, toKey]) => fromKey !== toKey));
+  if (renameTo.size === 0) return invoices;
+  return invoices.map((invoice) => {
+    if (invoice.contractId !== contractId) return invoice;
+    if (!invoice.lines.some((line) => renameTo.has(line.termKey))) return invoice;
+    return {
+      ...invoice,
+      lines: invoice.lines.map((line) => {
+        const toKey = renameTo.get(line.termKey);
+        return toKey ? { ...line, termKey: toKey } : line;
+      }),
+    };
+  });
+}
+
+/**
+ * Save one billing-term edit. `origins` maps a draft key that came from a
+ * saved term to that saved key. Added terms have no origin. A saved custom
+ * term that is neither kept nor renamed is deleted.
+ * The write is skipped unless the draft totals 100% and no deleted term is
+ * on an invoice. Invoice lines change only termKey, and only for a rename.
+ */
+export function commitContractBillingTerms(
+  contractId: string,
+  nextTerms: BillingTerms,
+  origins: Record<string, string>
+): BillingTermActionResult {
+  const data = read();
+  const current = data.contracts.find((c) => c.id === contractId);
+  if (!current) return { ok: false, error: "Contract not found." };
+
+  if (billingTermNamesCollide(nextTerms)) {
+    return { ok: false, error: "A term with that name already exists." };
+  }
+
+  const originValues = new Set<string>();
+  const renames: Array<[string, string]> = [];
+  for (const [draftKey, originalKey] of Object.entries(origins)) {
+    if (!hasOwnTerm(nextTerms, draftKey) || !hasOwnTerm(current.billingTerms, originalKey)) {
+      return { ok: false, error: "That billing term is not on this contract." };
+    }
+    if (originValues.has(originalKey)) {
+      return { ok: false, error: "A term with that name already exists." };
+    }
+    originValues.add(originalKey);
+    if (
+      (isBuiltinBillingTerm(originalKey) || isBuiltinBillingTerm(draftKey)) &&
+      draftKey !== originalKey
+    ) {
+      return { ok: false, error: "Built-in billing terms cannot be renamed." };
+    }
+    if (draftKey !== originalKey) renames.push([originalKey, draftKey]);
+  }
+
+  for (const key of Object.keys(current.billingTerms)) {
+    if (!isBuiltinBillingTerm(key)) continue;
+    if (!hasOwnTerm(nextTerms, key)) {
+      return { ok: false, error: "Built-in billing terms cannot be deleted." };
+    }
+  }
+
+  for (const key of Object.keys(current.billingTerms)) {
+    if (isBuiltinBillingTerm(key)) continue;
+    if (originValues.has(key) || hasOwnTerm(nextTerms, key)) continue;
+    if (contractInvoiceUsesBillingTerm(contractId, key)) {
+      return {
+        ok: false,
+        error: "This term is used on an invoice and cannot be deleted.",
+      };
+    }
+  }
+
+  const next: BillingTerms = {};
+  for (const key of Object.keys(nextTerms)) {
+    const value = Number(nextTerms[key]);
+    if (!Number.isFinite(value) || value < 0) {
+      return {
+        ok: false,
+        error: "Each billing term percent must be zero or more.",
+      };
+    }
+    next[key] = value;
+  }
+  if (!billingTermsTotalIs100(next)) {
+    const total = billingTermsTotal(next);
+    return {
+      ok: false,
+      error: `Billing terms must total 100% (currently ${total}%).`,
+    };
+  }
+
+  const invoices = invoicesWithRenamedTerms(data.invoices, contractId, renames);
+  write({
+    ...data,
+    contracts: data.contracts.map((c) =>
+      c.id === contractId ? { ...c, billingTerms: next } : c
+    ),
+    invoices,
   });
   return { ok: true };
 }
