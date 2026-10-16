@@ -209,6 +209,189 @@ test("deleting a task hides it and its subtasks and blocks expiry sync", () => {
   );
 });
 
+function openTasks(contractId: string, catalogKey: string) {
+  return getData().tasks.filter(
+    (t) => t.contractId === contractId && t.catalogKey === catalogKey && taskIsOpen(t)
+  );
+}
+
+test("adding a guarantee on a not-required contract stores the typed amount", () => {
+  const { contract, tasks } = makeContract("ABG-LATER");
+  assert.equal(contract.abgRequired, false);
+  assert.equal(contract.pbgRequired, false);
+  assert.equal(contract.abgValue, null);
+  assert.equal(contract.pbgValue, null);
+  assert.equal(
+    tasks.some((t) => t.catalogKey === "create_abg" || t.catalogKey === "create_pbg"),
+    false
+  );
+
+  const saved = updateContract(contract.id, {
+    abgRequired: true,
+    abgPercent: 10,
+    abgValue: 2500,
+    pbgRequired: true,
+    pbgPercent: 5,
+    pbgValue: 900,
+  });
+  assert.equal(saved?.abgRequired, true);
+  assert.equal(saved?.pbgRequired, true);
+  assert.equal(saved?.abgPercent, 10);
+  assert.equal(saved?.pbgPercent, 5);
+  assert.equal(saved?.abgValue, 2500);
+  assert.equal(saved?.pbgValue, 900);
+  const stored = getData().contracts.find((c) => c.id === contract.id);
+  assert.equal(stored?.abgValue, 2500);
+  assert.equal(stored?.pbgValue, 900);
+
+  const kept = updateContract(contract.id, { orderValue: 400000 });
+  assert.equal(kept?.orderValue, 400000);
+  assert.equal(kept?.abgValue, 2500);
+  assert.equal(kept?.pbgValue, 900);
+  assert.equal(kept?.abgPercent, 10);
+  assert.equal(kept?.pbgPercent, 5);
+});
+
+test("a contract with no advance term can still gain an ABG", () => {
+  const { contract } = makeContract("ABG-NO-ADV");
+  assert.equal(contract.billingTerms.advance, undefined);
+  assert.equal(contract.billingTerms.supply, 100);
+
+  const saved = updateContract(contract.id, {
+    abgRequired: true,
+    abgPercent: 10,
+    abgValue: 2500,
+  });
+  assert.equal(saved?.abgRequired, true);
+  assert.equal(saved?.abgPercent, 10);
+  assert.equal(saved?.abgValue, 2500);
+  assert.equal(saved?.billingTerms.advance, undefined);
+});
+
+test("a complete number, date, and expiry save leaves no open Create task", () => {
+  const { contract } = makeContract("ABG-FULL");
+  const expiry = shiftIso(30);
+  const saved = updateContract(contract.id, {
+    abgRequired: true,
+    abgPercent: 10,
+    abgValue: 2500,
+    abgNumber: "ABG/FULL",
+    abgDate: "2026-04-01",
+    abgExpiry: expiry,
+    abgBankName: "SBI",
+    pbgRequired: true,
+    pbgPercent: 5,
+    pbgValue: 900,
+    pbgNumber: "PBG/FULL",
+    pbgDate: "2026-04-02",
+    pbgExpiry: expiry,
+    pbgBankName: "HDFC",
+  });
+  assert.equal(saved?.abgRequired, true);
+  assert.equal(saved?.pbgRequired, true);
+  assert.equal(saved?.abgValue, 2500);
+  assert.equal(saved?.pbgValue, 900);
+  assert.equal(openTasks(contract.id, "create_abg").length, 0);
+  assert.equal(openTasks(contract.id, "create_pbg").length, 0);
+  assert.equal(openTasks(contract.id, "bg_expiry_abg").length, 1);
+  assert.equal(openTasks(contract.id, "bg_expiry_pbg").length, 1);
+});
+
+test("an incomplete required save opens the Create task", () => {
+  const { contract } = makeContract("ABG-OPEN");
+  const saved = updateContract(contract.id, {
+    abgRequired: true,
+    abgPercent: 10,
+    abgValue: 2500,
+    pbgRequired: true,
+    pbgPercent: 5,
+    pbgValue: 900,
+    pbgDate: "2026-05-01",
+  });
+  assert.equal(saved?.abgValue, 2500);
+  assert.equal(saved?.pbgValue, 900);
+  const abg = openTasks(contract.id, "create_abg");
+  const pbg = openTasks(contract.id, "create_pbg");
+  assert.equal(abg.length, 1);
+  assert.equal(pbg.length, 1);
+  assert.equal(abg[0]?.title, `Create ABG — ${contract.projectNo}`);
+  assert.equal(pbg[0]?.title, `Create PBG — ${contract.projectNo}`);
+  assert.equal(abg[0]?.source, "system");
+  assert.equal(abg[0]?.status, "pending");
+  assert.equal(pbg[0]?.status, "pending");
+
+  updateContract(contract.id, { abgBankName: "SBI" });
+  assert.equal(openTasks(contract.id, "create_abg").length, 1);
+
+  const expiry = shiftIso(40);
+  const done = updateContract(contract.id, {
+    abgNumber: "ABG/OPEN",
+    abgDate: "2026-05-02",
+    abgExpiry: expiry,
+    pbgNumber: "PBG/OPEN",
+    pbgExpiry: expiry,
+  });
+  assert.equal(done?.abgValue, 2500);
+  assert.equal(done?.pbgValue, 900);
+  assert.equal(openTasks(contract.id, "create_abg").length, 0);
+  assert.equal(openTasks(contract.id, "create_pbg").length, 0);
+  const closed = getData().tasks.find(
+    (t) => t.contractId === contract.id && t.catalogKey === "create_abg"
+  );
+  assert.equal(closed?.status, "completed");
+});
+
+test("not required is refused after number, date, and bank are saved", () => {
+  const { contract } = makeContract("ABG-HELD");
+  updateContract(contract.id, {
+    abgRequired: true,
+    abgPercent: 10,
+    abgValue: 2500,
+    abgNumber: "ABG/HELD",
+    abgDate: "2026-06-01",
+    abgBankName: "ICICI",
+  });
+  assert.equal(openTasks(contract.id, "create_abg").length, 1);
+  const blocked = updateContract(contract.id, { abgRequired: false });
+  assert.equal(blocked?.abgRequired, true);
+  assert.equal(blocked?.abgValue, 2500);
+  assert.equal(openTasks(contract.id, "create_abg").length, 1);
+});
+
+test("not required before number, date, and bank clears the requirement and the Create task", () => {
+  const { contract } = makeContract("ABG-UNDO");
+  const expiry = shiftIso(30);
+  const required = updateContract(contract.id, {
+    abgRequired: true,
+    abgPercent: 10,
+    abgValue: 2500,
+    abgExpiry: expiry,
+    pbgRequired: true,
+    pbgPercent: 5,
+    pbgValue: 900,
+  });
+  assert.equal(required?.abgRequired, true);
+  assert.equal(required?.abgValue, 2500);
+  assert.equal(openTasks(contract.id, "create_abg").length, 1);
+  assert.equal(openTasks(contract.id, "create_pbg").length, 1);
+  assert.equal(openTasks(contract.id, "bg_expiry_abg").length, 1);
+
+  const cleared = updateContract(contract.id, { abgRequired: false });
+  assert.equal(cleared?.abgRequired, false);
+  assert.equal(cleared?.pbgRequired, true);
+  assert.equal(cleared?.abgValue, 2500);
+  const rows = getData().tasks.filter((t) => t.contractId === contract.id);
+  assert.equal(rows.find((t) => t.catalogKey === "create_abg")?.status, "not_required");
+  assert.equal(rows.find((t) => t.catalogKey === "bg_expiry_abg")?.status, "not_required");
+  assert.equal(openTasks(contract.id, "create_abg").length, 0);
+  assert.equal(openTasks(contract.id, "bg_expiry_abg").length, 0);
+  assert.equal(openTasks(contract.id, "create_pbg").length, 1);
+
+  syncDatedSystemTasks();
+  assert.equal(openTasks(contract.id, "bg_expiry_abg").length, 0);
+  assert.equal(openTasks(contract.id, "create_abg").length, 0);
+});
+
 test("deleting a parent task hides its subtasks from lists", () => {
   const { contract } = makeContract("DEL-PARENT", { abg: true });
   const parent = getData().tasks.find(

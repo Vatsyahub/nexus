@@ -92,6 +92,7 @@ export default function ContractDetailPage() {
   const [abgExpiry, setAbgExpiry] = useState("");
   const [abgBankName, setAbgBankName] = useState("");
   const [abgAmount, setAbgAmount] = useState("");
+  const [abgPercentDraft, setAbgPercentDraft] = useState("");
   const [editingAbg, setEditingAbg] = useState(false);
   const [abgRetrievedDate, setAbgRetrievedDate] = useState("");
   const [pbgNumber, setPbgNumber] = useState("");
@@ -99,6 +100,7 @@ export default function ContractDetailPage() {
   const [pbgExpiry, setPbgExpiry] = useState("");
   const [pbgBankName, setPbgBankName] = useState("");
   const [pbgAmount, setPbgAmount] = useState("");
+  const [pbgPercentDraft, setPbgPercentDraft] = useState("");
   const [editingPbg, setEditingPbg] = useState(false);
   const [pbgRetrievedDate, setPbgRetrievedDate] = useState("");
   const [retentionRecoverDate, setRetentionRecoverDate] = useState("");
@@ -176,12 +178,18 @@ export default function ContractDetailPage() {
       (hash === "abg" || hash === "guarantees") &&
       !contract.abgRetrieved
     ) {
+      setAbgPercentDraft(
+        contract.abgPercent != null ? String(contract.abgPercent) : ""
+      );
       setEditingAbg(true);
     }
     if (
       (hash === "pbg" || hash === "guarantees") &&
       !contract.pbgRetrieved
     ) {
+      setPbgPercentDraft(
+        contract.pbgPercent != null ? String(contract.pbgPercent) : ""
+      );
       setEditingPbg(true);
     }
     const targetId =
@@ -223,6 +231,8 @@ export default function ContractDetailPage() {
   async function saveAbg(e: FormEvent) {
     e.preventDefault();
     if (c.abgRetrieved) return;
+    const adding = !c.abgRequired;
+    if (adding && !contractOpen) return;
     const nextNumber = abgNumber.trim() || c.abgNumber;
     const nextDate = abgDate || c.abgDate;
     const nextExpiry = abgExpiry || c.abgExpiry;
@@ -232,6 +242,12 @@ export default function ContractDetailPage() {
     updateContract(
       id,
       {
+        ...(adding
+          ? {
+              abgRequired: true,
+              abgPercent: parseGuaranteePercent(abgPercentDraft, c.abgPercent),
+            }
+          : {}),
         abgNumber: nextNumber,
         abgDate: nextDate,
         abgExpiry: nextExpiry,
@@ -249,16 +265,24 @@ export default function ContractDetailPage() {
     setAbgDate("");
     setAbgExpiry("");
     setAbgBankName("");
+    setAbgPercentDraft("");
+    const complete = Boolean(nextNumber && nextDate && nextExpiry);
     setMsg(
       wasFilled
         ? "ABG details updated (edit recorded)."
-        : "ABG details saved. Create ABG task completes when number, date, and expiry are filled."
+        : adding
+          ? complete
+            ? "ABG saved and marked required."
+            : "ABG marked required. Create ABG task completes when number, date, and expiry are filled."
+          : "ABG details saved. Create ABG task completes when number, date, and expiry are filled."
     );
   }
 
   async function savePbg(e: FormEvent) {
     e.preventDefault();
     if (c.pbgRetrieved) return;
+    const adding = !c.pbgRequired;
+    if (adding && !contractOpen) return;
     const nextNumber = pbgNumber.trim() || c.pbgNumber;
     const nextDate = pbgDate || c.pbgDate;
     const nextExpiry = pbgExpiry || c.pbgExpiry;
@@ -268,6 +292,12 @@ export default function ContractDetailPage() {
     updateContract(
       id,
       {
+        ...(adding
+          ? {
+              pbgRequired: true,
+              pbgPercent: parseGuaranteePercent(pbgPercentDraft, c.pbgPercent),
+            }
+          : {}),
         pbgNumber: nextNumber,
         pbgDate: nextDate,
         pbgExpiry: nextExpiry,
@@ -285,10 +315,16 @@ export default function ContractDetailPage() {
     setPbgDate("");
     setPbgExpiry("");
     setPbgBankName("");
+    setPbgPercentDraft("");
+    const complete = Boolean(nextNumber && nextDate && nextExpiry);
     setMsg(
       wasFilled
         ? "PBG details updated (edit recorded)."
-        : "PBG details saved. Create PBG task completes when number, date, and expiry are filled."
+        : adding
+          ? complete
+            ? "PBG saved and marked required."
+            : "PBG marked required. Create PBG task completes when number, date, and expiry are filled."
+          : "PBG details saved. Create PBG task completes when number, date, and expiry are filled."
     );
   }
 
@@ -897,7 +933,14 @@ export default function ContractDetailPage() {
             required={c.abgRequired}
             filled={abgFilled}
             editing={editingAbg}
-            setEditing={setEditingAbg}
+            setEditing={(open) => {
+              if (open) {
+                setAbgPercentDraft(
+                  c.abgPercent != null ? String(c.abgPercent) : ""
+                );
+              }
+              setEditingAbg(open);
+            }}
             percent={c.abgPercent}
             amount={abgAmt}
             number={c.abgNumber}
@@ -916,6 +959,9 @@ export default function ContractDetailPage() {
             setFormBankName={setAbgBankName}
             formAmount={abgAmount}
             setFormAmount={setAbgAmount}
+            formPercent={abgPercentDraft}
+            setFormPercent={setAbgPercentDraft}
+            canAdd={contractOpen}
             canMarkNotRequired={
               contractOpen &&
               c.abgRequired &&
@@ -933,7 +979,14 @@ export default function ContractDetailPage() {
             required={c.pbgRequired}
             filled={pbgFilled}
             editing={editingPbg}
-            setEditing={setEditingPbg}
+            setEditing={(open) => {
+              if (open) {
+                setPbgPercentDraft(
+                  c.pbgPercent != null ? String(c.pbgPercent) : ""
+                );
+              }
+              setEditingPbg(open);
+            }}
             percent={c.pbgPercent}
             amount={pbgAmt}
             number={c.pbgNumber}
@@ -952,6 +1005,9 @@ export default function ContractDetailPage() {
             setFormBankName={setPbgBankName}
             formAmount={pbgAmount}
             setFormAmount={setPbgAmount}
+            formPercent={pbgPercentDraft}
+            setFormPercent={setPbgPercentDraft}
+            canAdd={contractOpen}
             canMarkNotRequired={
               contractOpen &&
               c.pbgRequired &&
@@ -1003,6 +1059,16 @@ function parseGuaranteeAmount(
   return Number.isFinite(n) ? n : fallback;
 }
 
+function parseGuaranteePercent(
+  raw: string,
+  fallback: number | null
+): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return fallback;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 function Info({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-[var(--fh-line)] bg-white p-4">
@@ -1036,6 +1102,9 @@ function GuaranteeBlock({
   setFormBankName,
   formAmount,
   setFormAmount,
+  formPercent,
+  setFormPercent,
+  canAdd,
   canMarkNotRequired,
   onMarkNotRequired,
   formRetrievedDate,
@@ -1066,6 +1135,9 @@ function GuaranteeBlock({
   setFormBankName: (v: string) => void;
   formAmount: string;
   setFormAmount: (v: string) => void;
+  formPercent: string;
+  setFormPercent: (v: string) => void;
+  canAdd: boolean;
   canMarkNotRequired: boolean;
   onMarkNotRequired: () => void;
   formRetrievedDate: string;
@@ -1079,9 +1151,94 @@ function GuaranteeBlock({
     return (
       <div
         id={anchor}
-        className="space-y-2 rounded-lg border border-[var(--fh-line)] p-4 scroll-mt-20"
+        className="space-y-3 rounded-lg border border-[var(--fh-line)] p-4 scroll-mt-20"
       >
-        <p className="text-sm font-medium">{title} (not required)</p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-medium">{title} (not required)</p>
+          {canAdd && !editing && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setEditing(true)}
+            >
+              Add
+            </Button>
+          )}
+        </div>
+        {canAdd && editing && (
+          <form onSubmit={onSave} className="grid gap-2">
+            <div className="space-y-1">
+              <Label>Percent</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={formPercent}
+                onChange={(e) => setFormPercent(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>{title} number</Label>
+              <Input
+                value={formNumber}
+                onChange={(e) => setFormNumber(e.target.value)}
+                placeholder="Enter when issued"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Creation date</Label>
+              <Input
+                type="date"
+                value={formDate}
+                onChange={(e) => setFormDate(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Expiry date</Label>
+              <Input
+                type="date"
+                value={formExpiry}
+                onChange={(e) => setFormExpiry(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Bank name</Label>
+              <Input
+                value={formBankName}
+                onChange={(e) => setFormBankName(e.target.value)}
+                placeholder="Issuing bank"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Amount (₹)</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={formAmount}
+                onChange={(e) => setFormAmount(e.target.value)}
+              />
+              <p className="text-xs text-[var(--fh-muted)]">
+                A typed amount is saved as entered. It is not replaced by
+                percent × order value.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button type="submit" size="sm" className="bg-[var(--fh-steel)]">
+                Save {title} details
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setEditing(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </form>
+        )}
       </div>
     );
   }
