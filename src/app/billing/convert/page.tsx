@@ -10,9 +10,9 @@ import {
   lineNet,
   useFlowhubData,
 } from "@/lib/store";
+import { billingTermLabel } from "@/lib/billing-terms";
 import {
   GST_RATE,
-  TERM_LABELS,
   orderedBillingTermKeys,
   type InvoiceExtraCharge,
   type InvoiceLine,
@@ -201,7 +201,7 @@ export default function ConvertPiPage() {
                   >
                     {termKeys.map((k) => (
                       <option key={k} value={k}>
-                        {TERM_LABELS[k] ?? k}
+                        {billingTermLabel(k)}
                       </option>
                     ))}
                   </select>

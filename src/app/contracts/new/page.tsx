@@ -9,7 +9,8 @@ import {
 } from "@/lib/store";
 import { confirmWorkspaceSave } from "@/lib/save-notice";
 import {
-  billingTermKey,
+  addCustomBillingTerm,
+  billingTermLabel,
   billingTermsTotalIs100,
   deleteCustomBillingTerm,
   isBuiltinBillingTerm,
@@ -19,7 +20,6 @@ import {
 import {
   DEFAULT_TDS_PERCENT,
   GST_RATE,
-  TERM_LABELS,
   orderedBillingTermKeys,
   type BoqItem,
   type BillingTerms,
@@ -171,9 +171,12 @@ export default function NewContractPage() {
   }
 
   function addCustomTerm() {
-    const key = billingTermKey(customTermName);
-    if (!key) return;
-    setTerms((t) => ({ ...t, [key]: t[key] ?? 0 }));
+    const result = addCustomBillingTerm(terms, customTermName);
+    if (!result.ok) {
+      if (customTermName.trim()) setTermError(result.error);
+      return;
+    }
+    setTerms(result.terms);
     setCustomTermName("");
     setTermError(null);
   }
@@ -409,7 +412,7 @@ export default function NewContractPage() {
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             {orderedBillingTermKeys(terms).map((key) => {
-              const label = TERM_LABELS[key] ?? key;
+              const label = billingTermLabel(key);
               const custom = !isBuiltinBillingTerm(key);
               return (
                 <div key={key} className="space-y-1.5">

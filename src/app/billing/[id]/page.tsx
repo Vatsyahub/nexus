@@ -13,7 +13,8 @@ import {
   paymentCash,
   useFlowhubData,
 } from "@/lib/store";
-import { COMPANY_NAME, TERM_LABELS } from "@/lib/types";
+import { billingTermLabel } from "@/lib/billing-terms";
+import { COMPANY_NAME } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { confirmAction } from "@/components/confirm-panel";
@@ -148,7 +149,7 @@ export default function InvoiceDetailPage() {
             {inv.lines.map((l, i) => (
               <tr key={`${l.boqItemId}-${l.termKey}-${i}`}>
                 <td className="py-2 pr-2">{l.itemName}</td>
-                <td className="py-2 pr-2">{TERM_LABELS[l.termKey] ?? l.termKey}</td>
+                <td className="py-2 pr-2">{billingTermLabel(l.termKey)}</td>
                 <td className="py-2 pr-2 text-right tabular-nums">{l.billedQty}</td>
                 <td className="py-2 pr-2 text-right tabular-nums">
                   {formatMoney(l.rate)}

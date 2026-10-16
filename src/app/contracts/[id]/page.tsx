@@ -14,6 +14,7 @@ import {
   useFlowhubData,
 } from "@/lib/store";
 import {
+  billingTermLabel,
   billingTermsTotal,
   deleteCustomBillingTerm,
   isBuiltinBillingTerm,
@@ -21,7 +22,6 @@ import {
 } from "@/lib/billing-terms";
 import {
   GST_RATE,
-  TERM_LABELS,
   canAmendBoq,
   canMarkRetentionRecovered,
   departmentDisplayName,
@@ -434,7 +434,7 @@ export default function ContractDetailPage() {
   }
 
   async function deleteSavedTerm(key: string) {
-    const label = TERM_LABELS[key] ?? key;
+    const label = billingTermLabel(key);
     const confirmed = await confirmAction({
       message: `Delete the ${label} billing term from this contract?`,
       action: "Delete",
@@ -711,7 +711,7 @@ export default function ContractDetailPage() {
           <form onSubmit={saveBillingTerms} className="mt-3 space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
               {orderedBillingTermKeys(termsForEdit).map((key) => {
-                const label = TERM_LABELS[key] ?? key;
+                const label = billingTermLabel(key);
                 const custom = !isBuiltinBillingTerm(key);
                 return (
                   <div key={key} className="space-y-1.5">
@@ -786,7 +786,7 @@ export default function ContractDetailPage() {
           <ul className="mt-3 grid gap-2 sm:grid-cols-2">
             {orderedBillingTermKeys(c.billingTerms).map((k) => (
               <li key={k} className="flex justify-between text-sm">
-                <span>{TERM_LABELS[k] ?? k}</span>
+                <span>{billingTermLabel(k)}</span>
                 <span className="tabular-nums font-medium">
                   {c.billingTerms[k]}%
                 </span>
