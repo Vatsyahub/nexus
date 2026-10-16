@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   applyPaymentEntry,
+  invoiceBalanceLabel,
   invoiceExtraTotal,
   invoiceOutstanding,
   invoiceRetentionHold,
@@ -20,22 +21,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
-function formatMoney(n: number) {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 2,
-  }).format(n);
-}
-
 function round2(n: number) {
   return Math.round(n * 100) / 100;
-}
-
-function balanceLabel(amount: number) {
-  if (amount > 0.005) return `Due ${formatMoney(amount)}`;
-  if (amount < -0.005) return `Extra ${formatMoney(-amount)}`;
-  return "Paid";
 }
 
 export type PaymentFormValues = Omit<Payment, "id" | "createdAt">;
@@ -295,7 +282,7 @@ export function PaymentForm({
                 return (
                   <option key={inv.id} value={inv.id}>
                     {inv.number}
-                    {left != null ? ` · ${balanceLabel(left)}` : ""}
+                    {left != null ? ` · ${invoiceBalanceLabel(left)}` : ""}
                   </option>
                 );
               })}

@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import {
   deleteInvoice,
   flushWorkspace,
+  invoiceBalanceLabel,
   invoiceDueDate,
   invoiceExpectedCash,
   invoiceOutstanding,
@@ -28,12 +29,6 @@ function formatMoney(n: number) {
     currency: "INR",
     maximumFractionDigits: 2,
   }).format(n);
-}
-
-function balanceLabel(amount: number) {
-  if (amount > 0.005) return `Due ${formatMoney(amount)}`;
-  if (amount < -0.005) return `Extra ${formatMoney(-amount)}`;
-  return "Paid";
 }
 
 export default function InvoiceDetailPage() {
@@ -199,7 +194,7 @@ export default function InvoiceDetailPage() {
           )}
           {due != null && (
             <p className="pt-2 text-sm font-medium text-[var(--fh-steel)]">
-              Balance: {balanceLabel(due)}
+              Balance: {invoiceBalanceLabel(due)}
             </p>
           )}
           <p className="text-xs text-[var(--fh-muted)]">

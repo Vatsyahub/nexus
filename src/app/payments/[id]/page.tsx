@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import {
   deletePayment,
   flushWorkspace,
+  invoiceBalanceLabel,
   invoiceOutstanding,
   paymentAccounted,
   paymentCash,
@@ -34,12 +35,6 @@ function formatMoney(n: number) {
     currency: "INR",
     maximumFractionDigits: 2,
   }).format(n);
-}
-
-function balanceLabel(amount: number) {
-  if (amount > 0.005) return `Due ${formatMoney(amount)}`;
-  if (amount < -0.005) return `Extra ${formatMoney(-amount)}`;
-  return "Paid";
 }
 
 export default function PaymentDetailPage() {
@@ -200,7 +195,7 @@ export default function PaymentDetailPage() {
               {invoiceBalance != null && (
                 <p className="pt-1 text-sm">
                   Invoice balance:{" "}
-                  <strong>{balanceLabel(invoiceBalance)}</strong>
+                  <strong>{invoiceBalanceLabel(invoiceBalance)}</strong>
                 </p>
               )}
             </>

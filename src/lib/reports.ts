@@ -29,6 +29,7 @@ import {
   invoiceOutstanding,
   invoiceRetentionHold,
   invoiceTdsHold,
+  outstandingIsStillDue,
   paymentAccounted,
   paymentReceivedTotal,
 } from "@/lib/store";
@@ -339,10 +340,10 @@ function todayIso(): string {
 
 /**
  * Status for a TI row:
- * - paid: outstanding ≈ 0
- * - overdue: balance left and past due date (due today is not overdue)
- * - partially paid: some paid, balance left, not past due
- * - due: unpaid (or zero paid), balance left, not past due
+ * - paid: outstanding strictly under Rs 100 (zero and overpayment included)
+ * - overdue: Rs 100 or more left and past due date (due today is not overdue)
+ * - partially paid: some paid, Rs 100 or more left, not past due
+ * - due: unpaid (or zero paid), Rs 100 or more left, not past due
  */
 export function invoiceOutstandingStatus(
   outstanding: number,
@@ -350,7 +351,7 @@ export function invoiceOutstandingStatus(
   dueDate: string,
   today: string
 ): InvoiceOutstandingStatus {
-  if (outstanding <= 0.005) return "paid";
+  if (!outstandingIsStillDue(outstanding)) return "paid";
   if (dueDate < today) return "overdue";
   if (paid > 0.005) return "partially paid";
   return "due";
@@ -402,10 +403,10 @@ export function buildInvoiceOutstandingRows(
     });
 }
 
-/** Sum of outstanding on rows that still have a balance (visible-list total). */
+/** Sum of outstanding that is still due (Rs 100 and above). Under Rs 100 is left out. */
 export function sumOpenOutstanding(rows: InvoiceOutstandingRow[]): number {
   return rows.reduce(
-    (s, r) => (r.outstanding > 0.005 ? s + r.outstanding : s),
+    (s, r) => (outstandingIsStillDue(r.outstanding) ? s + r.outstanding : s),
     0
   );
 }
