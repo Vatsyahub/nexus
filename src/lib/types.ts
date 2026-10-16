@@ -351,7 +351,7 @@ export type Invoice = {
   createdAt: string;
 };
 
-export type PaymentLink = "TI" | "PI" | "unlinked";
+export type PaymentLink = "TI" | "PI" | "unlinked" | "recoverable";
 
 export type Payment = {
   id: string;
@@ -368,6 +368,11 @@ export type Payment = {
   otherDeductions: number;
   /** Optional note for otherDeductions; missing on old records → empty */
   otherDeductionReason: string;
+  /**
+   * Rupees of this contract's recoverable pool applied to one tax invoice.
+   * Entered only on a tax-invoice payment. Missing on old records → 0.
+   */
+  recovered: number;
   createdAt: string;
 };
 

@@ -6,7 +6,8 @@
  * - Expected payment / expected held = theoretical (ret%×net, tds%×net).
  * - Retention held / TDS held columns = actual sums from payment entries.
  * - Unlinked ret/TDS count in contract-level actual held; TI rows show linked only.
- * - Outstanding = Expected − Σ(net + GST + other); ret/TDS not subtracted.
+ * - Outstanding = Expected − Σ(net + GST + other + recovered on that TI); ret/TDS not subtracted.
+ *   Recoverable-link cash does not reduce a TI and is not in the unlinked FIFO.
  * - Sales “Total outstanding net” = Σ (TI net − ret%×net − tds%×net − net received).
  *   Net received is linked payment netAmount plus FIFO of unlinked netAmount only.
  *   GST, extras, other deductions, retention cash, and TDS cash stay out.
@@ -100,7 +101,7 @@ export type ReconciliationTotals = {
   tdsExpected: number;
   tdsActual: number;
   expected: number;
-  /** Σ(net + GST + other) toward outstanding, incl. FIFO-allocated unlinked */
+  /** Σ(net + GST + other + recovered) toward outstanding, incl. FIFO-allocated unlinked */
   paid: number;
   outstanding: number;
 };
@@ -123,7 +124,7 @@ export type ReconciliationSummaryRow = {
   retentionActual: number;
   /** Actual TDS held from payment entries (contract-level, incl. unlinked) */
   tdsActual: number;
-  /** Σ(net + GST + other) toward outstanding */
+  /** Σ(net + GST + other + recovered) toward outstanding */
   paid: number;
   expected: number;
   outstanding: number;
@@ -312,7 +313,7 @@ export type InvoiceOutstandingRow = {
   /** TI final amount */
   finalAmount: number;
   expected: number;
-  /** net + GST + other toward outstanding (0 if none) */
+  /** net + GST + other + recovered toward outstanding (0 if none) */
   paid: number;
   outstanding: number;
   /** Days until due: positive = future, 0 = today, negative = past due */
@@ -542,7 +543,7 @@ export type SalesContractRow = {
   totalInvoiceNet: number;
   /** WO − total invoice (net) */
   leftoverBilling: number;
-  /** Σ(net + GST + other) toward outstanding — same as I&O / reconciliation */
+  /** Σ(net + GST + other + recovered) toward outstanding — same as I&O / reconciliation */
   totalPaid: number;
   /**
    * Σ per TI of (billed net − ret%×net − tds%×net − net received).

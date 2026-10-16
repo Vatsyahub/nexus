@@ -3287,25 +3287,163 @@ export function paymentAccounted(p: Payment) {
   );
 }
 
+function isTiLinkedPayment(p: Pick<Payment, "link" | "invoiceId">) {
+  return p.link === "TI" || (!p.link && !!p.invoiceId);
+}
+
+/** Rupees above zero. Zero, blank, and negative amounts contribute nothing. */
+function positiveRupees(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return n;
+}
+
 /**
- * Amount that reduces outstanding: net + GST + other deductions.
+ * Recovered on a tax-invoice payment. Not cash, retention, or TDS.
+ * Other links never carry it into outstanding.
+ */
+export function paymentRecovered(p: Payment): number {
+  if (!isTiLinkedPayment(p)) return 0;
+  return positiveRupees(p.recovered);
+}
+
+/**
+ * Amount that reduces outstanding: net + GST + other deductions
+ * + recovered on a tax-invoice payment.
  * Retention and TDS are holds, not cash applied toward expected payment.
+ * Recoverable-link cash is not applied here — callers only sum TI-linked
+ * and unlinked payments, and recovered itself is not cash.
  */
 export function paymentTowardOutstanding(p: Payment) {
   return (
     (Number(p.netAmount) || 0) +
     (Number(p.gstAmount) || 0) +
-    (Number(p.otherDeductions) || 0)
+    (Number(p.otherDeductions) || 0) +
+    paymentRecovered(p)
   );
-}
-
-function isTiLinkedPayment(p: Payment) {
-  return p.link === "TI" || (!p.link && !!p.invoiceId);
 }
 
 function isContractMoneyPayment(p: Payment) {
   // TI-linked + unlinked count toward TI money world; PI-linked stay on PI reports only.
+  // Recoverable cash is a contract pool, not TI money and not a contract figure.
   return p.link === "TI" || p.link === "unlinked" || !p.link;
+}
+
+const RUPEE_EPS = 0.005;
+
+function paymentOmitsInvoice(link: Payment["link"]) {
+  return link === "unlinked" || link === "recoverable";
+}
+
+/** Recovered is stored only on a tax-invoice payment. */
+function storedRecovered(
+  link: Payment["link"],
+  recovered: number | undefined
+): number {
+  if (link !== "TI") return 0;
+  return positiveRupees(recovered);
+}
+
+/** Sum of cash (net + GST) on this contract's recoverable payments. */
+export function contractRecoverablePool(
+  payments: readonly Payment[],
+  contractId: string
+): number {
+  let sum = 0;
+  for (const p of payments) {
+    if (p.contractId !== contractId || p.link !== "recoverable") continue;
+    sum += (Number(p.netAmount) || 0) + (Number(p.gstAmount) || 0);
+  }
+  return sum;
+}
+
+/**
+ * Sum of `recovered` on this contract's tax-invoice payments.
+ * `exceptPaymentId` leaves that payment out so an edit can treat its
+ * amount as this entry instead of money already used by someone else.
+ */
+export function contractRecoveredTotal(
+  payments: readonly Payment[],
+  contractId: string,
+  exceptPaymentId?: string | null
+): number {
+  let sum = 0;
+  for (const p of payments) {
+    if (p.contractId !== contractId) continue;
+    if (exceptPaymentId && p.id === exceptPaymentId) continue;
+    sum += paymentRecovered(p);
+  }
+  return sum;
+}
+
+/**
+ * Running line figures. `thisEntry` is included in `recovered`.
+ * When a recoverable payment is open, pass its current cash so the pool
+ * uses that entry once.
+ */
+export function recoverableRunningLineFigures(
+  payments: readonly Payment[],
+  contractId: string,
+  opts?: {
+    exceptPaymentId?: string | null;
+    thisEntry?: number;
+    openRecoverableCash?: {
+      paymentId?: string | null;
+      net: number;
+      gst: number;
+    } | null;
+  }
+): { pool: number; recovered: number; left: number } {
+  const open = opts?.openRecoverableCash;
+  let pool = 0;
+  for (const p of payments) {
+    if (p.contractId !== contractId || p.link !== "recoverable") continue;
+    if (open?.paymentId && p.id === open.paymentId) continue;
+    pool += (Number(p.netAmount) || 0) + (Number(p.gstAmount) || 0);
+  }
+  if (open) {
+    pool += (Number(open.net) || 0) + (Number(open.gst) || 0);
+  }
+  const recovered =
+    contractRecoveredTotal(payments, contractId, opts?.exceptPaymentId) +
+    positiveRupees(opts?.thisEntry);
+  return { pool, recovered, left: pool - recovered };
+}
+
+/** True when recovered on these payments is within the recoverable cash pool. */
+export function recoverablePoolHolds(
+  payments: readonly Payment[],
+  contractId: string
+): boolean {
+  return (
+    contractRecoveredTotal(payments, contractId) <=
+    contractRecoverablePool(payments, contractId) + RUPEE_EPS
+  );
+}
+
+/**
+ * Payments as they will be saved. Replaces `entry.id` when present so this
+ * payment's recovered and cash are counted once.
+ */
+export function applyPaymentEntry(
+  payments: readonly Payment[],
+  entry: Omit<Payment, "id" | "createdAt"> & { id?: string }
+): Payment[] {
+  const id = entry.id ?? `__draft_${payments.length}`;
+  const row: Payment = {
+    ...entry,
+    id,
+    createdAt: "",
+    invoiceId: paymentOmitsInvoice(entry.link) ? null : entry.invoiceId,
+    recovered: storedRecovered(entry.link, entry.recovered),
+    otherDeductionReason: (entry.otherDeductionReason ?? "").trim(),
+  };
+  if (!entry.id) return [...payments, row];
+  const exists = payments.some((p) => p.id === entry.id);
+  if (!exists) return [...payments, row];
+  return payments.map((p) =>
+    p.id === entry.id ? { ...p, ...row, createdAt: p.createdAt } : p
+  );
 }
 
 export function addPayment(
@@ -3319,10 +3457,14 @@ export function addPayment(
     if (payment.link === "TI" && invoice.type !== "TI") return null;
     if (payment.link === "PI" && invoice.type !== "PI") return null;
   }
+  if (!recoverablePoolHolds(applyPaymentEntry(data.payments, payment), payment.contractId)) {
+    return null;
+  }
 
   const full: Payment = {
     ...payment,
-    invoiceId: payment.link === "unlinked" ? null : payment.invoiceId,
+    invoiceId: paymentOmitsInvoice(payment.link) ? null : payment.invoiceId,
+    recovered: storedRecovered(payment.link, payment.recovered),
     id: crypto.randomUUID(),
     createdAt: new Date().toISOString(),
   };
@@ -3344,11 +3486,20 @@ export function updatePayment(
     if (patch.link === "TI" && invoice.type !== "TI") return null;
     if (patch.link === "PI" && invoice.type !== "PI") return null;
   }
+  if (
+    !recoverablePoolHolds(
+      applyPaymentEntry(data.payments, { ...patch, id }),
+      patch.contractId
+    )
+  ) {
+    return null;
+  }
 
   const updated: Payment = {
     ...current,
     ...patch,
-    invoiceId: patch.link === "unlinked" ? null : patch.invoiceId,
+    invoiceId: paymentOmitsInvoice(patch.link) ? null : patch.invoiceId,
+    recovered: storedRecovered(patch.link, patch.recovered),
   };
   write({
     ...data,
@@ -3366,7 +3517,7 @@ export function deleteInvoice(id: string): boolean {
     invoices: data.invoices.filter((i) => i.id !== id),
     payments: data.payments.map((p) =>
       p.invoiceId === id
-        ? { ...p, invoiceId: null, link: "unlinked" as const }
+        ? { ...p, invoiceId: null, link: "unlinked" as const, recovered: 0 }
         : p
     ),
   });
@@ -3521,12 +3672,14 @@ function normalizePayment(
     invoiceId,
     link,
     otherDeductionReason: (p.otherDeductionReason ?? "").trim(),
+    recovered: storedRecovered(link, p.recovered),
   };
 }
 
 /**
  * FIFO-allocate unlinked payments’ toward-outstanding amounts (net+GST+other)
- * across a contract’s TIs. Unlinked ret/TDS are NOT allocated here — they roll
+ * across a contract’s TIs. Recoverable-link cash is not in this pool.
+ * Unlinked ret/TDS are NOT allocated here — they roll
  * into contract-level actual held only.
  */
 function unlinkedTowardOutstandingAllocations(
@@ -3574,8 +3727,9 @@ function unlinkedTowardOutstandingAllocations(
 }
 
 /**
- * Paid toward outstanding on a TI: Σ(net + GST + other) on linked payments
- * plus FIFO-allocated unlinked (net+GST+other). Does not include ret/TDS.
+ * Paid toward outstanding on a TI: Σ(net + GST + other + recovered) on linked
+ * payments plus FIFO-allocated unlinked (net+GST+other). Does not include
+ * ret/TDS. Recoverable-link cash is not included.
  */
 export function paymentReceivedTotal(invoiceId: string, data?: FlowhubData) {
   const d = data ?? read();
@@ -3595,10 +3749,11 @@ export function paymentReceivedTotal(invoiceId: string, data?: FlowhubData) {
 }
 
 /**
- * Outstanding (locked): Expected − (Σ net paid + Σ GST paid + Σ other).
+ * Outstanding (locked): Expected − (Σ net paid + Σ GST paid + Σ other + Σ recovered).
  * Do NOT subtract retention/TDS — those are holds, not cash applied.
- * Unlinked net+GST+other allocate FIFO toward TIs; unlinked ret/TDS stay at
- * contract actual-held only. Negative means overpayment — shown as-is.
+ * Recovered clears the invoice the same way other deductions do, and is not cash.
+ * Unlinked net+GST+other allocate FIFO toward TIs; recoverable cash does not.
+ * Unlinked ret/TDS stay at contract actual-held only. Negative means overpayment — shown as-is.
  */
 export function invoiceOutstanding(invoice: Invoice, data?: FlowhubData) {
   if (invoice.type !== "TI") return 0;

@@ -2,12 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  applyPaymentEntry,
   invoiceExtraTotal,
   invoiceOutstanding,
   invoiceRetentionHold,
   invoiceTdsHold,
+  recoverablePoolHolds,
+  recoverableRunningLineFigures,
   useFlowhubData,
 } from "@/lib/store";
+import { formatRecoverableRunningLine } from "@/lib/payment-display";
 import { type Payment, type PaymentLink } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -65,12 +69,41 @@ export function PaymentForm({
   const [otherReason, setOtherReason] = useState(
     initial?.otherDeductionReason ?? ""
   );
+  const [recovered, setRecovered] = useState(
+    initial ? String(initial.recovered ?? 0) : "0"
+  );
   const [prefilledFor, setPrefilledFor] = useState<string | null>(
     initial?.invoiceId ?? null
   );
 
+  const contractHasRecoverable = useMemo(
+    () =>
+      !!contractId &&
+      data.payments.some(
+        (p) => p.contractId === contractId && p.link === "recoverable"
+      ),
+    [data.payments, contractId]
+  );
+  const showRecovered = link === "TI" && contractHasRecoverable;
+  const poolFigures = recoverableRunningLineFigures(data.payments, contractId, {
+    exceptPaymentId: initial?.id,
+    thisEntry: showRecovered ? Number(recovered) || 0 : 0,
+    openRecoverableCash:
+      link === "recoverable"
+        ? {
+            paymentId: initial?.link === "recoverable" ? initial.id : null,
+            net: Number(netAmount) || 0,
+            gst: Number(gstAmount) || 0,
+          }
+        : null,
+  });
+  const poolLine = formatRecoverableRunningLine(
+    poolFigures.recovered,
+    poolFigures.pool
+  );
+
   const invoicesForLink = useMemo(() => {
-    if (!contractId || link === "unlinked") return [];
+    if (!contractId || link === "unlinked" || link === "recoverable") return [];
     return data.invoices
       .filter((i) => i.contractId === contractId && i.type === link)
       .slice()
@@ -80,7 +113,7 @@ export function PaymentForm({
   const selected = data.invoices.find((i) => i.id === invoiceId);
 
   useEffect(() => {
-    if (link === "unlinked") {
+    if (link === "unlinked" || link === "recoverable") {
       setInvoiceId("");
       return;
     }
@@ -103,6 +136,7 @@ export function PaymentForm({
     setNetAmount(String(round2(selected.netAmount + extra - ret - tdsHold)));
     setOther("0");
     setOtherReason("");
+    setRecovered("0");
     setPrefilledFor(selected.id);
   }, [selected, contractId, data, prefilledFor]);
 
@@ -113,14 +147,20 @@ export function PaymentForm({
       setMsg("Select a contract and payment date.");
       return;
     }
-    if (link !== "unlinked" && !invoiceId) {
+    const needsInvoice = link === "TI" || link === "PI";
+    if (needsInvoice && !invoiceId) {
       setMsg(link === "PI" ? "Select a proforma." : "Select a tax invoice.");
       return;
     }
-    setPending(true);
-    const err = await onSubmit({
+    const recoveredAmount = showRecovered ? Number(recovered) || 0 : 0;
+    if (showRecovered && Number(recovered) < 0) {
+      setMsg("Recovered cannot be more than what is left.");
+      return;
+    }
+    const nextPayments = applyPaymentEntry(data.payments, {
+      id: initial?.id,
       contractId,
-      invoiceId: link === "unlinked" ? null : invoiceId,
+      invoiceId: needsInvoice ? invoiceId : null,
       link,
       date,
       netAmount: Number(netAmount) || 0,
@@ -129,6 +169,29 @@ export function PaymentForm({
       tdsAmount: Number(tds) || 0,
       otherDeductions: Number(other) || 0,
       otherDeductionReason: otherReason.trim(),
+      recovered: recoveredAmount,
+    });
+    if (!recoverablePoolHolds(nextPayments, contractId)) {
+      setMsg(
+        link === "recoverable"
+          ? "This cash leaves less than what is already recovered."
+          : "Recovered cannot be more than what is left."
+      );
+      return;
+    }
+    setPending(true);
+    const err = await onSubmit({
+      contractId,
+      invoiceId: needsInvoice ? invoiceId : null,
+      link,
+      date,
+      netAmount: Number(netAmount) || 0,
+      gstAmount: Number(gstAmount) || 0,
+      retentionAmount: Number(retention) || 0,
+      tdsAmount: Number(tds) || 0,
+      otherDeductions: Number(other) || 0,
+      otherDeductionReason: otherReason.trim(),
+      recovered: recoveredAmount,
     });
     setPending(false);
     if (err) setMsg(err);
@@ -173,9 +236,10 @@ export function PaymentForm({
             <option value="unlinked">Unlinked</option>
             <option value="TI">Tax invoice</option>
             <option value="PI">Proforma</option>
+            <option value="recoverable">Recoverable</option>
           </select>
         </div>
-        {link !== "unlinked" && (
+        {(link === "TI" || link === "PI") && (
           <div className="space-y-1">
             <Label>{link === "PI" ? "Proforma" : "Tax invoice"}</Label>
             <select
@@ -233,6 +297,15 @@ export function PaymentForm({
             placeholder="Optional"
           />
         </div>
+        {showRecovered && (
+          <div className="space-y-1 sm:col-span-2">
+            <Field label="Recovered" value={recovered} onChange={setRecovered} />
+            <p className="text-xs text-[var(--fh-muted)]">{poolLine}</p>
+          </div>
+        )}
+        {link === "recoverable" && contractId && (
+          <p className="text-xs text-[var(--fh-muted)] sm:col-span-2">{poolLine}</p>
+        )}
       </div>
 
       {msg && (
