@@ -3,7 +3,11 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useFlowhubData, useWorkspaceReady } from "@/lib/store";
+import {
+  outstandingIsStillDue,
+  useFlowhubData,
+  useWorkspaceReady,
+} from "@/lib/store";
 import { formatMoney } from "@/lib/format-money";
 import { formatDisplayDate, isDateInInclusiveRange } from "@/lib/dates";
 import {
@@ -97,7 +101,7 @@ function InvoicesAndOutstandingsInner() {
   const invoiceRows = useMemo(() => {
     const base =
       tab === "outstandings" || dueWithin === 7
-        ? allInvoiceRows.filter((r) => r.outstanding > 0.005)
+        ? allInvoiceRows.filter((r) => outstandingIsStillDue(r.outstanding))
         : allInvoiceRows;
     const needle = q.trim();
     return base.filter((r) => {

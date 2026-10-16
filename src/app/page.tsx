@@ -4,6 +4,7 @@ import Link from "next/link";
 import {
   invoiceDueDate,
   invoiceOutstanding,
+  outstandingIsStillDue,
   taskIsOpen,
   useFlowhubData,
   useWorkspaceReady,
@@ -109,7 +110,7 @@ export default function HomePage() {
   for (const ti of data.invoices) {
     if (ti.type !== "TI") continue;
     const dueAmt = invoiceOutstanding(ti, data);
-    if (dueAmt <= 0.005) continue;
+    if (!outstandingIsStillDue(dueAmt)) continue;
     paymentDueTotal += dueAmt;
     const dueDate = invoiceDueDate(ti, data);
     if (dueDate >= todayIso && dueDate <= in7Iso) paymentDue7Total += dueAmt;

@@ -54,6 +54,7 @@ import {
   formatDisplayDate,
   formatScheduleDateRange,
 } from "@/lib/dates";
+import { formatMoney } from "@/lib/format-money";
 import {
   resolveNotificationHref as resolveHrefFromTasks,
   taskNotificationHref,
@@ -3761,8 +3762,33 @@ export function invoiceOutstanding(invoice: Invoice, data?: FlowhubData) {
   return invoiceExpectedCash(invoice, d) - paymentReceivedTotal(invoice.id, d);
 }
 
+/**
+ * Hub paid-vs-due cutoff. A positive outstanding strictly under this many
+ * rupees counts as paid. Rs 100 and above stays due. Stored outstanding
+ * math is unchanged — reconciliation still uses the exact rupee balance.
+ */
+export const OUTSTANDING_PAID_BELOW_RUPEES = 100;
+
+/**
+ * True when the hub should keep this balance as due, overdue, or partially paid.
+ * Zero, overpayment, and a positive balance strictly under Rs 100 are not still due.
+ */
+export function outstandingIsStillDue(outstanding: number): boolean {
+  return outstanding >= OUTSTANDING_PAID_BELOW_RUPEES;
+}
+
+/**
+ * Balance text for a tax invoice. Overpayment stays Extra. Rs 100 and above
+ * stays Due. Rs 1 and Rs 99.99 are Paid. Does not rewrite the stored balance.
+ */
+export function invoiceBalanceLabel(amount: number): string {
+  if (amount < -RUPEE_EPS) return `Extra ${formatMoney(-amount)}`;
+  if (outstandingIsStillDue(amount)) return `Due ${formatMoney(amount)}`;
+  return "Paid";
+}
+
 export function invoiceIsPaid(invoice: Invoice, data?: FlowhubData) {
-  return invoiceOutstanding(invoice, data) <= 0.005;
+  return !outstandingIsStillDue(invoiceOutstanding(invoice, data));
 }
 
 export function assignTask(

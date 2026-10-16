@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
+  invoiceBalanceLabel,
   invoiceDueDate,
   invoiceExpectedCash,
   invoiceOutstanding,
@@ -24,12 +25,6 @@ function formatMoney(n: number) {
     currency: "INR",
     maximumFractionDigits: 2,
   }).format(n);
-}
-
-function balanceLabel(amount: number) {
-  if (amount > 0.005) return `Due ${formatMoney(amount)}`;
-  if (amount < -0.005) return `Extra ${formatMoney(-amount)}`;
-  return "Paid";
 }
 
 export default function BillingHomePage() {
@@ -167,7 +162,7 @@ export default function BillingHomePage() {
                         {due == null ? (
                           <span className="text-[var(--fh-muted)]">—</span>
                         ) : (
-                          <Badge variant="secondary">{balanceLabel(due)}</Badge>
+                          <Badge variant="secondary">{invoiceBalanceLabel(due)}</Badge>
                         )}
                       </td>
                     </tr>

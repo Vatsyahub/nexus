@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
   contractActualRetentionHold,
+  outstandingIsStillDue,
   taskIsOpen,
   useFlowhubData,
   useWorkspaceReady,
@@ -95,7 +96,7 @@ export default function NexusCorePage() {
     let overdue = 0;
     let overdueCount = 0;
     for (const row of rows) {
-      if (row.outstanding <= 0.005) continue;
+      if (!outstandingIsStillDue(row.outstanding)) continue;
       if (row.status === "overdue") {
         overdue += row.outstanding;
         overdueCount += 1;
