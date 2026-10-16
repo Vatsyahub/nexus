@@ -104,6 +104,23 @@ function exportedLine(rowCount?: number) {
   return `${at}  ·  ${rowCount} row${rowCount === 1 ? "" : "s"}`;
 }
 
+/** Longest visual line, so a stacked city cell does not widen the column by both lines. */
+function cellTextWidth(v: ReportExportCell): number {
+  if (typeof v === "number") {
+    return Number.isFinite(v) ? v.toLocaleString("en-IN").length + 3 : 2;
+  }
+  const text = String(v ?? "");
+  if (!text) return 2;
+  return Math.max(...text.split("\n").map((line) => line.length)) + 2;
+}
+
+function rowLineCount(row: ReportExportCell[]): number {
+  return row.reduce((max, v) => {
+    if (typeof v !== "string" || !v.includes("\n")) return max;
+    return Math.max(max, v.split("\n").length);
+  }, 1);
+}
+
 /** Columns where every non-empty cell is a number get right-aligned. */
 function numericColumns(headers: string[], rows: ReportExportCell[][]) {
   return headers.map(
@@ -161,11 +178,7 @@ async function exportExcel(props: Props) {
           .filter((s) => i < s.headers.length)
           .flatMap((s) => [
             s.headers[i].length + 2,
-            ...s.rows.map((r) => {
-              const v = r[i];
-              if (typeof v === "number") return v.toLocaleString("en-IN").length + 3;
-              return String(v ?? "").length + 2;
-            }),
+            ...s.rows.map((r) => cellTextWidth(r[i])),
           ])
       )
     ),
@@ -287,6 +300,8 @@ async function exportExcel(props: Props) {
           cell.border = { ...border, top: { style: "medium", color: { argb: `FF${STEEL.hex}` } } };
         });
       }
+      const lines = rowLineCount(r);
+      if (lines > 1) row.height = 16 * lines;
     });
 
     // Excel allows a single autofilter per sheet.
