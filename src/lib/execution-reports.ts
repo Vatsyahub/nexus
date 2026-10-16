@@ -385,7 +385,7 @@ export type ItemListRow = {
   byCity: Record<string, ItemListCityFigures>;
   /**
    * BOQ quantity of Active contracts only, including blank-city lines.
-   * Used for overall left. Not a table or export column.
+   * Shown as Total BOQ qty, and used for overall left.
    */
   totalQty: number;
   /**
@@ -411,9 +411,15 @@ export function formatItemListCityCell(
   return figures.leftForSupply;
 }
 
-/** Item name, supplied and overall left, then one column per city. */
+/** Item name, overall BOQ, one column per city, then supplied and left. */
 export function itemListHeaders(cities: string[]): string[] {
-  return ["Item name", "Total supplied", "Left for supply", ...cities];
+  return [
+    "Item name",
+    "Total BOQ qty",
+    ...cities,
+    "Total supplied",
+    "Left for supply",
+  ];
 }
 
 export function itemListExportRow(
@@ -422,9 +428,10 @@ export function itemListExportRow(
 ): ItemListExportCell[] {
   return [
     row.itemName,
+    row.totalQty,
+    ...cities.map((city) => formatItemListCityCell(row.byCity[city])),
     row.totalSupplied,
     row.leftForSupply,
-    ...cities.map((city) => formatItemListCityCell(row.byCity[city])),
   ];
 }
 

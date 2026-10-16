@@ -184,21 +184,23 @@ test("a city cell is left for supply, and a missing city stays blank", () => {
   const cities = itemListCities(data);
   assert.deepEqual(itemListHeaders(cities), [
     "Item name",
-    "Total supplied",
-    "Left for supply",
+    "Total BOQ qty",
     "Ahmedabad",
     "Delhi",
     "Mumbai",
     "Pune",
+    "Total supplied",
+    "Left for supply",
   ]);
   assert.deepEqual(itemListExportRow(cities, panel), [
     "panel",
-    16,
-    11.5,
+    27.5,
     "",
     0,
     6.5,
     "",
+    16,
+    11.5,
   ]);
   assert.equal(formatItemListCityCell(cable.byCity.Mumbai), -2);
   assert.equal(formatItemListCityCell(undefined), "");
@@ -263,8 +265,9 @@ test("a city that has the item keeps zero and negative left", () => {
   assert.deepEqual(over.byCity.Goa, { boqQty: 1, leftForSupply: -3 });
   assert.deepEqual(itemListExportRow(["Goa"], over), [
     "Over",
-    4,
+    1,
     -3,
+    4,
     -3,
   ]);
   assert.equal(formatItemListCityCell(blank.byCity.Goa), 0);
