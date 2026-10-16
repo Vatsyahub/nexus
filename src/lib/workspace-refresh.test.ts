@@ -4,6 +4,7 @@ import type { Contract, FlowhubData, Invoice, Task } from "@/lib/types";
 import {
   getData,
   hydrateWorkspace,
+  onWorkspacePageHide,
   refreshWorkspace,
   resetWorkspaceClientForTests,
   startWorkspaceRefresh,
@@ -17,6 +18,7 @@ type Held = {
 
 const held: Held[] = [];
 let hangPuts = false;
+let putCount = 0;
 const originalFetch = globalThis.fetch;
 const bus = new EventTarget();
 const documentStub = {
@@ -70,20 +72,23 @@ function installBrowser() {
   globalThis.document = documentStub as unknown as Document;
   globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
     const method = (init?.method ?? "GET").toUpperCase();
-    if (method === "PUT" && !hangPuts) return jsonResponse({ ok: true });
+    if (method === "PUT") {
+      putCount += 1;
+      if (!hangPuts) return jsonResponse({ ok: true });
+    }
     return new Promise<Response>((resolve) => {
       held.push({ method, resolve });
     });
   }) as typeof fetch;
 }
 
-function releaseNext(method: string, body: unknown) {
+function releaseNext(method: string, body: unknown, status = 200) {
   const index = held.findIndex((item) => item.method === method);
   if (index < 0) {
     throw new Error(`no pending ${method}`);
   }
   const [item] = held.splice(index, 1);
-  item.resolve(jsonResponse(body));
+  item.resolve(jsonResponse(body, status));
 }
 
 async function waitFor(method: string) {
@@ -218,6 +223,7 @@ describe("workspace refresh", { concurrency: false }, () => {
   beforeEach(() => {
     held.length = 0;
     hangPuts = false;
+    putCount = 0;
     documentStub.visibilityState = "visible";
     resetWorkspaceClientForTests();
     installBrowser();
@@ -340,5 +346,104 @@ describe("workspace refresh", { concurrency: false }, () => {
     } finally {
       stop();
     }
+  });
+
+  test("pagehide does not PUT when this tab has no unsaved change", async () => {
+    await hydrateWith(workspace(4, { abgNumber: "ABG/SERVER/1" }));
+    const afterLoad = putCount;
+    onWorkspacePageHide();
+    assert.equal(putCount, afterLoad);
+    assert.equal(getData().contracts[0]?.abgNumber, "ABG/SERVER/1");
+
+    hangPuts = true;
+    updateContract("c1", { abgNumber: "ABG/UNSAVED/1" });
+    await waitFor("PUT");
+    const inflight = putCount;
+    onWorkspacePageHide();
+    assert.equal(putCount, inflight + 1);
+  });
+
+  test("a failed or empty GET does not PUT localStorage", async () => {
+    localStorage.setItem(
+      "nexus-ws-v5",
+      JSON.stringify(workspace(4, { abgNumber: "ABG/LOCAL/1" }))
+    );
+    const failed = hydrateWorkspace();
+    await waitFor("GET");
+    releaseNext("GET", { error: "down" }, 500);
+    await failed;
+    assert.equal(putCount, 0);
+    assert.equal(getData().contracts[0]?.abgNumber, "ABG/LOCAL/1");
+
+    resetWorkspaceClientForTests();
+    putCount = 0;
+    held.length = 0;
+    localStorage.setItem(
+      "nexus-ws-v5",
+      JSON.stringify(workspace(4, { abgNumber: "ABG/LOCAL/1" }))
+    );
+    const emptyRemote = { ...workspace(4), contracts: [] as FlowhubData["contracts"] };
+    const emptied = hydrateWorkspace();
+    await waitFor("GET");
+    releaseNext("GET", emptyRemote);
+    await emptied;
+    assert.equal(putCount, 0);
+    assert.equal(getData().contracts.length, 0);
+  });
+
+  test("a cold load with a non-empty server blob replaces localStorage", async () => {
+    localStorage.setItem(
+      "nexus-ws-v5",
+      JSON.stringify(workspace(3, { abgNumber: "ABG/LOCAL/1", pbgNumber: "PBG/LOCAL/1" }))
+    );
+    await hydrateWith(
+      workspace(4, { abgNumber: "ABG/SERVER/9", pbgNumber: "PBG/SERVER/9" })
+    );
+    assert.equal(putCount, 0);
+    assert.equal(getData().contracts[0]?.abgNumber, "ABG/SERVER/9");
+    assert.equal(getData().contracts[0]?.pbgNumber, "PBG/SERVER/9");
+    const cached = JSON.parse(localStorage.getItem("nexus-ws-v5") ?? "{}") as FlowhubData;
+    assert.equal(cached.contracts[0]?.abgNumber, "ABG/SERVER/9");
+  });
+
+  test("an ABG/PBG save increments workspaceRevision", async () => {
+    await hydrateWith(workspace(4));
+    assert.equal(getData().workspaceRevision, 4);
+    const updated = updateContract("c1", {
+      abgNumber: "ABG/NEW/9",
+      abgDate: "2026-04-01",
+      abgExpiry: "2030-01-01",
+      abgBankName: "HDFC",
+      abgValue: 500,
+      pbgNumber: "PBG/NEW/9",
+      pbgDate: "2026-04-02",
+      pbgExpiry: "2030-02-01",
+      pbgBankName: "SBI",
+      pbgValue: 250,
+    });
+    assert.equal(updated?.abgNumber, "ABG/NEW/9");
+    assert.equal(updated?.pbgNumber, "PBG/NEW/9");
+    assert.equal(getData().workspaceRevision, 5);
+  });
+
+  test("a refetch skips an older revision and applies a newer one", async () => {
+    await hydrateWith(workspace(5, { abgNumber: "ABG/PAINTED/5" }));
+    const older = refreshWorkspace();
+    await waitFor("GET");
+    releaseNext("GET", workspace(4, { abgNumber: "ABG/OLDER/4" }));
+    await older;
+    assert.equal(getData().workspaceRevision, 5);
+    assert.equal(getData().contracts[0]?.abgNumber, "ABG/PAINTED/5");
+
+    const newer = refreshWorkspace();
+    await waitFor("GET");
+    releaseNext(
+      "GET",
+      workspace(6, { abgNumber: "ABG/NEWER/6", pbgNumber: "PBG/NEWER/6" })
+    );
+    await newer;
+    assert.equal(getData().workspaceRevision, 6);
+    assert.equal(getData().contracts[0]?.abgNumber, "ABG/NEWER/6");
+    assert.equal(getData().contracts[0]?.pbgNumber, "PBG/NEWER/6");
   });
 });

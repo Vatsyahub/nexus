@@ -440,8 +440,9 @@ export function mergeWorkspaceSave(
 }
 
 /**
- * Stale revisions and empty overwrites are refused for the merged file.
- * The page address is ignored; each slice follows the account's door.
+ * An equal or older revision is refused, and so is an empty overwrite that
+ * is not newer than the hub it would replace. The page address is ignored;
+ * each slice follows the account's door.
  */
 export function resolveWorkspaceWrite(
   current: FlowhubData,
@@ -451,7 +452,7 @@ export function resolveWorkspaceWrite(
 ): WorkspaceWrite {
   const incomingRev = incoming.workspaceRevision ?? 0;
   const currentRev = current.workspaceRevision ?? 0;
-  if (incomingRev < currentRev) {
+  if (incomingRev <= currentRev) {
     return {
       action: "skip",
       skipped: "refuse-stale-revision",
@@ -461,6 +462,9 @@ export function resolveWorkspaceWrite(
   }
 
   const data = mergeWorkspaceSave(current, incoming, access, clearance);
+  // Equal revisions never reach this. A newer empty save is an intentional
+  // clear and is stored. This still refuses an empty body if a future change
+  // lets an equal revision through.
   if (
     isEmptyWorkspace(data) &&
     !isEmptyWorkspace(current) &&

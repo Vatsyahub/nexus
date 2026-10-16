@@ -1399,7 +1399,13 @@ let pendingLocalSave = false;
 function write(data: FlowhubData): Promise<void> {
   if (workspaceWritesLocked) return persistChain;
   persistEpoch += 1;
-  setSnapshot(data);
+  // Every save is a new revision. Another tab still holding the previous
+  // number, or this same number, cannot overwrite it.
+  const next: FlowhubData = {
+    ...data,
+    workspaceRevision: (data.workspaceRevision ?? 0) + 1,
+  };
+  setSnapshot(next);
   notify();
   if (!hydrateFromServerOk) pendingLocalSave = true;
   persistToServer(clientSnapshot);
@@ -1529,33 +1535,17 @@ export function hydrateWorkspace(opts?: { force?: boolean }): Promise<void> {
         ? payload.scheduleChangeLog.length
         : 0;
       const remote = normalizeData(payload);
-      const remoteEmpty = workspaceIsEmpty(remote);
-      const localHasData = !workspaceIsEmpty(local);
-
-      const remoteRev = remote.workspaceRevision ?? 0;
-      const localRev = local.workspaceRevision ?? 0;
       let adoptedRemote = false;
       if (pendingLocalSave) {
         // This tab edited before the GET returned. persistToServer refused
-        // the write until hydrateFromServerOk, so push clientSnapshot now
-        // instead of painting the stale server copy over it.
+        // the write until hydrateFromServerOk, so push that unsaved edit now
+        // instead of painting the server copy over it. A failed or empty GET
+        // never reaches here, and localStorage alone is not pushed back.
         pendingLocalSave = false;
         markReady(true);
         persistToServer(clientSnapshot);
-      } else if (remoteEmpty && localHasData && localRev >= remoteRev) {
-        // Same browser still has data the server has not saved yet.
-        // A newer server revision wins even when that revision is empty,
-        // so a cleared hub is not filled back in from an old cache.
-        setSnapshot(local);
-        markReady(true);
-        await fetch("/api/workspace", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(local),
-          credentials: "same-origin",
-        });
       } else {
-        // Server is source of truth across tunnel URLs / tabs
+        // Non-empty or empty, the server blob replaces localStorage.
         setSnapshot(remote);
         markReady(true);
         adoptedRemote = true;
@@ -1597,10 +1587,9 @@ const WORKSPACE_REFRESH_MS = 15_000;
 let refreshPromise: Promise<void> | null = null;
 
 /**
- * GET the shared workspace again and replace this tab's snapshot.
- * A guarantee save does not bump workspaceRevision, so the stored blob
- * is applied even when the revision is unchanged.
- * Skips while a save from this tab has not been stored yet.
+ * GET the shared workspace again and replace this tab's snapshot when the
+ * stored revision is equal to or newer than the one on screen.
+ * Skips while a save from this tab has not been stored yet. Never PUTs.
  */
 export function refreshWorkspace(): Promise<void> {
   if (typeof window === "undefined") return Promise.resolve();
@@ -1622,7 +1611,11 @@ export function refreshWorkspace(): Promise<void> {
       if (!ctype.includes("application/json")) return;
       const payload = (await res.json()) as FlowhubData;
       if (saveInFlight() || epoch !== persistEpoch) return;
-      setSnapshot(normalizeData(payload));
+      const remote = normalizeData(payload);
+      const remoteRev = remote.workspaceRevision ?? 0;
+      const paintedRev = clientSnapshot.workspaceRevision ?? 0;
+      if (remoteRev < paintedRev) return;
+      setSnapshot(remote);
       notify();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1680,23 +1673,31 @@ export function resetWorkspaceClientForTests() {
   refreshPromise = null;
 }
 
-/** Flush pending saves if the tab is closing / navigating away. */
+/**
+ * Closing or hiding the document must not write the workspace unless this
+ * tab still has a change the server has not stored. Visibility refetch is
+ * a GET and does not call this.
+ */
+export function onWorkspacePageHide() {
+  if (!saveInFlight()) return;
+  if (typeof window === "undefined") return;
+  const payload = JSON.stringify(clientSnapshot);
+  try {
+    // keepalive cannot carry a body of 64KB or more.
+    void fetch("/api/workspace", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: payload,
+      keepalive: payload.length < 60 * 1024,
+    });
+  } catch {
+    // ignore — best effort
+  }
+}
+
 if (typeof window !== "undefined") {
   window.addEventListener("pagehide", () => {
-    if (!clientHydrated || !hydrateFromServerOk) return;
-    if (workspaceIsEmpty(clientSnapshot)) return;
-    const payload = JSON.stringify(clientSnapshot);
-    try {
-      // keepalive cannot carry a body of 64KB or more.
-      void fetch("/api/workspace", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: payload,
-        keepalive: payload.length < 60 * 1024,
-      });
-    } catch {
-      // ignore — best effort
-    }
+    onWorkspacePageHide();
   });
 }
 
@@ -2367,11 +2368,6 @@ export function deleteContract(id: string): boolean {
     ),
     nexusCosts: dropContractCosts(data.nexusCosts, id),
   };
-  if (workspaceIsEmpty(next)) {
-    // The server refuses an empty save that is not newer than the hub it
-    // would replace. Bumping the revision marks this delete as intentional.
-    next.workspaceRevision = (data.workspaceRevision ?? 0) + 1;
-  }
   write(next);
   return true;
 }
