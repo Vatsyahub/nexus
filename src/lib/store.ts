@@ -92,6 +92,11 @@ import {
   isBuiltinBillingTerm,
   renameCustomBillingTerm,
 } from "@/lib/billing-terms";
+import {
+  applyWorkspaceChanges,
+  diffWorkspace,
+  type WorkspaceChangeRequest,
+} from "@/lib/workspace-changes";
 
 export type { TaskActor };
 export {
@@ -1305,6 +1310,11 @@ function readLocal(): FlowhubData {
 
 /** Cached client snapshot for useSyncExternalStore — must be referentially stable. */
 let clientSnapshot: FlowhubData = empty;
+/**
+ * The stored hub this tab last loaded or last had confirmed.
+ * Saves send the difference from this copy, not the whole snapshot.
+ */
+let editBase: FlowhubData = empty;
 let clientHydrated = false;
 let serverHydrated = false;
 let hydratePromise: Promise<void> | null = null;
@@ -1315,6 +1325,10 @@ let lastPersist: Promise<void> = persistChain;
 function notify() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new Event("flowhub-data"));
+}
+
+function rememberEditBase(data: FlowhubData) {
+  editBase = structuredClone(data);
 }
 
 function setSnapshot(data: FlowhubData) {
@@ -1337,6 +1351,7 @@ function setSnapshot(data: FlowhubData) {
 function read(): FlowhubData {
   if (!clientHydrated) {
     setSnapshot(readLocal());
+    rememberEditBase(clientSnapshot);
   }
   return clientSnapshot;
 }
@@ -1353,12 +1368,38 @@ function saveInFlight(): boolean {
   return pendingLocalSave || persistOutstanding > 0;
 }
 
+type WorkspacePutResult = {
+  ok?: boolean;
+  skipped?: string;
+  error?: string;
+  data?: FlowhubData;
+};
+
+function workspaceSaveRequest(data: FlowhubData): WorkspaceChangeRequest {
+  return {
+    baseRevision: editBase.workspaceRevision ?? 0,
+    changes: diffWorkspace(editBase, data),
+  };
+}
+
+function saveRejectedMessage(
+  body: WorkspacePutResult | null,
+  status: number
+): string {
+  if (body?.skipped || body?.ok === false) {
+    return "Could not save. This entry was not stored.";
+  }
+  if (body?.error) return body.error;
+  return `Could not save the workspace (${status}).`;
+}
+
 function persistToServer(data: FlowhubData) {
   if (typeof window === "undefined") return;
   // Never push until a real Postgres GET succeeded — local-fallback unlock
   // must not wipe the shared workspace.
   if (!hydrateFromServerOk) return;
-  const payload = JSON.stringify(data);
+  const payload = JSON.stringify(workspaceSaveRequest(data));
+  const epoch = persistEpoch;
   // Chrome drops keepalive fetches once the body reaches 64KB. The shared
   // workspace crosses that after a handful of contracts, so those saves
   // never reached Postgres and later contracts vanished on the next load.
@@ -1370,8 +1411,34 @@ function persistToServer(data: FlowhubData) {
         headers: { "Content-Type": "application/json" },
         body: payload,
       });
-      if (!res.ok) {
-        throw new Error(`Could not save the workspace (${res.status}).`);
+      let body: WorkspacePutResult | null = null;
+      try {
+        body = (await res.json()) as WorkspacePutResult;
+      } catch {
+        body = null;
+      }
+      if (!res.ok || body?.ok !== true || body?.skipped) {
+        throw new Error(saveRejectedMessage(body, res.status));
+      }
+      if (body.data && typeof body.data === "object") {
+        const merged = normalizeData(body.data);
+        if (epoch === persistEpoch) {
+          setSnapshot(merged);
+          rememberEditBase(clientSnapshot);
+          notify();
+        } else {
+          const extra = diffWorkspace(data, clientSnapshot);
+          const rebased = applyWorkspaceChanges(merged, extra);
+          rebased.workspaceRevision = Math.max(
+            merged.workspaceRevision ?? 0,
+            clientSnapshot.workspaceRevision ?? 0
+          );
+          setSnapshot(rebased);
+          rememberEditBase(merged);
+          notify();
+        }
+      } else {
+        rememberEditBase(data);
       }
     } finally {
       persistOutstanding -= 1;
@@ -1400,8 +1467,8 @@ let pendingLocalSave = false;
 function write(data: FlowhubData): Promise<void> {
   if (workspaceWritesLocked) return persistChain;
   persistEpoch += 1;
-  // Every save is a new revision. Another tab still holding the previous
-  // number, or this same number, cannot overwrite it.
+  // The on-screen revision moves immediately. The server stores the
+  // change list and returns the merged hub, which replaces this copy.
   const next: FlowhubData = {
     ...data,
     workspaceRevision: (data.workspaceRevision ?? 0) + 1,
@@ -1508,7 +1575,10 @@ export function hydrateWorkspace(opts?: { force?: boolean }): Promise<void> {
       if (res.status === 401) {
         // Cookie race or expired JWT while SessionProvider still says authed.
         // Keep an edit made during this GET; local was captured before it.
-        if (!pendingLocalSave) setSnapshot(local);
+        if (!pendingLocalSave) {
+          setSnapshot(local);
+          rememberEditBase(clientSnapshot);
+        }
         unauthorizedStreak += 1;
         if (unauthorizedStreak > MAX_UNAUTHORIZED_RETRIES) {
           // Unlock UI; do not persist until a real GET succeeds.
@@ -1548,6 +1618,7 @@ export function hydrateWorkspace(opts?: { force?: boolean }): Promise<void> {
       } else {
         // Non-empty or empty, the server blob replaces localStorage.
         setSnapshot(remote);
+        rememberEditBase(clientSnapshot);
         markReady(true);
         adoptedRemote = true;
       }
@@ -1571,7 +1642,10 @@ export function hydrateWorkspace(opts?: { force?: boolean }): Promise<void> {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn("Workspace hydrate failed; will retry", msg);
-      if (!pendingLocalSave) setSnapshot(local);
+      if (!pendingLocalSave) {
+        setSnapshot(local);
+        rememberEditBase(clientSnapshot);
+      }
       notify();
       scheduleHydrateRetry();
     }
@@ -1617,6 +1691,7 @@ export function refreshWorkspace(): Promise<void> {
       const paintedRev = clientSnapshot.workspaceRevision ?? 0;
       if (remoteRev < paintedRev) return;
       setSnapshot(remote);
+      rememberEditBase(clientSnapshot);
       notify();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1654,6 +1729,7 @@ export function startWorkspaceRefresh(): () => void {
 /** Drop client workspace state so tests can hydrate more than once. */
 export function resetWorkspaceClientForTests() {
   clientSnapshot = empty;
+  editBase = empty;
   clientHydrated = false;
   serverHydrated = false;
   hydratePromise = null;
@@ -1682,7 +1758,7 @@ export function resetWorkspaceClientForTests() {
 export function onWorkspacePageHide() {
   if (!saveInFlight()) return;
   if (typeof window === "undefined") return;
-  const payload = JSON.stringify(clientSnapshot);
+  const payload = JSON.stringify(workspaceSaveRequest(clientSnapshot));
   try {
     // keepalive cannot carry a body of 64KB or more.
     void fetch("/api/workspace", {
@@ -5433,6 +5509,7 @@ export function useFlowhubData(): FlowhubData {
       if (!clientHydrated) {
         clientSnapshot = readLocal();
         clientHydrated = true;
+        rememberEditBase(clientSnapshot);
       }
       return clientSnapshot;
     },

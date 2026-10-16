@@ -15,6 +15,11 @@ import {
   stampClearedNotices,
   unionNotificationClears,
 } from "@/lib/notification-ttl";
+import {
+  applyWorkspaceChanges,
+  isWorkspaceChangeRequest,
+  type WorkspaceChangeRequest,
+} from "@/lib/workspace-changes";
 
 /**
  * Company-file slices and the report doors that already show their figures.
@@ -52,9 +57,7 @@ const SCHEDULE_REPORTS = [
 
 const EXPENSE_REPORTS = ["reports_accounts"] as const satisfies readonly DoorId[];
 
-export type WorkspaceSkip =
-  | "refuse-empty-overwrite"
-  | "refuse-stale-revision";
+export type WorkspaceSkip = "refuse-wholesale-replace";
 
 export type WorkspaceWrite =
   | { action: "save"; data: FlowhubData }
@@ -83,17 +86,6 @@ function receives(
 ): boolean {
   if (doorLevel(access, door) !== "block") return true;
   return reports.some((id) => doorLevel(access, id) !== "block");
-}
-
-function isEmptyWorkspace(data: FlowhubData) {
-  return (
-    data.contracts.length === 0 &&
-    data.tasks.length === 0 &&
-    data.invoices.length === 0 &&
-    data.payments.length === 0 &&
-    data.schedules.length === 0 &&
-    data.itemCatalog.length === 0
-  );
 }
 
 /** Contract row with commercial figures removed. Expenses stay attached. */
@@ -440,38 +432,32 @@ export function mergeWorkspaceSave(
 }
 
 /**
- * An equal or older revision is refused, and so is an empty overwrite that
- * is not newer than the hub it would replace. The page address is ignored;
- * each slice follows the account's door.
+ * Apply this browser's changes onto the hub stored now.
+ * A full snapshot is not a change list and is not stored.
+ * The page address is ignored; each slice follows the account's door.
  */
 export function resolveWorkspaceWrite(
   current: FlowhubData,
-  incoming: FlowhubData,
+  incoming: FlowhubData | WorkspaceChangeRequest,
   access: AccessMap,
   clearance: ClearanceRole
 ): WorkspaceWrite {
-  const incomingRev = incoming.workspaceRevision ?? 0;
-  const currentRev = current.workspaceRevision ?? 0;
-  if (incomingRev <= currentRev) {
+  if (!isWorkspaceChangeRequest(incoming)) {
     return {
       action: "skip",
-      skipped: "refuse-stale-revision",
-      currentRevision: currentRev,
-      incomingRevision: incomingRev,
+      skipped: "refuse-wholesale-replace",
+      currentRevision: current.workspaceRevision ?? 0,
+      incomingRevision: incoming.workspaceRevision ?? 0,
     };
   }
 
-  const data = mergeWorkspaceSave(current, incoming, access, clearance);
-  // Equal revisions never reach this. A newer empty save is an intentional
-  // clear and is stored. This still refuses an empty body if a future change
-  // lets an equal revision through.
-  if (
-    isEmptyWorkspace(data) &&
-    !isEmptyWorkspace(current) &&
-    incomingRev <= currentRev
-  ) {
-    return { action: "skip", skipped: "refuse-empty-overwrite" };
-  }
-
-  return { action: "save", data };
+  const patched = applyWorkspaceChanges(current, incoming.changes);
+  const merged = mergeWorkspaceSave(current, patched, access, clearance);
+  return {
+    action: "save",
+    data: {
+      ...merged,
+      workspaceRevision: (current.workspaceRevision ?? 0) + 1,
+    },
+  };
 }

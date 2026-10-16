@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, mock, test } from "node:test";
 import type { Contract, FlowhubData, Invoice, Task } from "@/lib/types";
+import { confirmWorkspaceSave, getSaveNotice } from "@/lib/save-notice";
 import {
+  flushWorkspace,
   getData,
   hydrateWorkspace,
   onWorkspacePageHide,
@@ -10,6 +12,7 @@ import {
   startWorkspaceRefresh,
   updateContract,
 } from "@/lib/store";
+import type { Payment } from "@/lib/types";
 
 type Held = {
   method: string;
@@ -19,6 +22,8 @@ type Held = {
 const held: Held[] = [];
 let hangPuts = false;
 let putCount = 0;
+let lastPutBody = "";
+let putResponder: ((body: string) => Response) | null = null;
 const originalFetch = globalThis.fetch;
 const bus = new EventTarget();
 const documentStub = {
@@ -74,6 +79,9 @@ function installBrowser() {
     const method = (init?.method ?? "GET").toUpperCase();
     if (method === "PUT") {
       putCount += 1;
+      const raw = typeof init?.body === "string" ? init.body : "";
+      lastPutBody = raw;
+      if (putResponder) return putResponder(raw);
       if (!hangPuts) return jsonResponse({ ok: true });
     }
     return new Promise<Response>((resolve) => {
@@ -224,6 +232,8 @@ describe("workspace refresh", { concurrency: false }, () => {
     held.length = 0;
     hangPuts = false;
     putCount = 0;
+    lastPutBody = "";
+    putResponder = null;
     documentStub.visibilityState = "visible";
     resetWorkspaceClientForTests();
     installBrowser();
@@ -445,5 +455,58 @@ describe("workspace refresh", { concurrency: false }, () => {
     assert.equal(getData().workspaceRevision, 6);
     assert.equal(getData().contracts[0]?.abgNumber, "ABG/NEWER/6");
     assert.equal(getData().contracts[0]?.pbgNumber, "PBG/NEWER/6");
+  });
+
+  test("a save sends changes and adopts the merged hub", async () => {
+    await hydrateWith(workspace(4));
+    const payment: Payment = {
+      id: "pay-other",
+      contractId: "c1",
+      invoiceId: null,
+      link: "unlinked",
+      date: "2026-04-01",
+      netAmount: 25,
+      gstAmount: 0,
+      retentionAmount: 0,
+      tdsAmount: 0,
+      otherDeductions: 0,
+      otherDeductionReason: "",
+      recovered: 0,
+      createdAt: "2026-04-01T00:00:00.000Z",
+    };
+    putResponder = () =>
+      jsonResponse({
+        ok: true,
+        workspaceRevision: 9,
+        data: workspace(9, { abgNumber: "ABG/NEW/9" }, { payments: [payment] }),
+      });
+    updateContract("c1", { abgNumber: "ABG/NEW/9" });
+    await flushWorkspace();
+    const sent = JSON.parse(lastPutBody) as {
+      baseRevision?: number;
+      changes?: { contracts?: { upsert?: { abgNumber?: string | null }[] } };
+      contracts?: unknown;
+    };
+    assert.equal(sent.baseRevision, 4);
+    assert.equal(sent.contracts, undefined);
+    assert.equal(sent.changes?.contracts?.upsert?.[0]?.abgNumber, "ABG/NEW/9");
+    assert.equal(getData().workspaceRevision, 9);
+    assert.equal(getData().contracts[0]?.abgNumber, "ABG/NEW/9");
+    assert.equal(getData().payments[0]?.id, "pay-other");
+  });
+
+  test("a refused save does not count as saved", async () => {
+    await hydrateWith(workspace(4, { abgNumber: "ABG/SERVER/1" }));
+    putResponder = () =>
+      jsonResponse(
+        { ok: true, skipped: "refuse-wholesale-replace" },
+        200
+      );
+    updateContract("c1", { abgNumber: "ABG/UNSTORED/1" });
+    await assert.rejects(() => flushWorkspace(), /not stored/);
+    const saved = await confirmWorkspaceSave();
+    assert.equal(saved, false);
+    assert.equal(getSaveNotice()?.tone, "error");
+    assert.notEqual(getSaveNotice()?.text, "Saved.");
   });
 });

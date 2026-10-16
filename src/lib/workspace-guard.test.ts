@@ -18,6 +18,7 @@ import {
   resolveWorkspaceWrite,
   workspaceForAccount,
 } from "@/lib/workspace-guard";
+import { diffWorkspace } from "@/lib/workspace-changes";
 import { notificationVisibleForUser } from "@/lib/notification-ttl";
 
 function access(overrides: Partial<AccessMap> = {}): AccessMap {
@@ -192,13 +193,37 @@ function save(
   map: AccessMap,
   clearance: ClearanceRole = "user"
 ) {
-  const currentRev = current.workspaceRevision ?? 0;
-  const incomingRev = incoming.workspaceRevision ?? 0;
-  const stamped =
-    incomingRev > currentRev
-      ? incoming
-      : { ...incoming, workspaceRevision: currentRev + 1 };
-  const result = resolveWorkspaceWrite(current, stamped, map, clearance);
+  const result = resolveWorkspaceWrite(
+    current,
+    {
+      baseRevision: current.workspaceRevision ?? 0,
+      changes: diffWorkspace(current, incoming),
+    },
+    map,
+    clearance
+  );
+  assert.equal(result.action, "save");
+  if (result.action !== "save") throw new Error("expected save");
+  return result.data;
+}
+
+/** One browser loaded `loaded`, edited it, and saves onto whatever is stored now. */
+function applyEdited(
+  stored: FlowhubData,
+  loaded: FlowhubData,
+  edited: FlowhubData,
+  map: AccessMap = access(),
+  clearance: ClearanceRole = "user"
+) {
+  const result = resolveWorkspaceWrite(
+    stored,
+    {
+      baseRevision: loaded.workspaceRevision ?? 0,
+      changes: diffWorkspace(loaded, edited),
+    },
+    map,
+    clearance
+  );
   assert.equal(result.action, "save");
   if (result.action !== "save") throw new Error("expected save");
   return result.data;
@@ -467,59 +492,238 @@ test("nexus core follows its own door", () => {
   assert.equal(cleared.contracts.length, 0);
 });
 
-test("an equal or older revision is refused and a newer revision is stored", () => {
-  const current = file({
-    contracts: [contract({ abgNumber: "ABG/SERVER/1", pbgNumber: "PBG/SERVER/1" })],
+test("several concurrent new invoices are all present", () => {
+  const loaded = file({
+    invoices: [invoice({ id: "existing", number: "TI-0" })],
     workspaceRevision: 4,
   });
-  const equal = resolveWorkspaceWrite(
-    current,
-    file({
-      contracts: [contract({ abgNumber: "ABG/STALE/1", pbgNumber: "PBG/STALE/1" })],
-      workspaceRevision: 4,
-    }),
-    access(),
-    "master"
-  );
-  assert.equal(equal.action, "skip");
-  if (equal.action === "skip") {
-    assert.equal(equal.skipped, "refuse-stale-revision");
-    assert.equal(equal.incomingRevision, 4);
+  const editors = ["a", "b", "c"].map((id) => ({
+    ...loaded,
+    invoices: [
+      ...loaded.invoices,
+      invoice({ id: `inv-${id}`, number: `TI-${id}` }),
+    ],
+  }));
+  let stored = loaded;
+  for (const edited of editors) {
+    stored = applyEdited(stored, loaded, edited);
   }
-  const older = resolveWorkspaceWrite(
-    current,
-    file({
-      contracts: [contract({ abgNumber: "ABG/OLDER/1" })],
-      workspaceRevision: 2,
-    }),
-    access(),
-    "master"
+  assert.deepEqual(
+    stored.invoices.map((row) => row.id).sort(),
+    ["existing", "inv-a", "inv-b", "inv-c"]
   );
+  assert.equal(stored.workspaceRevision, 7);
+});
+
+test("several concurrent new payments are all present", () => {
+  const loaded = file({
+    payments: [payment({ id: "existing", netAmount: 10 })],
+    workspaceRevision: 4,
+  });
+  const editors = ["a", "b", "c"].map((id) => ({
+    ...loaded,
+    payments: [
+      ...loaded.payments,
+      payment({ id: `pay-${id}`, netAmount: 20 }),
+    ],
+  }));
+  let stored = loaded;
+  for (const edited of editors) {
+    stored = applyEdited(stored, loaded, edited);
+  }
+  assert.deepEqual(
+    stored.payments.map((row) => row.id).sort(),
+    ["existing", "pay-a", "pay-b", "pay-c"]
+  );
+  assert.equal(stored.payments.find((row) => row.id === "existing")?.netAmount, 10);
+  assert.equal(stored.workspaceRevision, 7);
+});
+
+test("an ABG change and a payment add in the same moment are both present", () => {
+  const loaded = file({
+    contracts: [contract({ abgNumber: "ABG/OLD/1", pbgNumber: "PBG/OLD/1" })],
+    payments: [],
+    workspaceRevision: 4,
+  });
+  const abgEdit = {
+    ...loaded,
+    contracts: [
+      contract({ abgNumber: "ABG/NEW/1", pbgNumber: "PBG/OLD/1" }),
+    ],
+  };
+  const paymentEdit = {
+    ...loaded,
+    payments: [payment({ id: "pay-new", netAmount: 80 })],
+  };
+  const paymentChanges = diffWorkspace(loaded, paymentEdit);
+  assert.equal(paymentChanges.contracts, undefined);
+  assert.equal(paymentChanges.payments?.upsert?.[0]?.id, "pay-new");
+  const abgChanges = diffWorkspace(loaded, abgEdit);
+  assert.equal(abgChanges.payments, undefined);
+  assert.equal(abgChanges.contracts?.upsert?.[0]?.abgNumber, "ABG/NEW/1");
+
+  const abgThenPayment = applyEdited(
+    applyEdited(loaded, loaded, abgEdit),
+    loaded,
+    paymentEdit
+  );
+  assert.equal(abgThenPayment.contracts[0]?.abgNumber, "ABG/NEW/1");
+  assert.equal(abgThenPayment.contracts[0]?.pbgNumber, "PBG/OLD/1");
+  assert.equal(abgThenPayment.payments[0]?.id, "pay-new");
+
+  const paymentThenAbg = applyEdited(
+    applyEdited(loaded, loaded, paymentEdit),
+    loaded,
+    abgEdit
+  );
+  assert.equal(paymentThenAbg.contracts[0]?.abgNumber, "ABG/NEW/1");
+  assert.equal(paymentThenAbg.payments[0]?.id, "pay-new");
+  assert.equal(paymentThenAbg.payments[0]?.netAmount, 80);
+});
+
+test("the later edit wins on one task and a different new payment stays", () => {
+  const loaded = file({
+    tasks: [task({ title: "Original" })],
+    payments: [payment({ id: "pay-old", netAmount: 5 })],
+    workspaceRevision: 4,
+  });
+  const firstTask = {
+    ...loaded,
+    tasks: [task({ title: "First edit" })],
+  };
+  const laterTask = {
+    ...loaded,
+    tasks: [task({ title: "Later edit" })],
+  };
+  const addedPayment = {
+    ...loaded,
+    payments: [
+      ...loaded.payments,
+      payment({ id: "pay-new", netAmount: 40 }),
+    ],
+  };
+  let stored = applyEdited(loaded, loaded, firstTask);
+  stored = applyEdited(stored, loaded, addedPayment);
+  stored = applyEdited(stored, loaded, laterTask);
+  assert.equal(stored.tasks.find((row) => row.id === "task-1")?.title, "Later edit");
+  assert.deepEqual(
+    stored.payments.map((row) => row.id).sort(),
+    ["pay-new", "pay-old"]
+  );
+  assert.equal(stored.payments.find((row) => row.id === "pay-old")?.netAmount, 5);
+  assert.equal(stored.payments.find((row) => row.id === "pay-new")?.netAmount, 40);
+});
+
+test("concurrent new expenses stay with an ABG change on the same contract", () => {
+  const expense = (
+    id: string,
+    amount: number
+  ): Contract["expenses"][number] => ({
+    id,
+    amount,
+    date: "2026-03-01",
+    personPaid: "Ada",
+    reason: "Cab",
+    category: "Travel",
+    createdAt: "2026-03-01T00:00:00.000Z",
+    createdBy: "Ada",
+    editHistory: [],
+    deletedAt: null,
+    deletedBy: null,
+  });
+  const loaded = file({
+    contracts: [
+      contract({ abgNumber: "ABG/OLD/1", expenses: [expense("e-old", 10)] }),
+    ],
+    workspaceRevision: 4,
+  });
+  const abgEdit = {
+    ...loaded,
+    contracts: [
+      contract({
+        abgNumber: "ABG/NEW/1",
+        expenses: [expense("e-old", 10)],
+      }),
+    ],
+  };
+  const expenseEdit = {
+    ...loaded,
+    contracts: [
+      contract({
+        abgNumber: "ABG/OLD/1",
+        expenses: [expense("e-old", 10), expense("e-new", 25)],
+      }),
+    ],
+  };
+  const stored = applyEdited(
+    applyEdited(loaded, loaded, abgEdit),
+    loaded,
+    expenseEdit
+  );
+  assert.equal(stored.contracts[0]?.abgNumber, "ABG/NEW/1");
+  assert.deepEqual(
+    stored.contracts[0]?.expenses.map((row) => row.id).sort(),
+    ["e-new", "e-old"]
+  );
+  assert.equal(
+    stored.contracts[0]?.expenses.find((row) => row.id === "e-new")?.amount,
+    25
+  );
+});
+
+test("a stale full snapshot is not stored as a wholesale replace", () => {
+  const current = file({
+    contracts: [contract({ abgNumber: "ABG/SERVER/1" })],
+    invoices: [
+      invoice({ id: "kept", number: "TI-KEPT" }),
+      invoice({ id: "other", number: "TI-OTHER" }),
+    ],
+    payments: [payment({ id: "pay-server", netAmount: 70 })],
+    tasks: [task({ title: "Stored task" })],
+    workspaceRevision: 8,
+  });
+  const stale = file({
+    contracts: [contract({ abgNumber: "ABG/STALE/1" })],
+    invoices: [invoice({ id: "kept", number: "TI-STALE" })],
+    payments: [],
+    tasks: [],
+    workspaceRevision: 3,
+  });
+  const older = resolveWorkspaceWrite(current, stale, access(), "master");
   assert.equal(older.action, "skip");
-  if (older.action === "skip") assert.equal(older.skipped, "refuse-stale-revision");
-  const newer = resolveWorkspaceWrite(
+  if (older.action === "skip") {
+    assert.equal(older.skipped, "refuse-wholesale-replace");
+    assert.equal(older.incomingRevision, 3);
+    assert.equal(older.currentRevision, 8);
+  }
+  const newerFull = file({
+    invoices: [invoice({ id: "only-mine", number: "WIPE" })],
+    workspaceRevision: 100,
+  });
+  const newer = resolveWorkspaceWrite(current, newerFull, access(), "master");
+  assert.equal(newer.action, "skip");
+  if (newer.action === "skip") {
+    assert.equal(newer.skipped, "refuse-wholesale-replace");
+  }
+  assert.equal(current.workspaceRevision, 8);
+  assert.equal(current.contracts[0]?.abgNumber, "ABG/SERVER/1");
+  assert.deepEqual(
+    current.invoices.map((row) => row.id).sort(),
+    ["kept", "other"]
+  );
+  assert.equal(current.payments[0]?.id, "pay-server");
+  assert.equal(current.tasks[0]?.title, "Stored task");
+
+  const cleared = applyEdited(
     current,
-    file({
-      contracts: [
-        contract({ abgNumber: "ABG/NEW/1", pbgNumber: "PBG/NEW/1" }),
-      ],
-      workspaceRevision: 5,
-    }),
+    current,
+    file({ workspaceRevision: 8 }),
     access(),
     "master"
   );
-  assert.equal(newer.action, "save");
-  if (newer.action !== "save") return;
-  assert.equal(newer.data.workspaceRevision, 5);
-  assert.equal(newer.data.contracts[0]?.abgNumber, "ABG/NEW/1");
-  assert.equal(newer.data.contracts[0]?.pbgNumber, "PBG/NEW/1");
-  const intentional = resolveWorkspaceWrite(
-    current,
-    file({ workspaceRevision: 5 }),
-    access(),
-    "master"
-  );
-  assert.equal(intentional.action, "save");
+  assert.equal(cleared.contracts.length, 0);
+  assert.equal(cleared.invoices.length, 0);
+  assert.equal(cleared.payments.length, 0);
 });
 
 test("a blocked door is omitted unless its report is open", () => {

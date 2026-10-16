@@ -17,6 +17,7 @@ import {
   resolveWorkspaceWrite,
   workspaceForAccount,
 } from "@/lib/workspace-guard";
+import { isWorkspaceChangeRequest } from "@/lib/workspace-changes";
 import type { ClearanceRole } from "@/lib/clearance";
 
 const STORE_ID = "default";
@@ -141,34 +142,30 @@ export async function PUT(req: Request) {
   const clearance = (session.user.clearance ?? "user") as ClearanceRole;
 
   const members = await audienceMembers();
-  const incoming = asFlowhubData(body, members);
 
   // The page address is ignored. Each slice follows this account's door.
-  // An equal or older revision is refused, and so is an empty overwrite
-  // that is not newer than the hub it would replace.
+  // Changes are applied onto the hub stored now. A full snapshot is not stored.
   const existing = await prisma.workspaceStore.findUnique({
     where: { id: STORE_ID },
   });
   const current = asFlowhubData(existing?.data ?? empty, members);
   const decision = resolveWorkspaceWrite(
     current,
-    incoming,
+    isWorkspaceChangeRequest(body) ? body : asFlowhubData(body, members),
     access,
     clearance
   );
   if (decision.action === "skip") {
-    if (decision.skipped === "refuse-stale-revision") {
-      return NextResponse.json({
-        ok: true,
+    return NextResponse.json(
+      {
+        ok: false,
         skipped: decision.skipped,
+        error: "Could not save. This entry was not stored.",
         currentRevision: decision.currentRevision,
         incomingRevision: decision.incomingRevision,
-      });
-    }
-    return NextResponse.json({
-      ok: true,
-      skipped: decision.skipped,
-    });
+      },
+      { status: 409 }
+    );
   }
 
   const userId = session.user.id;
@@ -195,5 +192,10 @@ export async function PUT(req: Request) {
     update: { data: saved },
   });
 
-  return NextResponse.json({ ok: true });
+  const visible = workspaceForAccount(saved, access);
+  return NextResponse.json({
+    ok: true,
+    data: visible,
+    workspaceRevision: visible.workspaceRevision ?? 0,
+  });
 }
