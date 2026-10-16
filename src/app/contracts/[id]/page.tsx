@@ -6,10 +6,19 @@ import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   deleteContract,
+  deleteContractBillingTerm,
   flushWorkspace,
+  renameContractBillingTerm,
+  saveContractBillingTerms,
   updateContract,
   useFlowhubData,
 } from "@/lib/store";
+import {
+  billingTermsTotal,
+  deleteCustomBillingTerm,
+  isBuiltinBillingTerm,
+  renameCustomBillingTerm,
+} from "@/lib/billing-terms";
 import {
   GST_RATE,
   TERM_LABELS,
@@ -19,6 +28,7 @@ import {
   guaranteeAmount,
   guaranteeIdentitySaved,
   orderedBillingTermKeys,
+  type BillingTerms,
 } from "@/lib/types";
 import { confirmAction } from "@/components/confirm-panel";
 import { Badge } from "@/components/ui/badge";
@@ -43,6 +53,13 @@ import {
   todayIso,
 } from "@/lib/nexus-core";
 import { BoqSection } from "./boq-section";
+
+type BillingEditorState = {
+  id: string;
+  terms: BillingTerms;
+  renames: Record<string, string>;
+  error: string | null;
+};
 
 function formatMoney(n: number) {
   return new Intl.NumberFormat("en-IN", {
@@ -82,6 +99,9 @@ export default function ContractDetailPage() {
   const [retentionRecoverDate, setRetentionRecoverDate] = useState("");
   const [contractor, setContractor] = useState("");
   const [tdsEdit, setTdsEdit] = useState("");
+  const [billingEditor, setBillingEditor] = useState<BillingEditorState | null>(
+    null
+  );
   const [msg, setMsg] = useState<string | null>(null);
   const [department, setDepartment] = useState<string | null>(null);
   const access =
@@ -125,6 +145,19 @@ export default function ContractDetailPage() {
     if (!contract) return;
     setPbgAmount(contract.pbgValue != null ? String(contract.pbgValue) : "");
   }, [contract?.id, contract?.pbgValue]);
+
+  useEffect(() => {
+    if (!contract) return;
+    setBillingEditor((current) => {
+      if (current?.id === contract.id) return current;
+      return {
+        id: contract.id,
+        terms: { ...contract.billingTerms },
+        renames: {},
+        error: null,
+      };
+    });
+  }, [contract]);
 
   const expenseTotal = useMemo(
     () =>
@@ -350,6 +383,88 @@ export default function ContractDetailPage() {
     await flushWorkspace();
     setContractor("");
     setMsg("Contractor assignment saved.");
+  }
+
+  const termsForEdit =
+    billingEditor?.id === c.id ? billingEditor.terms : c.billingTerms;
+  const renameDrafts =
+    billingEditor?.id === c.id ? billingEditor.renames : {};
+  const billingError = billingEditor?.id === c.id ? billingEditor.error : null;
+  const billingTotal = billingTermsTotal(termsForEdit);
+
+  function patchBillingEditor(
+    patch: (current: BillingEditorState) => BillingEditorState
+  ) {
+    setBillingEditor((current) => {
+      const base =
+        current && current.id === id
+          ? current
+          : {
+              id,
+              terms: { ...c.billingTerms },
+              renames: {},
+              error: null,
+            };
+      return patch(base);
+    });
+  }
+
+  async function renameSavedTerm(fromKey: string) {
+    const result = renameContractBillingTerm(
+      id,
+      fromKey,
+      renameDrafts[fromKey] ?? ""
+    );
+    if (!result.ok) {
+      patchBillingEditor((current) => ({ ...current, error: result.error }));
+      return;
+    }
+    patchBillingEditor((current) => {
+      const renamed = renameCustomBillingTerm(
+        current.terms,
+        fromKey,
+        renameDrafts[fromKey] ?? ""
+      );
+      if (!renamed.ok) return { ...current, error: renamed.error };
+      const renames = { ...current.renames };
+      delete renames[fromKey];
+      return { ...current, terms: renamed.terms, renames, error: null };
+    });
+    await flushWorkspace();
+  }
+
+  async function deleteSavedTerm(key: string) {
+    const label = TERM_LABELS[key] ?? key;
+    const confirmed = await confirmAction({
+      message: `Delete the ${label} billing term from this contract?`,
+      action: "Delete",
+    });
+    if (!confirmed) return;
+    const result = deleteContractBillingTerm(id, key);
+    if (!result.ok) {
+      patchBillingEditor((current) => ({ ...current, error: result.error }));
+      return;
+    }
+    patchBillingEditor((current) => {
+      const removed = deleteCustomBillingTerm(current.terms, key);
+      if (!removed.ok) return { ...current, error: removed.error };
+      const renames = { ...current.renames };
+      delete renames[key];
+      return { ...current, terms: removed.terms, renames, error: null };
+    });
+    await flushWorkspace();
+  }
+
+  async function saveBillingTerms(e: FormEvent) {
+    e.preventDefault();
+    const result = saveContractBillingTerms(id, termsForEdit);
+    if (!result.ok) {
+      patchBillingEditor((current) => ({ ...current, error: result.error }));
+      return;
+    }
+    patchBillingEditor((current) => ({ ...current, error: null }));
+    await flushWorkspace();
+    setMsg("Billing terms saved.");
   }
 
   async function saveTds(e: FormEvent) {
@@ -578,19 +693,107 @@ export default function ContractDetailPage() {
       </section>
 
       <section className="rounded-xl border border-[var(--fh-line)] bg-white p-5">
-        <h2 className="font-[family-name:var(--font-display)] text-xl text-[var(--fh-steel)]">
-          Billing terms
-        </h2>
-        <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-          {orderedBillingTermKeys(c.billingTerms).map((k) => (
-            <li key={k} className="flex justify-between text-sm">
-              <span>{TERM_LABELS[k] ?? k}</span>
-              <span className="tabular-nums font-medium">
-                {c.billingTerms[k]}%
-              </span>
-            </li>
-          ))}
-        </ul>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="font-[family-name:var(--font-display)] text-xl text-[var(--fh-steel)]">
+            Billing terms
+          </h2>
+          {contractOpen && (
+            <Badge
+              variant={
+                Math.abs(billingTotal - 100) < 0.01 ? "default" : "destructive"
+              }
+            >
+              Total {billingTotal}%
+            </Badge>
+          )}
+        </div>
+        {contractOpen ? (
+          <form onSubmit={saveBillingTerms} className="mt-3 space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              {orderedBillingTermKeys(termsForEdit).map((key) => {
+                const label = TERM_LABELS[key] ?? key;
+                const custom = !isBuiltinBillingTerm(key);
+                return (
+                  <div key={key} className="space-y-1.5">
+                    <Label>{label}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={0.01}
+                      value={termsForEdit[key] ?? 0}
+                      aria-label={`${label} percent`}
+                      onChange={(e) => {
+                        const value = Number(e.target.value);
+                        patchBillingEditor((current) => ({
+                          ...current,
+                          terms: { ...current.terms, [key]: value },
+                          error: null,
+                        }));
+                      }}
+                    />
+                    {custom && (
+                      <div className="flex flex-wrap gap-2">
+                        <Input
+                          placeholder="Rename term"
+                          value={renameDrafts[key] ?? ""}
+                          aria-label={`Rename ${label}`}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            patchBillingEditor((current) => ({
+                              ...current,
+                              renames: { ...current.renames, [key]: value },
+                            }));
+                          }}
+                          className="max-w-xs"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => void renameSavedTerm(key)}
+                        >
+                          Rename
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => void deleteSavedTerm(key)}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {billingError && (
+              <p
+                className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+                role="alert"
+              >
+                {billingError}
+              </p>
+            )}
+            <Button
+              type="submit"
+              className="bg-[var(--fh-steel)] hover:bg-[#244a5e]"
+            >
+              Save billing terms
+            </Button>
+          </form>
+        ) : (
+          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+            {orderedBillingTermKeys(c.billingTerms).map((k) => (
+              <li key={k} className="flex justify-between text-sm">
+                <span>{TERM_LABELS[k] ?? k}</span>
+                <span className="tabular-nums font-medium">
+                  {c.billingTerms[k]}%
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section

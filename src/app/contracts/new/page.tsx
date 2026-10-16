@@ -9,7 +9,14 @@ import {
 } from "@/lib/store";
 import { confirmWorkspaceSave } from "@/lib/save-notice";
 import {
-  DEFAULT_BILLING_TERM_KEYS,
+  billingTermKey,
+  billingTermsTotalIs100,
+  deleteCustomBillingTerm,
+  isBuiltinBillingTerm,
+  renameCustomBillingTerm,
+  startingBillingTerms,
+} from "@/lib/billing-terms";
+import {
   DEFAULT_TDS_PERCENT,
   GST_RATE,
   TERM_LABELS,
@@ -36,9 +43,6 @@ function formatMoney(n: number) {
   }).format(n);
 }
 
-const emptyTerms = (): BillingTerms =>
-  Object.fromEntries(DEFAULT_BILLING_TERM_KEYS.map((k) => [k, 0]));
-
 type CatalogHit = { name: string; unit: string; lastRate: number };
 
 export default function NewContractPage() {
@@ -62,8 +66,10 @@ export default function NewContractPage() {
   const [tdsPercent, setTdsPercent] = useState(String(DEFAULT_TDS_PERCENT));
   const [dlpMonths, setDlpMonths] = useState("12");
   const [boqWarn, setBoqWarn] = useState(false);
-  const [terms, setTerms] = useState<BillingTerms>(emptyTerms);
+  const [terms, setTerms] = useState<BillingTerms>(() => startingBillingTerms());
   const [customTermName, setCustomTermName] = useState("");
+  const [renameDrafts, setRenameDrafts] = useState<Record<string, string>>({});
+  const [termError, setTermError] = useState<string | null>(null);
   const [abgRequired, setAbgRequired] = useState(false);
   const [abgPercent, setAbgPercent] = useState("");
   const [pbgRequired, setPbgRequired] = useState(false);
@@ -165,10 +171,45 @@ export default function NewContractPage() {
   }
 
   function addCustomTerm() {
-    const key = customTermName.trim().toLowerCase().replace(/\s+/g, "_");
+    const key = billingTermKey(customTermName);
     if (!key) return;
     setTerms((t) => ({ ...t, [key]: t[key] ?? 0 }));
     setCustomTermName("");
+    setTermError(null);
+  }
+
+  function renameCustomTerm(fromKey: string) {
+    const result = renameCustomBillingTerm(
+      terms,
+      fromKey,
+      renameDrafts[fromKey] ?? ""
+    );
+    if (!result.ok) {
+      setTermError(result.error);
+      return;
+    }
+    setTerms(result.terms);
+    setRenameDrafts((prev) => {
+      const next = { ...prev };
+      delete next[fromKey];
+      return next;
+    });
+    setTermError(null);
+  }
+
+  function deleteCustomTerm(key: string) {
+    const result = deleteCustomBillingTerm(terms, key);
+    if (!result.ok) {
+      setTermError(result.error);
+      return;
+    }
+    setTerms(result.terms);
+    setRenameDrafts((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setTermError(null);
   }
 
   async function submit(e: FormEvent) {
@@ -203,7 +244,7 @@ export default function NewContractPage() {
       setError("Payment due days must be between 3 and 45.");
       return;
     }
-    if (Math.abs(termsTotal - 100) > 0.01) {
+    if (!billingTermsTotalIs100(terms)) {
       setError(`Billing terms must total 100% (currently ${termsTotal}%).`);
       return;
     }
@@ -367,21 +408,56 @@ export default function NewContractPage() {
             </Badge>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            {orderedBillingTermKeys(terms).map((key) => (
-              <div key={key} className="space-y-1.5">
-                <Label>{TERM_LABELS[key] ?? key}</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  step={0.01}
-                  value={terms[key]}
-                  onChange={(e) =>
-                    setTerms((t) => ({ ...t, [key]: Number(e.target.value) }))
-                  }
-                />
-              </div>
-            ))}
+            {orderedBillingTermKeys(terms).map((key) => {
+              const label = TERM_LABELS[key] ?? key;
+              const custom = !isBuiltinBillingTerm(key);
+              return (
+                <div key={key} className="space-y-1.5">
+                  <Label>{label}</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={0.01}
+                    value={terms[key]}
+                    aria-label={`${label} percent`}
+                    onChange={(e) =>
+                      setTerms((t) => ({ ...t, [key]: Number(e.target.value) }))
+                    }
+                  />
+                  {custom && (
+                    <div className="flex flex-wrap gap-2">
+                      <Input
+                        placeholder="Rename term"
+                        value={renameDrafts[key] ?? ""}
+                        aria-label={`Rename ${label}`}
+                        onChange={(e) =>
+                          setRenameDrafts((prev) => ({
+                            ...prev,
+                            [key]: e.target.value,
+                          }))
+                        }
+                        className="max-w-xs"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => renameCustomTerm(key)}
+                      >
+                        Rename
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => deleteCustomTerm(key)}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <div className="flex flex-wrap gap-2">
             <Input
@@ -394,6 +470,14 @@ export default function NewContractPage() {
               Add term
             </Button>
           </div>
+          {termError && (
+            <p
+              className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+              role="alert"
+            >
+              {termError}
+            </p>
+          )}
         </section>
 
         <section className="grid gap-4 sm:grid-cols-2">
