@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import {
+  type BillingTerms,
   type BoqAmendment,
   type BoqAmendmentLineDiff,
   type BoqItem,
@@ -83,6 +84,12 @@ import {
   taskDueTodayAudience,
   type TaskActor,
 } from "@/lib/task-notices";
+import {
+  billingTermsTotal,
+  billingTermsTotalIs100,
+  deleteCustomBillingTerm,
+  renameCustomBillingTerm,
+} from "@/lib/billing-terms";
 
 export type { TaskActor };
 export {
@@ -1906,6 +1913,132 @@ export function updateContract(
   });
   syncDatedSystemTasks();
   return updated;
+}
+
+export type BillingTermActionResult =
+  | { ok: true; toKey?: string }
+  | { ok: false; error: string };
+
+/**
+ * Rename a custom term on a saved contract and move that termKey on this
+ * contract’s invoice lines. Percents, quantities, rates, and amounts stay.
+ */
+export function renameContractBillingTerm(
+  contractId: string,
+  fromKey: string,
+  rawName: string
+): BillingTermActionResult {
+  const data = read();
+  const current = data.contracts.find((c) => c.id === contractId);
+  if (!current) return { ok: false, error: "Contract not found." };
+  const renamed = renameCustomBillingTerm(current.billingTerms, fromKey, rawName);
+  if (!renamed.ok) return renamed;
+  if (renamed.toKey === fromKey) return { ok: true, toKey: fromKey };
+
+  const invoices = data.invoices.map((invoice) => {
+    if (invoice.contractId !== contractId) return invoice;
+    if (!invoice.lines.some((line) => line.termKey === fromKey)) return invoice;
+    return {
+      ...invoice,
+      lines: invoice.lines.map((line) =>
+        line.termKey === fromKey ? { ...line, termKey: renamed.toKey } : line
+      ),
+    };
+  });
+
+  write({
+    ...data,
+    contracts: data.contracts.map((c) =>
+      c.id === contractId ? { ...c, billingTerms: renamed.terms } : c
+    ),
+    invoices,
+  });
+  return { ok: true, toKey: renamed.toKey };
+}
+
+/**
+ * Delete a custom term. Refuses when any invoice on this contract uses it.
+ * Confirmation is left to the page.
+ */
+export function deleteContractBillingTerm(
+  contractId: string,
+  key: string
+): BillingTermActionResult {
+  const data = read();
+  const current = data.contracts.find((c) => c.id === contractId);
+  if (!current) return { ok: false, error: "Contract not found." };
+  const removed = deleteCustomBillingTerm(current.billingTerms, key);
+  if (!removed.ok) return removed;
+  const used = data.invoices.some(
+    (invoice) =>
+      invoice.contractId === contractId &&
+      invoice.lines.some((line) => line.termKey === key)
+  );
+  if (used) {
+    return {
+      ok: false,
+      error: "This term is used on an invoice and cannot be deleted.",
+    };
+  }
+  write({
+    ...data,
+    contracts: data.contracts.map((c) =>
+      c.id === contractId ? { ...c, billingTerms: removed.terms } : c
+    ),
+  });
+  return { ok: true };
+}
+
+/**
+ * Save percents for the terms already on the contract. Does not rename,
+ * delete, or rewrite invoice lines. Total must be within 0.01 of 100.
+ */
+export function saveContractBillingTerms(
+  contractId: string,
+  terms: BillingTerms
+): BillingTermActionResult {
+  const data = read();
+  const current = data.contracts.find((c) => c.id === contractId);
+  if (!current) return { ok: false, error: "Contract not found." };
+
+  const currentKeys = Object.keys(current.billingTerms).sort();
+  const nextKeys = Object.keys(terms).sort();
+  if (
+    currentKeys.length !== nextKeys.length ||
+    currentKeys.some((key, index) => key !== nextKeys[index])
+  ) {
+    return {
+      ok: false,
+      error: "Save percents for the current terms. Rename and delete are separate.",
+    };
+  }
+
+  const next: BillingTerms = {};
+  for (const key of currentKeys) {
+    const value = Number(terms[key]);
+    if (!Number.isFinite(value) || value < 0) {
+      return {
+        ok: false,
+        error: "Each billing term percent must be zero or more.",
+      };
+    }
+    next[key] = value;
+  }
+  if (!billingTermsTotalIs100(next)) {
+    const total = billingTermsTotal(next);
+    return {
+      ok: false,
+      error: `Billing terms must total 100% (currently ${total}%).`,
+    };
+  }
+
+  write({
+    ...data,
+    contracts: data.contracts.map((c) =>
+      c.id === contractId ? { ...c, billingTerms: next } : c
+    ),
+  });
+  return { ok: true };
 }
 
 /** Mark open Create and expiry-chase tasks not required, including their subtasks. */
