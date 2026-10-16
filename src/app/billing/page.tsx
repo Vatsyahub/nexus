@@ -37,7 +37,6 @@ export default function BillingHomePage() {
 
   const [q, setQ] = useState("");
   const [typeFilter, setTypeFilter] = useState<"ALL" | "PI" | "TI">("ALL");
-  const [contractId, setContractId] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
 
@@ -49,14 +48,13 @@ export default function BillingHomePage() {
           inv.type === "TI" ? invoiceDueDate(inv, data) : null;
         if (!invoiceMatchesQuery(inv, c, q, { dueDate: due })) return false;
         if (typeFilter !== "ALL" && inv.type !== typeFilter) return false;
-        if (contractId && inv.contractId !== contractId) return false;
         if (from && inv.date < from) return false;
         if (to && inv.date > to) return false;
         return true;
       })
       .slice()
       .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
-  }, [data, q, typeFilter, contractId, from, to]);
+  }, [data, q, typeFilter, from, to]);
 
   return (
     <HubPage>
@@ -87,7 +85,7 @@ export default function BillingHomePage() {
         <h2 className="font-[family-name:var(--font-display)] text-xl text-[var(--fh-steel)]">
           All invoices
         </h2>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div className="space-y-1">
             <Label className="text-xs">Type</Label>
             <select
@@ -98,21 +96,6 @@ export default function BillingHomePage() {
               <option value="ALL">All</option>
               <option value="PI">Proforma Invoice</option>
               <option value="TI">Tax Invoice</option>
-            </select>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Contract</Label>
-            <select
-              className="flex h-8 w-full rounded-lg border border-input px-2 text-sm"
-              value={contractId}
-              onChange={(e) => setContractId(e.target.value)}
-            >
-              <option value="">All</option>
-              {data.contracts.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.projectNo}
-                </option>
-              ))}
             </select>
           </div>
           <div className="space-y-1">
