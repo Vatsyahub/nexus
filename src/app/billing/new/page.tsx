@@ -17,6 +17,7 @@ import {
   type InvoiceExtraCharge,
   type InvoiceLine,
 } from "@/lib/types";
+import { ContractTypeahead } from "@/components/contract-typeahead";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -51,7 +52,14 @@ export default function NewInvoicePage() {
     { id: string; label: string; amount: string }[]
   >([]);
 
-  const contract = data.contracts.find((c) => c.id === contractId);
+  const contracts = useMemo(
+    () =>
+      [...data.contracts].sort((a, b) =>
+        a.projectNo.localeCompare(b.projectNo)
+      ),
+    [data.contracts]
+  );
+  const contract = contracts.find((c) => c.id === contractId);
   const termKeys = useMemo(() => {
     if (!contract) return [];
     return orderedBillingTermKeys(contract.billingTerms, { onlyPositive: true });
@@ -147,7 +155,7 @@ export default function NewInvoicePage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-[family-name:var(--font-display)] text-4xl font-semibold text-[var(--fh-steel)]">
-            New invoice
+            Add Invoice
           </h1>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -208,25 +216,15 @@ export default function NewInvoicePage() {
               required
             />
           </div>
-          <div className="space-y-1">
-            <Label>Contract</Label>
-            <select
-              className="flex h-8 w-full rounded-lg border border-input px-2 text-sm"
-              value={contractId}
-              onChange={(e) => {
-                setContractId(e.target.value);
-                setDraftLines([]);
-              }}
-              required
-            >
-              <option value="">Select…</option>
-              {data.contracts.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.projectNo} — {c.projectName}
-                </option>
-              ))}
-            </select>
-          </div>
+          <ContractTypeahead
+            contracts={contracts}
+            value={contractId}
+            onChange={(id) => {
+              if (id !== contractId) setDraftLines([]);
+              setContractId(id);
+            }}
+            placeholder="Type contract no. or name…"
+          />
         </div>
 
         {contract && (

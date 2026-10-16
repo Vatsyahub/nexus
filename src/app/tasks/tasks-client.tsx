@@ -5,14 +5,12 @@ import {
   useEffect,
   useMemo,
   useState,
-  type FormEvent,
   type ReactNode,
 } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import {
-  addManualTask,
   addSubtask,
   afterGadCompleted,
   afterKickoffCompleted,
@@ -34,19 +32,17 @@ import {
   type TaskActor,
 } from "@/lib/store";
 import {
-  TASK_CATALOG,
   TASK_PRIORITY_LABELS,
   TASK_STATUS_LABELS,
   departmentDisplayName,
   type Task,
-  type TaskCatalogKey,
   type TaskPriority,
   type TaskStatus,
 } from "@/lib/types";
 import type { ClearanceRole } from "@/lib/clearance";
 import { confirmAction } from "@/components/confirm-panel";
 import { DeleteIconButton } from "@/components/icon-actions";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ListSearchBar } from "@/components/list-search";
@@ -237,7 +233,6 @@ function TasksPageInner({
   const [priorityFilter, setPriorityFilter] = useState<"all" | TaskPriority>(
     "all"
   );
-  const [showNew, setShowNew] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(
     focusTaskId || null
   );
@@ -394,13 +389,19 @@ function TasksPageInner({
             </p>
           )}
         </div>
-        <Button
-          type="button"
-          className="bg-[var(--fh-accent)] text-[var(--fh-ink)] hover:bg-[#f0b01a]"
-          onClick={() => setShowNew((v) => !v)}
+        <Link
+          href={
+            contractId
+              ? `/tasks/new?contractId=${encodeURIComponent(contractId)}`
+              : "/tasks/new"
+          }
+          className={cn(
+            buttonVariants(),
+            "bg-[var(--fh-accent)] text-[var(--fh-ink)] hover:bg-[#f0b01a]"
+          )}
         >
-          {showNew ? "Close" : "New task"}
-        </Button>
+          Add New Task
+        </Link>
       </header>
 
       <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -455,24 +456,6 @@ function TasksPageInner({
       </nav>
 
       <HubDataScroll className="space-y-3">
-        {showNew && (
-          <NewTaskForm
-            people={people}
-            departments={departments}
-            contracts={data.contracts.map((c) => ({
-              id: c.id,
-              projectNo: c.projectNo,
-              label: `${c.projectNo} · ${c.projectName}`,
-            }))}
-            defaultContractId={contractId || ""}
-            canAssignPeople={assignPeople}
-            onCreated={(id) => {
-              setShowNew(false);
-              setView("all");
-              setExpandedId(id);
-            }}
-          />
-        )}
         <div className="hidden gap-3 px-4 text-[11px] font-medium uppercase tracking-wide text-[var(--fh-muted)] lg:grid lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_7rem_minmax(0,1fr)_minmax(0,0.9fr)_5.5rem_4.5rem_5.5rem_6.5rem_2.5rem]">
           <span>Project</span>
           <span>Task</span>
@@ -579,223 +562,6 @@ function TasksPageInner({
         })}
       />
     </HubPage>
-  );
-}
-
-function NewTaskForm({
-  people,
-  departments,
-  contracts,
-  defaultContractId,
-  canAssignPeople,
-  onCreated,
-}: {
-  people: AssignablePerson[];
-  departments: string[];
-  contracts: { id: string; projectNo: string; label: string }[];
-  defaultContractId: string;
-  canAssignPeople: boolean;
-  onCreated: (id: string) => void;
-}) {
-  const [catalogKey, setCatalogKey] = useState<TaskCatalogKey>("custom");
-  const [title, setTitle] = useState("");
-  const [contractId, setContractId] = useState(defaultContractId);
-  const [department, setDepartment] = useState("none");
-  const [assignees, setAssignees] = useState<string[]>([]);
-  const [dueDate, setDueDate] = useState("");
-  const [priority, setPriority] = useState<TaskPriority>("normal");
-  const [error, setError] = useState<string | null>(null);
-
-  const selectable = peopleForDepartment(people, department);
-  const catalog = TASK_CATALOG.find((c) => c.key === catalogKey);
-  const isCustom = catalogKey === "custom";
-
-  function onDepartmentChange(next: string) {
-    setDepartment(next);
-    setAssignees((prev) =>
-      prev.filter((name) =>
-        peopleForDepartment(people, next).some((p) => p.name === name)
-      )
-    );
-  }
-
-  function toggleAssignee(name: string) {
-    setAssignees((prev) =>
-      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
-    );
-  }
-
-  function submit(e: FormEvent) {
-    e.preventDefault();
-    if (!contractId) {
-      setError("Select a contract.");
-      return;
-    }
-    const contract = contracts.find((c) => c.id === contractId);
-    let finalTitle = title.trim();
-    if (!isCustom) {
-      if (catalogKey === "create_abg") {
-        finalTitle = `Create ABG — ${contract?.projectNo ?? ""}`;
-      } else if (catalogKey === "create_pbg") {
-        finalTitle = `Create PBG — ${contract?.projectNo ?? ""}`;
-      } else {
-        finalTitle = catalog?.title ?? finalTitle;
-      }
-    }
-    if (!finalTitle) {
-      setError("Enter a task title.");
-      return;
-    }
-    const created = addManualTask({
-      title: finalTitle,
-      contractId,
-      department: department === "none" ? null : department,
-      assignees: canAssignPeople ? assignees : [],
-      dueDate: dueDate || null,
-      priority,
-      catalogKey,
-      source: catalog?.system ? "system" : "manual",
-    });
-    void flushWorkspace();
-    onCreated(created.id);
-  }
-
-  return (
-    <form
-      onSubmit={submit}
-      className="space-y-4 border border-[var(--fh-line)] bg-white p-5"
-    >
-      <h2 className="font-[family-name:var(--font-display)] text-xl text-[var(--fh-steel)]">
-        New task
-      </h2>
-      {error && (
-        <p className="text-sm text-[var(--destructive)]" role="alert">
-          {error}
-        </p>
-      )}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1 sm:col-span-2">
-          <Label>Type</Label>
-          <select
-            className="flex h-9 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
-            value={catalogKey}
-            onChange={(e) => {
-              const key = e.target.value as TaskCatalogKey;
-              setCatalogKey(key);
-              if (key !== "custom") setTitle("");
-            }}
-          >
-            {TASK_CATALOG.filter((c) =>
-              ["custom", "kickoff", "gad", "create_abg", "create_pbg"].includes(
-                c.key
-              )
-            ).map((c) => (
-              <option key={c.key} value={c.key}>
-                {c.title}
-              </option>
-            ))}
-          </select>
-        </div>
-        {isCustom && (
-          <div className="space-y-1 sm:col-span-2">
-            <Label>Title</Label>
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="What needs doing"
-              required
-            />
-          </div>
-        )}
-        <div className="space-y-1 sm:col-span-2">
-          <Label>Contract</Label>
-          <select
-            className="flex h-9 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
-            value={contractId}
-            onChange={(e) => setContractId(e.target.value)}
-            required
-          >
-            <option value="">Select…</option>
-            {contracts.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="space-y-1">
-          <Label>Department</Label>
-          <select
-            className="flex h-9 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
-            value={department}
-            onChange={(e) => onDepartmentChange(e.target.value)}
-          >
-            <option value="none">Select later…</option>
-            {departments.map((d) => (
-              <option key={d} value={d}>
-                {departmentDisplayName(d)}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="space-y-1">
-          <Label>Deadline</Label>
-          <Input
-            type="date"
-            value={dueDate}
-            onChange={(e) => setDueDate(e.target.value)}
-          />
-        </div>
-        <div className="space-y-1">
-          <Label>Priority</Label>
-          <select
-            className="flex h-9 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
-            value={priority}
-            onChange={(e) => setPriority(e.target.value as TaskPriority)}
-          >
-            {(Object.keys(TASK_PRIORITY_LABELS) as TaskPriority[]).map((p) => (
-              <option key={p} value={p}>
-                {TASK_PRIORITY_LABELS[p]}
-              </option>
-            ))}
-          </select>
-        </div>
-        {canAssignPeople && department !== "none" && (
-          <div className="space-y-1 sm:col-span-2">
-            <Label>People (optional — equal owners)</Label>
-            <div className="flex flex-wrap gap-2 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)]/40 p-2">
-              {selectable.length === 0 ? (
-                <p className="text-xs text-[var(--fh-muted)]">
-                  No users/managers in this department.
-                </p>
-              ) : (
-                selectable.map((p) => (
-                  <label
-                    key={p.id}
-                    className="flex items-center gap-1.5 text-sm"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={assignees.includes(p.name)}
-                      onChange={() => toggleAssignee(p.name)}
-                    />
-                    {p.name}
-                  </label>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-        {!canAssignPeople && (
-          <p className="text-xs text-[var(--fh-muted)] sm:col-span-2">
-            You can assign a department. A manager will assign people if needed.
-          </p>
-        )}
-      </div>
-      <Button type="submit" className="bg-[var(--fh-steel)]">
-        Create task
-      </Button>
-    </form>
   );
 }
 

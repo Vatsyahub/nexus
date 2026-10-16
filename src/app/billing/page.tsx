@@ -73,7 +73,7 @@ export default function BillingHomePage() {
             "bg-[var(--fh-accent)] text-[var(--fh-ink)] hover:bg-[#f0b01a]"
           )}
         >
-          New invoice
+          Add Invoice
         </Link>
       </div>
 

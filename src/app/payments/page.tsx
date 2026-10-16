@@ -2,20 +2,13 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
-  addPayment,
   paymentAccounted,
   paymentCash,
   paymentRecovered,
   useFlowhubData,
 } from "@/lib/store";
-import { confirmWorkspaceSave } from "@/lib/save-notice";
-import {
-  PaymentForm,
-  type PaymentFormValues,
-} from "@/components/payment-form";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +17,7 @@ import { paymentMatchesQuery } from "@/lib/list-search";
 import { paymentLinkLabel } from "@/lib/payment-display";
 import { formatDisplayDate } from "@/lib/dates";
 import { HubDataScroll, HubPage } from "@/components/hub-scroll";
+import { cn } from "@/lib/utils";
 
 function formatMoney(n: number) {
   return new Intl.NumberFormat("en-IN", {
@@ -35,8 +29,6 @@ function formatMoney(n: number) {
 
 export default function PaymentsPage() {
   const data = useFlowhubData();
-  const router = useRouter();
-  const [showForm, setShowForm] = useState(false);
   const [q, setQ] = useState("");
 
   const [filterContract, setFilterContract] = useState("");
@@ -71,15 +63,9 @@ export default function PaymentsPage() {
     filterTo,
   ]);
 
-  async function onCreate(values: PaymentFormValues) {
-    const pay = addPayment(values);
-    if (!pay) return "Could not save payment.";
-    const saved = await confirmWorkspaceSave();
-    if (!saved) return null;
-    setShowForm(false);
-    router.push(`/payments/${pay.id}`);
-    return null;
-  }
+  const addHref = filterContract
+    ? `/payments/new?contractId=${encodeURIComponent(filterContract)}`
+    : "/payments/new";
 
   return (
     <HubPage className="max-w-5xl">
@@ -89,12 +75,15 @@ export default function PaymentsPage() {
             Payments
           </h1>
         </div>
-        <Button
-          className="bg-[var(--fh-accent)] text-[var(--fh-ink)] hover:bg-[#f0b01a]"
-          onClick={() => setShowForm((v) => !v)}
+        <Link
+          href={addHref}
+          className={cn(
+            buttonVariants(),
+            "bg-[var(--fh-accent)] text-[var(--fh-ink)] hover:bg-[#f0b01a]"
+          )}
         >
-          {showForm ? "Close form" : "Add payment"}
-        </Button>
+          Add payment
+        </Link>
       </div>
 
       <ListSearchBar
@@ -142,14 +131,6 @@ export default function PaymentsPage() {
         </div>
 
         <HubDataScroll className="space-y-4 overflow-x-auto">
-          {showForm && (
-            <div className="space-y-3">
-              <h2 className="font-[family-name:var(--font-display)] text-xl text-[var(--fh-steel)]">
-                New payment
-              </h2>
-              <PaymentForm submitLabel="Save payment" onSubmit={onCreate} />
-            </div>
-          )}
           <table className="w-full min-w-[640px] border border-[var(--fh-line)] text-left text-sm">
             <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-xs uppercase tracking-wide text-[var(--fh-muted)]">
               <tr>

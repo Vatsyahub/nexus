@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  addExpense,
   clearAllExpenseHistory,
   clearDeletedExpenses,
   deleteExpense,
@@ -24,10 +23,9 @@ import {
 } from "@/components/icon-actions";
 import { matchesAny } from "@/lib/list-search";
 import { formatDisplayDate, formatDisplayDateTime } from "@/lib/dates";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { buttonVariants } from "@/components/ui/button";
 import { HubDataScroll, HubPage } from "@/components/hub-scroll";
 import { cn } from "@/lib/utils";
 
@@ -73,7 +71,6 @@ export function ExpensesClient({
   const data = useFlowhubData();
   const [q, setQ] = useState("");
   const [showDeleted, setShowDeleted] = useState(false);
-  const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [editing, setEditing] = useState<{
     contractId: string;
@@ -161,14 +158,6 @@ export function ExpensesClient({
     [data.contracts]
   );
 
-  function openAdd() {
-    setEditing(null);
-    setDraft(emptyDraft());
-    setFormOpen(true);
-    setErr(null);
-    setMsg(null);
-  }
-
   function startEdit(contractId: string, e: ContractExpense) {
     setEditing({ contractId, expenseId: e.id });
     setDraft({
@@ -179,7 +168,6 @@ export function ExpensesClient({
       reason: e.reason,
       category: e.category,
     });
-    setFormOpen(true);
     setErr(null);
     setMsg(null);
   }
@@ -187,7 +175,6 @@ export function ExpensesClient({
   function cancelForm() {
     setEditing(null);
     setDraft(emptyDraft());
-    setFormOpen(false);
     setErr(null);
   }
 
@@ -212,35 +199,14 @@ export function ExpensesClient({
       return;
     }
 
-    if (editing) {
-      if (!canEdit) {
-        setErr("Only Manager and above can edit expenses.");
-        return;
-      }
-      const result = updateExpense(
-        editing.contractId,
-        editing.expenseId,
-        {
-          amount: Number(draft.amount),
-          date: draft.date,
-          personPaid: draft.personPaid,
-          reason: draft.reason,
-          category: draft.category,
-        },
-        { by: actorName }
-      );
-      if (!result.ok) {
-        setErr(result.error);
-        return;
-      }
-      const saved = await confirmWorkspaceSave();
-      if (!saved) return;
-      cancelForm();
+    if (!editing) return;
+    if (!canEdit) {
+      setErr("Only Manager and above can edit expenses.");
       return;
     }
-
-    const created = addExpense(
-      draft.contractId,
+    const result = updateExpense(
+      editing.contractId,
+      editing.expenseId,
       {
         amount: Number(draft.amount),
         date: draft.date,
@@ -250,8 +216,8 @@ export function ExpensesClient({
       },
       { by: actorName }
     );
-    if (!created) {
-      setErr("Could not save expense.");
+    if (!result.ok) {
+      setErr(result.error);
       return;
     }
     const saved = await confirmWorkspaceSave();
@@ -329,13 +295,15 @@ export function ExpensesClient({
           </h1>
         </div>
         {canAdd && (
-          <Button
-            type="button"
-            className="bg-[var(--fh-accent)] text-[var(--fh-ink)] hover:bg-[#f0b01a]"
-            onClick={openAdd}
+          <Link
+            href="/expenses/new"
+            className={cn(
+              buttonVariants(),
+              "bg-[var(--fh-accent)] text-[var(--fh-ink)] hover:bg-[#f0b01a]"
+            )}
           >
             Add expense
-          </Button>
+          </Link>
         )}
       </header>
 
@@ -389,10 +357,10 @@ export function ExpensesClient({
       </div>
 
       <HubDataScroll className="space-y-4 overflow-x-auto">
-      {(formOpen || editing) && (
+      {editing && (
         <section className="space-y-4 rounded-xl border border-[var(--fh-line)] bg-white p-5">
           <h2 className="font-[family-name:var(--font-display)] text-xl text-[var(--fh-steel)]">
-            {editing ? "Edit expense" : "Add expense"}
+            Edit expense
           </h2>
           <form onSubmit={onSubmit} className="grid gap-3 sm:grid-cols-2">
             <div className="sm:col-span-2">
@@ -402,7 +370,7 @@ export function ExpensesClient({
                 onChange={(id) =>
                   setDraft((d) => ({ ...d, contractId: id }))
                 }
-                disabled={Boolean(editing)}
+                disabled
                 placeholder="Type contract no. or name…"
               />
             </div>
@@ -474,7 +442,7 @@ export function ExpensesClient({
             </div>
             <div className="flex flex-wrap gap-2 sm:col-span-2">
               <Button type="submit" className="bg-[var(--fh-steel)]">
-                {editing ? "Save changes" : "Add expense"}
+                Save changes
               </Button>
               <Button type="button" variant="outline" onClick={cancelForm}>
                 Cancel
@@ -490,10 +458,10 @@ export function ExpensesClient({
         </section>
       )}
 
-      {msg && !formOpen && (
+      {msg && !editing && (
         <p className="text-sm text-[var(--fh-steel)]">{msg}</p>
       )}
-      {err && !formOpen && (
+      {err && !editing && (
         <p className="text-sm text-[var(--destructive)]">{err}</p>
       )}
 
