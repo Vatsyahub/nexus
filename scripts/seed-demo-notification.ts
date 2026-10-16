@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { currentSeedDepartment } from "../src/lib/departments";
 import { prisma } from "../src/lib/prisma";
 import { taskNotificationHref } from "../src/lib/notification-href";
 import type { FlowhubData, HubNotification, Task } from "../src/lib/types";
@@ -42,6 +43,13 @@ async function main() {
   );
 
   const now = new Date().toISOString();
+  const contractsDepartment = currentSeedDepartment(
+    {
+      departmentRenames: data.departmentRenames,
+      deletedDepartments: data.deletedDepartments,
+    },
+    "Contracts Department"
+  );
 
   // Prefer an ABG job so the bell opens the contract guarantee entry form.
   const existingAbg = tasks.find(
@@ -54,7 +62,7 @@ async function main() {
       id: randomUUID(),
       title: `Create ABG — ${contract.projectNo}`,
       contractId: contract.id,
-      department: master?.department || "Contracts Department",
+      department: master?.department || contractsDepartment,
       assignees: [assigneeName],
       status: "pending",
       dueDate: null,
@@ -109,7 +117,7 @@ async function main() {
     taskId: abgTask.id,
     contractId: abgTask.contractId,
     audienceUserNames: [],
-    audienceDepartment: "Contracts Department",
+    audienceDepartment: contractsDepartment,
     createdBy: "Nexus Agent",
     readByUserIds: [],
     readAtByUserIds: {},
@@ -121,7 +129,7 @@ async function main() {
     id: customId,
     title: "Demo: enter progress on this job",
     contractId: contract.id,
-    department: master?.department || "Contracts Department",
+    department: master?.department || contractsDepartment,
     assignees: [assigneeName],
     status: "in_progress",
     dueDate: null,
@@ -163,6 +171,8 @@ async function main() {
     scheduleChangeLog: data.scheduleChangeLog ?? [],
     notifications: [...notifications, personNotif, deptNotif, customNotif],
     customDepartments: data.customDepartments ?? [],
+    departmentRenames: data.departmentRenames ?? {},
+    deletedDepartments: data.deletedDepartments ?? [],
     expenseCategories: data.expenseCategories ?? [],
     deliveryChallans: data.deliveryChallans ?? [],
     installationProgress: data.installationProgress ?? [],

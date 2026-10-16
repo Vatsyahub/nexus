@@ -8,6 +8,7 @@ import {
   type NexusCosts,
 } from "@/lib/types";
 import { normalizeNexusCosts } from "@/lib/nexus-core";
+import { tasksAfterDepartmentCatalogChange } from "@/lib/departments";
 import {
   mergeClearedNotices,
   pruneClearedNotices,
@@ -406,6 +407,8 @@ export function mergeWorkspaceSave(
   ) {
     scheduleChangeLog = current.scheduleChangeLog;
   }
+
+  tasks = tasksAfterDepartmentCatalogChange(current, incoming, tasks);
 
   const clearedNotices = pruneClearedNotices(
     mergeClearedNotices(current.clearedNotices, incoming.clearedNotices)

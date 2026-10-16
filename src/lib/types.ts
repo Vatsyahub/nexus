@@ -549,8 +549,19 @@ export type FlowhubData = {
    * row is removed, so that notice does not return for them.
    */
   clearedNotices?: ClearedNotices;
-  /** Custom departments Master adds (seed list always available too) */
+  /** Departments added in User management. */
   customDepartments: string[];
+  /**
+   * Built-in department → current name.
+   * Key is the original SEED_DEPARTMENTS entry. Missing keys keep the seed name.
+   * A renamed built-in stays renamed across reloads.
+   */
+  departmentRenames?: Record<string, string>;
+  /**
+   * Built-in departments removed from the list.
+   * Values are original SEED_DEPARTMENTS entries. Seed data must not add them back.
+   */
+  deletedDepartments?: string[];
   /** Extra expense categories users typed (seed list always available too) */
   expenseCategories: string[];
   /** Dispatch — delivery challans (many per contract over time) */

@@ -9,6 +9,7 @@ import {
   type NoticeAudienceMember,
 } from "@/lib/notification-ttl";
 import { purgeExpiredScheduleChangeLog } from "@/lib/schedule-change-log";
+import { departmentCatalogFields } from "@/lib/departments";
 import { EMPTY_NEXUS_COSTS, type FlowhubData } from "@/lib/types";
 import { normalizeNexusCosts } from "@/lib/nexus-core";
 import { defaultAccess } from "@/lib/access";
@@ -32,6 +33,8 @@ const empty: FlowhubData = {
   notifications: [],
   clearedNotices: {},
   customDepartments: [],
+  departmentRenames: {},
+  deletedDepartments: [],
   expenseCategories: [],
   deliveryChallans: [],
   installationProgress: [],
@@ -77,7 +80,7 @@ function asFlowhubData(
       members
     ),
     clearedNotices,
-    customDepartments: parsed.customDepartments ?? [],
+    ...departmentCatalogFields(parsed),
     expenseCategories: parsed.expenseCategories ?? [],
     deliveryChallans: parsed.deliveryChallans ?? [],
     installationProgress: parsed.installationProgress ?? [],

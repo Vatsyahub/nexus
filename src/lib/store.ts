@@ -28,7 +28,6 @@ import {
   type TaskStatus,
   GST_RATE,
   DEFAULT_TDS_PERCENT,
-  SEED_DEPARTMENTS,
   TASK_COMPLETED_VISIBLE_DAYS,
   BG_EXPIRY_LEAD_MONTHS,
   RETENTION_LEAD_DAYS,
@@ -67,6 +66,13 @@ import {
   type NoticeAudienceMember,
 } from "@/lib/notification-ttl";
 import { purgeExpiredScheduleChangeLog } from "@/lib/schedule-change-log";
+import {
+  currentSeedDepartment,
+  deleteDepartmentRecords,
+  departmentCatalogFields,
+  listDepartmentNames,
+  renameDepartmentRecords,
+} from "@/lib/departments";
 import {
   canConfirmTaskVerification,
   completesImmediately,
@@ -108,6 +114,8 @@ const empty: FlowhubData = {
   notifications: [],
   clearedNotices: {},
   customDepartments: [],
+  departmentRenames: {},
+  deletedDepartments: [],
   expenseCategories: [],
   deliveryChallans: [],
   installationProgress: [],
@@ -441,7 +449,7 @@ function normalizeData(raw: FlowhubData): FlowhubData {
     // A cleared notice stays hidden for that person. The row remains while
     // anyone else can still see it.
     ...clearedNoticeState(raw),
-    customDepartments: raw.customDepartments ?? [],
+    ...departmentCatalogFields(raw),
     expenseCategories: raw.expenseCategories ?? [],
     deliveryChallans: (raw.deliveryChallans ?? []).map(normalizeDeliveryChallan),
     installationProgress: (raw.installationProgress ?? []).map(
@@ -1227,12 +1235,26 @@ export function deleteContractSchedule(
 }
 
 export function listDepartments(data?: FlowhubData): string[] {
-  const d = data ?? read();
-  const set = new Set<string>([
-    ...SEED_DEPARTMENTS,
-    ...(d.customDepartments ?? []),
-  ]);
-  return [...set].sort((a, b) => a.localeCompare(b));
+  return listDepartmentNames(data ?? read());
+}
+
+export function renameDepartment(
+  from: string,
+  to: string
+): { ok: true; from: string; to: string } | { ok: false; error: string } {
+  const result = renameDepartmentRecords(read(), [], from, to);
+  if (!result.ok) return result;
+  if (result.to !== result.from) write(result.data);
+  return { ok: true, from: result.from, to: result.to ?? result.from };
+}
+
+export function deleteDepartment(
+  name: string
+): { ok: true; from: string } | { ok: false; error: string } {
+  const result = deleteDepartmentRecords(read(), [], name);
+  if (!result.ok) return result;
+  write(result.data);
+  return { ok: true, from: result.from };
 }
 
 export function addCustomDepartment(name: string): string | null {
@@ -3720,7 +3742,7 @@ export function afterKickoffCompleted(
     title: "Finalise Drawings/GAD",
     contractId,
     catalogKey: "gad",
-    department: "Drawings Department",
+    department: currentSeedDepartment(data, "Drawings Department"),
     priority: "high",
   });
   let nextData: FlowhubData = { ...data, tasks: [...data.tasks, task] };
@@ -3755,7 +3777,7 @@ export function afterGadCompleted(
         title: `Create schedules — ${contract.projectNo}`,
         contractId,
         catalogKey: "create_schedules",
-        department: "Contracts Department",
+        department: currentSeedDepartment(data, "Contracts Department"),
         priority: "high",
       });
       tasks = [...tasks, schedulesTask];
@@ -3780,7 +3802,7 @@ export function afterGadCompleted(
           title: `Finalise BOQ amendment — ${contract.projectNo}`,
           contractId,
           catalogKey: "boq_amendment",
-          department: "Contracts Department",
+          department: currentSeedDepartment(data, "Contracts Department"),
           priority: "high",
         });
         tasks = [...tasks, amd];
@@ -3843,7 +3865,7 @@ export function syncDatedSystemTasks(): { created: Task[] } {
             contractId: c.id,
             catalogKey: "bg_expiry_abg",
             dueDate: c.abgExpiry,
-            department: "Accounts Department",
+            department: currentSeedDepartment(data, "Accounts Department"),
             priority: "urgent",
           });
           tasks = [...tasks, t];
@@ -3873,7 +3895,7 @@ export function syncDatedSystemTasks(): { created: Task[] } {
             contractId: c.id,
             catalogKey: "bg_expiry_pbg",
             dueDate: c.pbgExpiry,
-            department: "Accounts Department",
+            department: currentSeedDepartment(data, "Accounts Department"),
             priority: "urgent",
           });
           tasks = [...tasks, t];
@@ -3906,7 +3928,7 @@ export function syncDatedSystemTasks(): { created: Task[] } {
               contractId: c.id,
               catalogKey: "collect_retention",
               dueDate: dlpEnd,
-              department: "Accounts Department",
+              department: currentSeedDepartment(data, "Accounts Department"),
               priority: "high",
             });
             tasks = [...tasks, t];

@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { auth } from "@/auth";
+import { sameDepartment } from "@/lib/task-notices";
 import { prisma } from "@/lib/prisma";
 
 const clearanceSchema = z.enum(["USER", "MANAGER", "DIRECTOR", "MASTER"]);
@@ -166,6 +167,38 @@ export async function deleteUser(
   revalidatePath("/users");
   revalidatePath("/users/departments");
   return { ok: true, createdEmail: user.email };
+}
+
+/** Move every person stored on `from` to `to`, or clear the department when `to` is null. */
+export async function reassignDepartmentMembers(
+  from: string,
+  to: string | null
+): Promise<UserActionState> {
+  const session = await requireMaster();
+  if (!session) return { error: "Only Master can edit users." };
+
+  const fromName = from.trim();
+  if (!fromName) return { error: "Enter a department name." };
+  const next = to === null ? null : to.trim();
+  if (next === "") return { error: "Enter a department name." };
+  if (next === fromName) return { ok: true };
+
+  const rows = await prisma.user.findMany({
+    select: { id: true, department: true },
+  });
+  const ids = rows
+    .filter((row) => sameDepartment(row.department, fromName))
+    .map((row) => row.id);
+  if (ids.length > 0) {
+    await prisma.user.updateMany({
+      where: { id: { in: ids } },
+      data: { department: next },
+    });
+  }
+
+  revalidatePath("/users");
+  revalidatePath("/users/departments");
+  return { ok: true };
 }
 
 export async function resetUserPassword(
