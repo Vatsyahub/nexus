@@ -535,8 +535,8 @@ export type HubNotification = {
 
 export type FlowhubData = {
   /**
-   * Monotonic revision. Each successful save increments it. A tab still
-   * holding an equal or older number cannot overwrite the stored workspace.
+   * Monotonic revision of the stored hub. Each stored save increments it.
+   * A browser sends the changes it made since the revision it loaded.
    */
   workspaceRevision?: number;
   contracts: Contract[];
