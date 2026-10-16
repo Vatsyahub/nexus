@@ -35,11 +35,11 @@ import {
 type Scope = "all" | "one";
 
 const TI_NOTE =
-  "Retention expected / TDS expected = contract % × net. Retention / TDS = payment entry sums on that TI. Net paid, GST paid, and deductions are linked payments only; unlinked net+GST+other still reduce outstanding via FIFO.";
+  "Retention expected / TDS expected = contract % × net. Retention / TDS = payment entry sums on that TI. Net paid, GST paid, and deductions are linked payments only; unlinked net+GST+other still reduce outstanding via FIFO. Recovered on a tax invoice reduces that invoice the same way. Recoverable-link cash does not.";
 const PAYMENTS_NOTE =
-  "TI-linked and unlinked payments. Unlinked net+GST+other allocate FIFO toward outstanding; unlinked ret/TDS count in contract actual held. Proforma-linked payments are excluded.";
+  "TI-linked and unlinked payments. Unlinked net+GST+other allocate FIFO toward outstanding; unlinked ret/TDS count in contract actual held. Proforma-linked and recoverable payments are excluded.";
 const TOTALS_NOTE =
-  "Paid amount is net + GST + other toward outstanding (incl. FIFO unlinked). Retention and TDS include unlinked payment holds for this contract.";
+  "Paid amount is net + GST + other + recovered toward outstanding (incl. FIFO unlinked). Recoverable-link cash is not included. Retention and TDS include unlinked payment holds for this contract.";
 
 export default function ReconciliationReportPage() {
   const data = useFlowhubData();

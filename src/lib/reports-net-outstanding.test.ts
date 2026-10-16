@@ -49,6 +49,7 @@ function pay(partial: Partial<Payment> & Pick<Payment, "id" | "contractId">): Pa
     tdsAmount: 0,
     otherDeductions: 0,
     otherDeductionReason: "",
+    recovered: 0,
     createdAt: "2026-02-01T00:00:00.000Z",
     ...partial,
   };

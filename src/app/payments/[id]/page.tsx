@@ -8,6 +8,8 @@ import {
   invoiceOutstanding,
   paymentAccounted,
   paymentCash,
+  paymentRecovered,
+  recoverableRunningLineFigures,
   useFlowhubData,
 } from "@/lib/store";
 import { COMPANY_NAME } from "@/lib/types";
@@ -19,7 +21,11 @@ import {
   EditIconLink,
 } from "@/components/icon-actions";
 import { formatDisplayDate } from "@/lib/dates";
-import { formatOtherDeductions } from "@/lib/payment-display";
+import {
+  formatOtherDeductions,
+  formatRecoverableRunningLine,
+  paymentLinkLabel,
+} from "@/lib/payment-display";
 import { cn } from "@/lib/utils";
 
 function formatMoney(n: number) {
@@ -60,6 +66,24 @@ export default function PaymentDetailPage() {
 
   const cash = paymentCash(payment);
   const accounted = paymentAccounted(payment);
+  const recoveredAmount = paymentRecovered(payment);
+  const contractHasRecoverable = data.payments.some(
+    (p) => p.contractId === payment.contractId && p.link === "recoverable"
+  );
+  const showRecovered =
+    payment.link === "TI" && (contractHasRecoverable || recoveredAmount > 0);
+  const poolFigures = recoverableRunningLineFigures(
+    data.payments,
+    payment.contractId,
+    {
+      exceptPaymentId: payment.link === "TI" ? payment.id : null,
+      thisEntry: payment.link === "TI" ? recoveredAmount : 0,
+    }
+  );
+  const poolLine = formatRecoverableRunningLine(
+    poolFigures.recovered,
+    poolFigures.pool
+  );
   const invoiceBalance =
     invoice?.type === "TI" ? invoiceOutstanding(invoice, data) : null;
 
@@ -87,13 +111,7 @@ export default function PaymentDetailPage() {
           Back to payments
         </Link>
         <div className="flex flex-wrap gap-2">
-          <Badge variant="secondary">
-            {payment.link === "unlinked"
-              ? "Unlinked"
-              : payment.link === "PI"
-                ? "Proforma"
-                : "Tax invoice"}
-          </Badge>
+          <Badge variant="secondary">{paymentLinkLabel(payment.link)}</Badge>
           <EditIconLink href={`/payments/${id}/edit`} label="Edit payment" />
           <DeleteIconButton label="Delete payment" onClick={onDelete} />
         </div>
@@ -130,7 +148,7 @@ export default function PaymentDetailPage() {
                   {invoice.type} {invoice.number}
                 </Link>
               ) : (
-                "Unlinked"
+                paymentLinkLabel(payment.link)
               )}
             </p>
           </div>
@@ -156,6 +174,15 @@ export default function PaymentDetailPage() {
               payment.otherDeductionReason
             )}
           />
+          {showRecovered && (
+            <>
+              <Row label="Recovered" value={formatMoney(recoveredAmount)} />
+              <p className="text-xs text-[var(--fh-muted)]">{poolLine}</p>
+            </>
+          )}
+          {payment.link === "recoverable" && (
+            <p className="text-xs text-[var(--fh-muted)]">{poolLine}</p>
+          )}
           <div className="flex justify-between border-t border-[var(--fh-line)] pt-2 text-base font-semibold">
             <span>Accounted toward invoice</span>
             <span className="tabular-nums">{formatMoney(accounted)}</span>

@@ -7,6 +7,7 @@ import {
   addPayment,
   paymentAccounted,
   paymentCash,
+  paymentRecovered,
   useFlowhubData,
 } from "@/lib/store";
 import { confirmWorkspaceSave } from "@/lib/save-notice";
@@ -20,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { ListSearchBar } from "@/components/list-search";
 import { paymentMatchesQuery } from "@/lib/list-search";
+import { paymentLinkLabel } from "@/lib/payment-display";
 import { formatDisplayDate } from "@/lib/dates";
 import { HubDataScroll, HubPage } from "@/components/hub-scroll";
 
@@ -193,6 +195,9 @@ export default function PaymentsPage() {
                           {p.otherDeductions
                             ? ` · other ${formatMoney(p.otherDeductions)}`
                             : ""}
+                          {paymentRecovered(p)
+                            ? ` · recovered ${formatMoney(paymentRecovered(p))}`
+                            : ""}
                           {` · accounted ${formatMoney(paymentAccounted(p))}`}
                         </span>
                       </td>
@@ -218,7 +223,9 @@ export default function PaymentsPage() {
                             {inv.type} {inv.number}
                           </Link>
                         ) : (
-                          <Badge variant="secondary">Unlinked</Badge>
+                          <Badge variant="secondary">
+                            {paymentLinkLabel(p.link)}
+                          </Badge>
                         )}
                       </td>
                     </tr>
