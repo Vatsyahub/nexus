@@ -1280,7 +1280,7 @@ function TaskEditor({
             aria-pressed={editing}
             onClick={() => setEditing((open) => !open)}
           >
-            {editing ? "Close edit" : "Edit"}
+            {editing ? "Close" : "Add updates"}
           </Button>
           {canDeleteTasks && (
             <Button
