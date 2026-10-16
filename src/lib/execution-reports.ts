@@ -359,15 +359,19 @@ export function formatQty(n: number): string {
     : n.toLocaleString("en-IN", { maximumFractionDigits: 3 });
 }
 
-/** BOQ and left for supply for one city that has this item on an Active contract. */
+/**
+ * Active-contract figures for one city that has this item.
+ * The Item list city column shows `leftForSupply` only.
+ */
 export type ItemListCityFigures = {
+  /** Kept so left can be checked against the city's BOQ. Not shown. */
   boqQty: number;
-  /** City BOQ qty minus delivery-challan qty on those same BOQ lines. */
+  /**
+   * City BOQ qty minus delivery-challan qty on those same BOQ lines.
+   * Stays negative when challans exceed that city's BOQ. Not clamped.
+   */
   leftForSupply: number;
 };
-
-export const ITEM_LIST_BOQ_LABEL = "BOQ";
-export const ITEM_LIST_LEFT_LABEL = "Left";
 
 export type ItemListRow = {
   /** Trimmed, lowercased item name */
@@ -379,7 +383,10 @@ export type ItemListRow = {
    * when the item is in the city.
    */
   byCity: Record<string, ItemListCityFigures>;
-  /** BOQ quantity of Active contracts only */
+  /**
+   * BOQ quantity of Active contracts only, including blank-city lines.
+   * Used for overall left. Not a table or export column.
+   */
   totalQty: number;
   /**
    * Delivery-challan qty already recorded against those BOQ lines
@@ -393,25 +400,20 @@ export type ItemListRow = {
 export type ItemListExportCell = string | number;
 
 /**
- * Two labeled lines for a city cell. Empty when the item is not on an
+ * Left for supply in one city, as a number. Empty when the item is not on an
  * Active contract in that city, so a missing city does not export as 0.
+ * Zero and negative stay when the item is in the city.
  */
 export function formatItemListCityCell(
   figures: ItemListCityFigures | undefined
-): string {
+): ItemListExportCell {
   if (!figures) return "";
-  return `${ITEM_LIST_BOQ_LABEL} ${formatQty(figures.boqQty)}\n${ITEM_LIST_LEFT_LABEL} ${formatQty(figures.leftForSupply)}`;
+  return figures.leftForSupply;
 }
 
-/** Item name, the three totals, then one column per city. */
+/** Item name, supplied and overall left, then one column per city. */
 export function itemListHeaders(cities: string[]): string[] {
-  return [
-    "Item name",
-    "Total BOQ qty",
-    "Total supplied",
-    "Left for supply",
-    ...cities,
-  ];
+  return ["Item name", "Total supplied", "Left for supply", ...cities];
 }
 
 export function itemListExportRow(
@@ -420,7 +422,6 @@ export function itemListExportRow(
 ): ItemListExportCell[] {
   return [
     row.itemName,
-    row.totalQty,
     row.totalSupplied,
     row.leftForSupply,
     ...cities.map((city) => formatItemListCityCell(row.byCity[city])),
@@ -465,9 +466,11 @@ export function itemListCities(data: FlowhubData): string[] {
  * the totals and in no city column.
  * Total supplied sums delivery-challan qty on those same BOQ lines.
  * Left for supply is that BOQ total minus supplied, and stays negative when
- * the challans exceed the ordered quantity.
+ * the challans exceed the ordered quantity. Blank-city lines stay in both.
  * A city's left is that city's Active-contract BOQ qty minus delivery-challan
- * qty on those same lines. On hold and Completed challans stay out.
+ * qty on those same lines, and is the only figure the city column shows.
+ * On hold and Completed challans stay out. A city with no Active line for
+ * the item is omitted, so the cell stays blank rather than 0.
  */
 export function buildItemListRows(data: FlowhubData): ItemListRow[] {
   type CityAcc = { boqQty: number; supplied: number };
