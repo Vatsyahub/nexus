@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   applyPaymentEntry,
   invoiceExtraTotal,
@@ -13,9 +14,11 @@ import {
 } from "@/lib/store";
 import { formatRecoverableRunningLine } from "@/lib/payment-display";
 import { type Payment, type PaymentLink } from "@/lib/types";
-import { Button } from "@/components/ui/button";
+import { ContractTypeahead } from "@/components/contract-typeahead";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 function formatMoney(n: number) {
   return new Intl.NumberFormat("en-IN", {
@@ -41,15 +44,31 @@ export function PaymentForm({
   initial,
   submitLabel,
   onSubmit,
+  defaultContractId = "",
+  contractSearch = false,
+  cancelHref,
 }: {
   initial?: Payment;
   submitLabel: string;
   onSubmit: (values: PaymentFormValues) => Promise<string | null>;
+  defaultContractId?: string;
+  /** Add payment uses type-to-search. Edit payment keeps the select. */
+  contractSearch?: boolean;
+  cancelHref?: string;
 }) {
   const data = useFlowhubData();
   const [msg, setMsg] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const [contractId, setContractId] = useState(initial?.contractId ?? "");
+  const [contractId, setContractId] = useState(
+    initial?.contractId ?? defaultContractId
+  );
+  const typeaheadContracts = useMemo(
+    () =>
+      [...data.contracts].sort((a, b) =>
+        a.projectNo.localeCompare(b.projectNo)
+      ),
+    [data.contracts]
+  );
   const [link, setLink] = useState<PaymentLink>(initial?.link ?? "unlinked");
   const [invoiceId, setInvoiceId] = useState(initial?.invoiceId ?? "");
   const [date, setDate] = useState(initial?.date ?? "");
@@ -204,24 +223,41 @@ export function PaymentForm({
     >
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1 sm:col-span-2">
-          <Label>Contract</Label>
-          <select
-            className="flex h-8 w-full rounded-lg border border-input px-2 text-sm"
-            value={contractId}
-            onChange={(e) => {
-              setContractId(e.target.value);
-              setInvoiceId("");
-              setPrefilledFor(null);
-            }}
-            required
-          >
-            <option value="">Select…</option>
-            {data.contracts.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.projectNo} · {c.projectName}
-              </option>
-            ))}
-          </select>
+          {contractSearch ? (
+            <ContractTypeahead
+              contracts={typeaheadContracts}
+              value={contractId}
+              onChange={(id) => {
+                if (id !== contractId) {
+                  setInvoiceId("");
+                  setPrefilledFor(null);
+                }
+                setContractId(id);
+              }}
+              placeholder="Type contract no. or name…"
+            />
+          ) : (
+            <>
+              <Label>Contract</Label>
+              <select
+                className="flex h-8 w-full rounded-lg border border-input px-2 text-sm"
+                value={contractId}
+                onChange={(e) => {
+                  setContractId(e.target.value);
+                  setInvoiceId("");
+                  setPrefilledFor(null);
+                }}
+                required
+              >
+                <option value="">Select…</option>
+                {data.contracts.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.projectNo} · {c.projectName}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
         </div>
         <div className="space-y-1">
           <Label>Link</Label>
@@ -317,13 +353,23 @@ export function PaymentForm({
         </p>
       )}
 
-      <Button
-        type="submit"
-        disabled={pending}
-        className="bg-[var(--fh-steel)] hover:bg-[#244a5e]"
-      >
-        {pending ? "Saving…" : submitLabel}
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="submit"
+          disabled={pending}
+          className="bg-[var(--fh-steel)] hover:bg-[#244a5e]"
+        >
+          {pending ? "Saving…" : submitLabel}
+        </Button>
+        {cancelHref ? (
+          <Link
+            href={cancelHref}
+            className={cn(buttonVariants({ variant: "outline" }))}
+          >
+            Cancel
+          </Link>
+        ) : null}
+      </div>
     </form>
   );
 }
