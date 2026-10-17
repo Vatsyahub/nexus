@@ -30,7 +30,9 @@ import {
   type BoqItem,
   type BillingTerms,
 } from "@/lib/types";
+import { distinctContractPlaces } from "@/lib/contract-place-names";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
+import { SavedNameField } from "@/components/saved-name-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -98,6 +100,15 @@ export default function NewContractPage() {
   const boqTotal = useMemo(
     () => boq.reduce((s, l) => s + l.rate * l.quantity, 0),
     [boq]
+  );
+
+  const cityNames = useMemo(
+    () => distinctContractPlaces(data.contracts, "city"),
+    [data.contracts]
+  );
+  const stateNames = useMemo(
+    () => distinctContractPlaces(data.contracts, "state"),
+    [data.contracts]
   );
 
   const orderValueNum = Number(orderValue) || 0;
@@ -380,8 +391,24 @@ export default function NewContractPage() {
               )}
             </Label>
           </div>
-          <Field label="City" value={city} onChange={setCity} required />
-          <Field label="State" value={state} onChange={setState} required />
+          <SavedNameField
+            id="contract-city"
+            label="City"
+            value={city}
+            onChange={setCity}
+            names={cityNames}
+            placeholder="Start typing to match a saved city"
+            required
+          />
+          <SavedNameField
+            id="contract-state"
+            label="State"
+            value={state}
+            onChange={setState}
+            names={stateNames}
+            placeholder="Start typing to match a saved state"
+            required
+          />
           <Field label="Country" value={country} onChange={setCountry} required />
           <Field
             label="Payment due days (3–45)"
