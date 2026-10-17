@@ -86,6 +86,16 @@ import {
   type TaskActor,
 } from "@/lib/task-notices";
 import {
+  canUpdateTask,
+  departmentChangeAllowed,
+  departmentIsSet,
+  resolveTaskAssignees,
+  subtaskUpdateDenied,
+  TASK_DEPARTMENT_LOCKED,
+  TASK_SAVE_DENIED,
+  type TaskDirectoryPerson,
+} from "@/lib/task-permissions";
+import {
   billingTermsTotal,
   billingTermsTotalIs100,
   deleteCustomBillingTerm,
@@ -3890,22 +3900,44 @@ export function assignTask(
     assignees?: string[];
     dueDate?: string | null;
   },
-  opts?: { by?: string | null }
-) {
+  opts?: {
+    by?: string | null;
+    actor?: TaskActor;
+    people?: TaskDirectoryPerson[];
+  }
+): { ok: true; task: Task } | { ok: false; error: string } {
   const data = read();
   const current = data.tasks.find((t) => t.id === id);
-  if (!current) return;
+  if (!current) return { ok: false, error: "Task not found." };
+  if (!opts?.actor || !canUpdateTask(opts.actor, current)) {
+    return { ok: false, error: TASK_SAVE_DENIED };
+  }
+  const requestedDepartment = (assignment.department || "").trim() || null;
+  if (!departmentChangeAllowed(current.department, requestedDepartment)) {
+    return { ok: false, error: TASK_DEPARTMENT_LOCKED };
+  }
+  const department = departmentIsSet(current.department)
+    ? current.department
+    : requestedDepartment;
+  const names = resolveTaskAssignees({
+    currentDepartment: current.department,
+    nextDepartment: department,
+    currentAssignees: current.assignees,
+    nextAssignees: assignment.assignees ?? current.assignees,
+    people: opts.people ?? [],
+  });
+  if (!names.ok) return names;
   const nextTask: Task = {
     ...current,
-    department: assignment.department,
-    assignees: assignment.assignees ?? current.assignees,
+    department,
+    assignees: names.assignees,
     dueDate:
       assignment.dueDate !== undefined
         ? assignment.dueDate || null
         : current.dueDate,
     status:
       current.status === "pending" &&
-      (assignment.department || (assignment.assignees?.length ?? 0) > 0)
+      (department || names.assignees.length > 0)
         ? "in_progress"
         : current.status,
   };
@@ -3927,6 +3959,7 @@ export function assignTask(
     });
   }
   write(nextData);
+  return { ok: true, task: nextTask };
 }
 
 function applyStatusFields(
@@ -4053,6 +4086,7 @@ export function updateTaskStatus(
   const data = read();
   const current = data.tasks.find((t) => t.id === id);
   if (!current) return null;
+  if (!opts?.actor || !canUpdateTask(opts.actor, current)) return null;
 
   if (status === "completed" || status === "awaiting_verification") {
     if (
@@ -4101,13 +4135,44 @@ export function updateTask(
       | "notes"
       | "notRequiredReason"
     >
-  >
+  >,
+  opts?: { actor?: TaskActor; people?: TaskDirectoryPerson[] }
 ) {
   const data = read();
   const current = data.tasks.find((t) => t.id === id);
   if (!current) return null;
+  if (!opts?.actor || !canUpdateTask(opts.actor, current)) return null;
+  if (
+    patch.department !== undefined &&
+    !departmentChangeAllowed(current.department, patch.department)
+  ) {
+    return null;
+  }
+  const department =
+    patch.department === undefined
+      ? current.department
+      : departmentIsSet(current.department)
+        ? current.department
+        : (patch.department || "").trim() || null;
+  let assignees = patch.assignees;
+  if (patch.assignees !== undefined) {
+    const names = resolveTaskAssignees({
+      currentDepartment: current.department,
+      nextDepartment: department,
+      currentAssignees: current.assignees,
+      nextAssignees: patch.assignees,
+      people: opts.people ?? [],
+    });
+    if (!names.ok) return null;
+    assignees = names.assignees;
+  }
   const now = new Date().toISOString();
-  let next: Task = { ...current, ...patch };
+  let next: Task = {
+    ...current,
+    ...patch,
+    department,
+    assignees: assignees ?? current.assignees,
+  };
   if (patch.notes !== undefined && patch.notes !== current.notes) {
     next = {
       ...next,
@@ -4122,11 +4187,9 @@ export function updateTask(
     });
   }
   const audienceChanged =
-    (patch.department !== undefined &&
-      patch.department !== current.department) ||
-    (patch.assignees !== undefined &&
-      JSON.stringify([...(patch.assignees ?? [])].sort()) !==
-        JSON.stringify([...(current.assignees ?? [])].sort()));
+    next.department !== current.department ||
+    JSON.stringify([...(next.assignees ?? [])].sort()) !==
+      JSON.stringify([...(current.assignees ?? [])].sort());
   let nextData: FlowhubData = {
     ...data,
     tasks: data.tasks.map((t) => (t.id === id ? next : t)),
@@ -4187,11 +4250,13 @@ export function addSubtask(
     department?: string | null;
     assignees?: string[];
     dueDate?: string | null;
-  }
+  },
+  opts?: { actor?: TaskActor }
 ): Task | null {
   const data = read();
   const parent = data.tasks.find((t) => t.id === parentId);
   if (!parent?.contractId) return null;
+  if (opts?.actor && !canUpdateTask(opts.actor, parent)) return null;
   return addManualTask({
     title: input.title,
     contractId: parent.contractId,
@@ -4224,9 +4289,17 @@ export function completeTaskWithSubtasks(
   const data = read();
   const parent = data.tasks.find((t) => t.id === parentId);
   if (!parent) return { ok: false, error: "Task not found." };
+  if (!opts?.actor || !canUpdateTask(opts.actor, parent)) {
+    return { ok: false, error: TASK_SAVE_DENIED };
+  }
   const openSubs = data.tasks.filter(
     (t) => t.parentId === parentId && taskIsOpen(t)
   );
+  for (const sub of openSubs) {
+    if (!canUpdateTask(opts.actor, sub)) {
+      return { ok: false, error: subtaskUpdateDenied(sub.title) };
+    }
+  }
   for (const sub of openSubs) {
     const closure = subtaskClosures.find((c) => c.id === sub.id);
     if (!closure) {

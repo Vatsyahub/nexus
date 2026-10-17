@@ -54,6 +54,14 @@ import {
 import { taskMatchesQuery } from "@/lib/list-search";
 import { formatDisplayDate } from "@/lib/dates";
 import { confirmWorkspaceSave } from "@/lib/save-notice";
+import {
+  canUpdateTask,
+  departmentIsSet,
+  namedOnTask,
+  peopleNamedInDepartment,
+  TASK_READ_ONLY,
+  TASK_SAVE_DENIED,
+} from "@/lib/task-permissions";
 import { HubDataScroll, HubPage } from "@/components/hub-scroll";
 import { cn } from "@/lib/utils";
 
@@ -88,8 +96,18 @@ function peopleForDepartment(
   people: AssignablePerson[],
   department: string
 ): AssignablePerson[] {
-  if (department === "none" || !department) return people;
-  return people.filter((p) => p.department === department);
+  return peopleNamedInDepartment(
+    people,
+    department === "none" ? null : department
+  );
+}
+
+function canNamePeople(
+  actor: TaskActor,
+  task: Pick<Task, "department" | "assignees">,
+  roleCanAssign: boolean
+): boolean {
+  return canUpdateTask(actor, task) && (roleCanAssign || namedOnTask(actor, task));
 }
 
 function isUnassigned(t: Task) {
@@ -929,6 +947,9 @@ function TaskEditor({
   const [boqChanged, setBoqChanged] = useState(false);
   const [followUpMsg, setFollowUpMsg] = useState<string | null>(null);
 
+  const canUpdate = canUpdateTask(actor, task);
+  const departmentLocked = departmentIsSet(task.department);
+  const canName = canNamePeople(actor, task, canAssignPeople);
   const selectable = peopleForDepartment(people, department);
   const openSubs = subtasks.filter(taskIsOpen);
   const showCompletion =
@@ -961,12 +982,47 @@ function TaskEditor({
   }
 
   async function saveAssignment() {
-    assignTask(task.id, {
-      department: department === "none" ? null : department,
-      assignees: canAssignPeople ? assignees : task.assignees,
-      dueDate: dueDate || null,
-    });
-    updateTask(task.id, { priority });
+    if (!canUpdate) {
+      setErr(TASK_SAVE_DENIED);
+      return;
+    }
+    const nextDepartment = departmentLocked
+      ? task.department
+      : department === "none"
+        ? null
+        : department;
+    const pool = peopleForDepartment(people, nextDepartment || "none");
+    const nextAssignees =
+      !canName || !departmentIsSet(nextDepartment)
+        ? task.assignees
+        : assignees.filter((name) => {
+            const key = name.trim().toLowerCase();
+            const inDepartment = pool.some(
+              (person) => person.name.trim().toLowerCase() === key
+            );
+            const alreadyNamed =
+              departmentLocked &&
+              task.assignees.some((item) => item.trim().toLowerCase() === key);
+            return inDepartment || alreadyNamed;
+          });
+    const saved = assignTask(
+      task.id,
+      {
+        department: nextDepartment,
+        assignees: nextAssignees,
+        dueDate: dueDate || null,
+      },
+      { actor, people }
+    );
+    if (!saved.ok) {
+      setErr(saved.error);
+      return;
+    }
+    const updated = updateTask(task.id, { priority }, { actor, people });
+    if (!updated) {
+      setErr(TASK_SAVE_DENIED);
+      return;
+    }
     setErr(null);
     await confirmWorkspaceSave();
   }
@@ -981,6 +1037,10 @@ function TaskEditor({
   }
 
   async function saveStatus() {
+    if (!canUpdate) {
+      setErr(TASK_SAVE_DENIED);
+      return;
+    }
     if (status === "completed" && openSubs.length > 0) {
       setClosing(true);
       setErr(null);
@@ -1114,6 +1174,7 @@ function TaskEditor({
   return (
     <div
       className="space-y-2"
+      data-task-access={canUpdate ? "edit" : "read"}
       onClick={(e) => e.stopPropagation()}
       {...entryRootProps}
     >
@@ -1278,15 +1339,17 @@ function TaskEditor({
           </SummaryField>
         </dl>
         <div className="flex shrink-0 gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            aria-pressed={editing}
-            onClick={() => setEditing((open) => !open)}
-          >
-            {editing ? "Close" : "Add updates"}
-          </Button>
+          {canUpdate && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              aria-pressed={editing}
+              onClick={() => setEditing((open) => !open)}
+            >
+              {editing ? "Close" : "Add updates"}
+            </Button>
+          )}
           {canDeleteTasks && (
             <Button
               type="button"
@@ -1300,24 +1363,51 @@ function TaskEditor({
         </div>
       </div>
 
-      {editing && (
+      {!canUpdate && (
+        <div className="space-y-2">
+          <p data-task-access="read" className="text-xs text-[var(--fh-muted)]">
+            {TASK_READ_ONLY}
+          </p>
+          {canConfirmTaskVerification(actor, task) && (
+            <Button
+              size="sm"
+              {...entrySaveProps}
+              className="bg-[var(--fh-ok)] text-white"
+              onClick={confirmVerified}
+            >
+              Confirm completion
+            </Button>
+          )}
+        </div>
+      )}
+
+      {editing && canUpdate && (
       <div className="space-y-3 border border-[var(--fh-line)] bg-white p-2">
       <div className="space-y-2">
         <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 lg:grid-cols-12">
           <div className="min-w-0 space-y-1 lg:col-span-3">
             <Label className="text-xs">Department</Label>
-            <select
-              className="flex h-9 w-full rounded-lg border border-input bg-white px-2 text-sm"
-              value={department}
-              onChange={(e) => onDepartmentChange(e.target.value)}
-            >
-              <option value="none">Select…</option>
-              {departments.map((d) => (
-                <option key={d} value={d}>
-                  {departmentDisplayName(d)}
-                </option>
-              ))}
-            </select>
+            {departmentLocked ? (
+              <p
+                data-department-locked="true"
+                className="flex h-9 items-center text-sm text-[var(--fh-ink)]"
+              >
+                {departmentDisplayName(task.department)}
+              </p>
+            ) : (
+              <select
+                className="flex h-9 w-full rounded-lg border border-input bg-white px-2 text-sm"
+                value={department}
+                onChange={(e) => onDepartmentChange(e.target.value)}
+              >
+                <option value="none">Select…</option>
+                {departments.map((d) => (
+                  <option key={d} value={d}>
+                    {departmentDisplayName(d)}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
           <div className="min-w-0 space-y-1 lg:col-span-3">
             <Label className="text-xs">Deadline</Label>
@@ -1342,7 +1432,7 @@ function TaskEditor({
               ))}
             </select>
           </div>
-          {canAssignPeople && (
+          {canName && (
             <div className="col-span-2 min-w-0 space-y-1 lg:col-span-4">
               <Label className="text-xs">People</Label>
               <div className="flex flex-wrap gap-x-3 gap-y-1 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)]/40 px-2 py-1">
@@ -1459,6 +1549,17 @@ function TaskEditor({
                 status: "completed" as const,
                 reason: "",
               };
+              if (!canUpdateTask(actor, s)) {
+                return (
+                  <p key={s.id} className="text-sm text-[var(--fh-ink)]">
+                    {s.title} follows{" "}
+                    {s.department
+                      ? departmentDisplayName(s.department)
+                      : "its own department"}
+                    . Someone who can update that subtask has to close it first.
+                  </p>
+                );
+              }
               return (
                 <div
                   key={s.id}
@@ -1504,6 +1605,7 @@ function TaskEditor({
                 size="sm"
                 {...entrySaveProps}
                 className="bg-[var(--fh-ok)] text-white"
+                disabled={openSubs.some((s) => !canUpdateTask(actor, s))}
                 onClick={confirmCompleteParent}
               >
                 Confirm complete
@@ -1515,6 +1617,8 @@ function TaskEditor({
           </div>
         )}
       </div>
+      </div>
+      )}
 
       <div className="space-y-2 border-t border-[var(--fh-line)] pt-2">
         <ul className="space-y-1">
@@ -1524,6 +1628,7 @@ function TaskEditor({
             subtasks.map((s) => (
               <li
                 key={s.id}
+                data-task-access={canUpdateTask(actor, s) ? "edit" : "read"}
                 className="border border-[var(--fh-line)] bg-[var(--fh-bg)]/30 px-2 py-1.5 text-sm"
               >
                 <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
@@ -1555,7 +1660,11 @@ function TaskEditor({
                         setExpandedSubId(expandedSubId === s.id ? null : s.id)
                       }
                     >
-                      {expandedSubId === s.id ? "Hide" : "Update"}
+                      {expandedSubId === s.id
+                        ? "Hide"
+                        : canUpdateTask(actor, s)
+                          ? "Update"
+                          : "View"}
                     </Button>
                     {canDeleteTasks && (
                       <DeleteIconButton
@@ -1581,6 +1690,7 @@ function TaskEditor({
             ))
           )}
         </ul>
+        {editing && canUpdate && (
         <div className="flex flex-wrap items-end gap-2 border-t border-[var(--fh-line)] pt-2">
           <div className="space-y-1">
             <Label className="text-xs">Add subtask</Label>
@@ -1621,11 +1731,20 @@ function TaskEditor({
             {...entrySaveProps}
             onClick={() => {
               if (!subTitle.trim() || !task.contractId) return;
-              addSubtask(task.id, {
-                title: subTitle,
-                department: subDept === "none" ? null : subDept,
-                dueDate: subDue || null,
-              });
+              if (!canUpdate) return;
+              const created = addSubtask(
+                task.id,
+                {
+                  title: subTitle,
+                  department: subDept === "none" ? null : subDept,
+                  dueDate: subDue || null,
+                },
+                { actor }
+              );
+              if (!created) {
+                setErr(TASK_SAVE_DENIED);
+                return;
+              }
               void flushWorkspace();
               setSubTitle("");
               setSubDue("");
@@ -1635,9 +1754,8 @@ function TaskEditor({
             Add
           </Button>
         </div>
+        )}
       </div>
-      </div>
-      )}
     </div>
   );
 }
@@ -1665,26 +1783,71 @@ function SubtaskEditor({
   const [reason, setReason] = useState(task.notRequiredReason ?? "");
   const [err, setErr] = useState<string | null>(null);
 
-  const selectable = peopleForDepartment(people, department);
+  const canUpdate = canUpdateTask(actor, task);
+  const departmentLocked = departmentIsSet(task.department);
+  const canName = canNamePeople(actor, task, canAssignPeople);
+  const selectable = peopleForDepartment(
+    people,
+    departmentLocked ? task.department || "none" : department
+  );
+
+  if (!canUpdate) {
+    return (
+      <div className="mt-1 space-y-2" data-task-access="read">
+        <p className="text-xs text-[var(--fh-muted)]">{TASK_READ_ONLY}</p>
+        {canConfirmTaskVerification(actor, task) && (
+          <Button
+            size="sm"
+            {...entrySaveProps}
+            className="bg-[var(--fh-ok)] text-white"
+            onClick={async () => {
+              const result = confirmTaskVerification(task.id, actor);
+              if (!result.ok) {
+                setErr(result.error);
+                return;
+              }
+              const saved = await confirmWorkspaceSave();
+              if (saved) onDone();
+            }}
+          >
+            Confirm completion
+          </Button>
+        )}
+        {err && <p className="text-xs text-[var(--destructive)]">{err}</p>}
+      </div>
+    );
+  }
 
   return (
-    <div className="mt-1 w-full space-y-1.5 border-t border-[var(--fh-line)] pt-1.5">
+    <div
+      className="mt-1 w-full space-y-1.5 border-t border-[var(--fh-line)] pt-1.5"
+      data-task-access="edit"
+    >
       <div className="grid gap-1.5 sm:grid-cols-3">
-        <select
-          className="flex h-9 rounded-lg border border-input bg-white px-2 text-sm"
-          value={department}
-          onChange={(e) => {
-            setDepartment(e.target.value);
-            setAssignees([]);
-          }}
-        >
-          <option value="none">Department…</option>
-          {departments.map((d) => (
-            <option key={d} value={d}>
-              {departmentDisplayName(d)}
-            </option>
-          ))}
-        </select>
+        {departmentLocked ? (
+          <p
+            data-department-locked="true"
+            className="flex h-9 items-center text-sm text-[var(--fh-ink)]"
+          >
+            {departmentDisplayName(task.department)}
+          </p>
+        ) : (
+          <select
+            className="flex h-9 rounded-lg border border-input bg-white px-2 text-sm"
+            value={department}
+            onChange={(e) => {
+              setDepartment(e.target.value);
+              setAssignees([]);
+            }}
+          >
+            <option value="none">Department…</option>
+            {departments.map((d) => (
+              <option key={d} value={d}>
+                {departmentDisplayName(d)}
+              </option>
+            ))}
+          </select>
+        )}
         <Input
           type="date"
           className="h-9 bg-white"
@@ -1713,7 +1876,7 @@ function SubtaskEditor({
           onChange={(e) => setReason(e.target.value)}
         />
       )}
-      {canAssignPeople && department !== "none" && (
+      {canName && (departmentLocked || department !== "none") && (
         <div className="flex flex-wrap gap-2">
           {selectable.map((p) => (
             <label key={p.id} className="flex items-center gap-1 text-xs">
@@ -1745,22 +1908,55 @@ function SubtaskEditor({
           {...entrySaveProps}
           className="bg-[var(--fh-steel)]"
           onClick={async () => {
+            if (!canUpdate) {
+              setErr(TASK_SAVE_DENIED);
+              return;
+            }
             if (status === "not_required" && !reason.trim()) {
               setErr("Reason is required for not required.");
               return;
             }
-            assignTask(task.id, {
-              department: department === "none" ? null : department,
-              assignees: canAssignPeople ? assignees : task.assignees,
-              dueDate: dueDate || null,
-            });
+            const nextDepartment = departmentLocked
+              ? task.department
+              : department === "none"
+                ? null
+                : department;
+            const pool = peopleForDepartment(people, nextDepartment || "none");
+            const nextAssignees =
+              !canName || !departmentIsSet(nextDepartment)
+                ? task.assignees
+                : assignees.filter((name) => {
+                    const key = name.trim().toLowerCase();
+                    const inDepartment = pool.some(
+                      (person) => person.name.trim().toLowerCase() === key
+                    );
+                    const alreadyNamed =
+                      departmentLocked &&
+                      task.assignees.some(
+                        (item) => item.trim().toLowerCase() === key
+                      );
+                    return inDepartment || alreadyNamed;
+                  });
+            const assigned = assignTask(
+              task.id,
+              {
+                department: nextDepartment,
+                assignees: nextAssignees,
+                dueDate: dueDate || null,
+              },
+              { actor, people }
+            );
+            if (!assigned.ok) {
+              setErr(assigned.error);
+              return;
+            }
             const result = updateTaskStatus(task.id, status, {
               notes,
               notRequiredReason: reason,
               actor,
             });
             if (!result) {
-              setErr("Task not found.");
+              setErr(TASK_SAVE_DENIED);
               return;
             }
             setErr(null);

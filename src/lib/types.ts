@@ -273,6 +273,10 @@ export type Task = {
   title: string;
   /** Required for new tasks; legacy rows may still be null until edited. */
   contractId: string | null;
+  /**
+   * Chosen once. After it is saved, nobody can change it.
+   * Empty means whoever can edit the task can still set it.
+   */
   department: string | null;
   /** Equal owners from the department; empty = department-only / unassigned people. */
   assignees: string[];
