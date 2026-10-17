@@ -16,6 +16,7 @@ import {
   type Payment,
   type ScheduleChangeLogEntry,
   type ScheduleLine,
+  type TaskDeadlineChangeLogEntry,
   type Task,
 } from "@/lib/types";
 
@@ -39,6 +40,7 @@ export type WorkspaceChanges = {
   payments?: RecordChange<Payment>;
   schedules?: RecordChange<ScheduleLine>;
   scheduleChangeLog?: RecordChange<ScheduleChangeLogEntry>;
+  taskDeadlineChangeLog?: RecordChange<TaskDeadlineChangeLogEntry>;
   notifications?: RecordChange<HubNotification>;
   itemCatalog?: RecordChange<ItemCatalogEntry>;
   deliveryChallans?: RecordChange<DeliveryChallan>;
@@ -326,6 +328,12 @@ export function diffWorkspace(
     (row) => row.id
   );
   if (scheduleChangeLog) changes.scheduleChangeLog = scheduleChangeLog;
+  const taskDeadlineChangeLog = diffRecords(
+    base.taskDeadlineChangeLog,
+    next.taskDeadlineChangeLog,
+    (row) => row.id
+  );
+  if (taskDeadlineChangeLog) changes.taskDeadlineChangeLog = taskDeadlineChangeLog;
   const notifications = diffRecords(
     base.notifications,
     next.notifications,
@@ -419,6 +427,13 @@ export function applyWorkspaceChanges(
     next.scheduleChangeLog = applyRecords(
       current.scheduleChangeLog,
       changes.scheduleChangeLog,
+      (row) => row.id
+    );
+  }
+  if (changes.taskDeadlineChangeLog) {
+    next.taskDeadlineChangeLog = applyRecords(
+      current.taskDeadlineChangeLog ?? [],
+      changes.taskDeadlineChangeLog,
       (row) => row.id
     );
   }

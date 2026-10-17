@@ -170,6 +170,7 @@ const summaryData = {
   itemCatalog: [],
   payments: [],
   scheduleChangeLog: [],
+  taskDeadlineChangeLog: [],
   notifications: [],
   customDepartments: [],
   expenseCategories: [],

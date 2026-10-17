@@ -15,6 +15,7 @@ const empty = {
   payments: [],
   schedules: [],
   scheduleChangeLog: [],
+  taskDeadlineChangeLog: [],
   notifications: [],
   customDepartments: [],
   expenseCategories: [],

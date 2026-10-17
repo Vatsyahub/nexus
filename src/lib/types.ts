@@ -414,6 +414,25 @@ export type ScheduleChangeLogEntry = {
   summary: string;
 };
 
+/** One saved task deadline moved to a different saved date. */
+export type TaskDeadlineChangeLogEntry = {
+  id: string;
+  /** ISO time of the save. */
+  at: string;
+  /** Who moved the deadline. */
+  by: string;
+  taskId: string;
+  contractId: string | null;
+  /** Title at the time of the change. */
+  taskTitle: string;
+  /** Previous deadline, YYYY-MM-DD. */
+  fromDate: string;
+  /** New deadline, YYYY-MM-DD. */
+  toDate: string;
+  /** Required one-line reason. */
+  reason: string;
+};
+
 export type DeliveryChallanLine = {
   boqItemId: string;
   qty: number;
@@ -551,6 +570,11 @@ export type FlowhubData = {
   schedules: ScheduleLine[];
   /** Separate from the schedules list — Change log tab */
   scheduleChangeLog: ScheduleChangeLogEntry[];
+  /**
+   * Deadline moves only. Shown on the Tasks page to Master and Director.
+   * Not a door of its own.
+   */
+  taskDeadlineChangeLog: TaskDeadlineChangeLogEntry[];
   /** In-app notifications for task / job assignment */
   notifications: HubNotification[];
   /**

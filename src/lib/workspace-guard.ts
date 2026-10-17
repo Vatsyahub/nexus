@@ -25,6 +25,10 @@ import {
   applyTaskEditPolicy,
   type TaskEditContext,
 } from "@/lib/task-permissions";
+import {
+  normalizeTaskDeadlineChangeLog,
+  reconcileTaskDeadlineChanges,
+} from "@/lib/task-deadline-log";
 
 /**
  * Company-file slices and the report doors that already show their figures.
@@ -140,15 +144,20 @@ function contractForExpenses(contract: Contract): Contract {
  * Load payload for this account. Blocked doors are left out.
  * An open report door still receives the figures that report shows.
  * The schedule change log is not a report figure: it follows the schedules door only.
+ * The task deadline change log is not a report figure. Master and Director
+ * receive it. Other clearances do not.
  */
 export function workspaceForAccount(
   data: FlowhubData,
-  access: AccessMap
+  access: AccessMap,
+  clearance?: ClearanceRole | null
 ): FlowhubData {
   const contractRecords = receives(access, "contracts", CONTRACT_REPORTS);
   const expenseRecords = receives(access, "expenses", EXPENSE_REPORTS);
   const scheduleRecords = receives(access, "schedules", SCHEDULE_REPORTS);
   const schedulesDoorOpen = doorLevel(access, "schedules") !== "block";
+  const canSeeTaskDeadlineLog =
+    clearance === "master" || clearance === "director";
 
   let contracts: Contract[];
   if (!contractRecords && !expenseRecords) {
@@ -177,6 +186,9 @@ export function workspaceForAccount(
     tasks: receives(access, "tasks", TASK_REPORTS) ? data.tasks : [],
     schedules: scheduleRecords ? data.schedules : [],
     scheduleChangeLog: schedulesDoorOpen ? data.scheduleChangeLog : [],
+    taskDeadlineChangeLog: canSeeTaskDeadlineLog
+      ? normalizeTaskDeadlineChangeLog(data.taskDeadlineChangeLog)
+      : [],
     expenseCategories: expenseRecords ? data.expenseCategories : [],
     itemCatalog: contractRecords ? data.itemCatalog : [],
     nexusCosts,
@@ -273,7 +285,7 @@ function keepTasksUnlessMaster(
 /**
  * Per-door save. The page address is not an input.
  * A door that is not edit keeps the stored slice.
- * Contract delete, tax-invoice delete, task delete, and clearing the whole
+ * Contract delete, tax-invoice delete, task delete, and clearing a whole
  * change log stay Master-only even when that door is edit.
  */
 export function mergeWorkspaceSave(
@@ -321,6 +333,9 @@ export function mergeWorkspaceSave(
   let scheduleChangeLog = edits(access, "schedules")
     ? incoming.scheduleChangeLog
     : current.scheduleChangeLog;
+  let taskDeadlineChangeLog = edits(access, "tasks")
+    ? (incoming.taskDeadlineChangeLog ?? [])
+    : (current.taskDeadlineChangeLog ?? []);
   let nexusCosts = edits(access, "nexus_core")
     ? normalizeNexusCosts(incoming.nexusCosts)
     : normalizeNexusCosts(current.nexusCosts);
@@ -423,6 +438,19 @@ export function mergeWorkspaceSave(
 
   tasks = tasksAfterDepartmentCatalogChange(current, incoming, tasks);
 
+  if (edits(access, "tasks")) {
+    const reconciled = reconcileTaskDeadlineChanges({
+      previousTasks: current.tasks,
+      tasks,
+      previousLog: current.taskDeadlineChangeLog,
+      incomingLog: taskDeadlineChangeLog,
+      actor: taskEdit?.actor ?? null,
+      allowClear: master,
+    });
+    tasks = reconciled.tasks;
+    taskDeadlineChangeLog = reconciled.log;
+  }
+
   const clearedNotices = pruneClearedNotices(
     mergeClearedNotices(current.clearedNotices, incoming.clearedNotices)
   );
@@ -447,6 +475,7 @@ export function mergeWorkspaceSave(
     tasks,
     schedules,
     scheduleChangeLog,
+    taskDeadlineChangeLog,
     expenseCategories: expensesEdit
       ? incoming.expenseCategories
       : current.expenseCategories,

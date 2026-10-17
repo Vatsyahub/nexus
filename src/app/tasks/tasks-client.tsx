@@ -16,6 +16,7 @@ import {
   afterKickoffCompleted,
   assignTask,
   canConfirmTaskVerification,
+  clearTaskDeadlineChangeLog,
   completeTaskWithSubtasks,
   completionNeedsVerification,
   confirmTaskVerification,
@@ -51,8 +52,20 @@ import {
   ReportExportIcons,
   reportFilterSummary,
 } from "@/components/report-export-icons";
-import { taskMatchesQuery } from "@/lib/list-search";
-import { formatDisplayDate } from "@/lib/dates";
+import {
+  matchesToken,
+  parseSearchTokens,
+  taskMatchesQuery,
+} from "@/lib/list-search";
+import {
+  dateSearchForms,
+  formatDisplayDate,
+  formatDisplayDateTime,
+} from "@/lib/dates";
+import {
+  canMoveTaskDeadline,
+} from "@/lib/task-deadline-log";
+import type { TaskDeadlineChangeLogEntry } from "@/lib/types";
 import { confirmWorkspaceSave } from "@/lib/save-notice";
 import {
   canUpdateTask,
@@ -256,6 +269,9 @@ function TasksPageInner({
     focusTaskId || null
   );
   const [expandedSubId, setExpandedSubId] = useState<string | null>(null);
+  const [showLog, setShowLog] = useState(false);
+  const canViewDeadlineLog = role === "master" || role === "director";
+  const isMaster = role === "master";
 
   const departments = useMemo(() => listDepartments(data), [data]);
   const today = todayIso();
@@ -380,6 +396,49 @@ function TasksPageInner({
       .sort((a, b) => sortTasks(a, b, today));
   }, [roots, view, today, isMyTask]);
 
+  const deadlineLog = useMemo(() => {
+    const tokens = parseSearchTokens(q);
+    return [...(data.taskDeadlineChangeLog ?? [])]
+      .filter((entry) => {
+        if (!tokens.length) return true;
+        const task = data.tasks.find((row) => row.id === entry.taskId);
+        const contractIdForEntry = entry.contractId || task?.contractId || null;
+        const contract = contractIdForEntry
+          ? data.contracts.find((row) => row.id === contractIdForEntry)
+          : null;
+        return tokens.every((token) =>
+          matchesToken(token, [
+            entry.by,
+            entry.reason,
+            entry.taskTitle,
+            task?.title,
+            contract?.projectNo,
+            contract?.projectName,
+            contract?.city,
+            contract?.state,
+            ...dateSearchForms(entry.at),
+            ...dateSearchForms(entry.fromDate),
+            ...dateSearchForms(entry.toDate),
+            formatDisplayDate(entry.fromDate),
+            formatDisplayDate(entry.toDate),
+            formatDisplayDateTime(entry.at),
+          ])
+        );
+      })
+      .sort((a, b) => b.at.localeCompare(a.at));
+  }, [data.taskDeadlineChangeLog, data.tasks, data.contracts, q]);
+
+  async function onClearDeadlineLog() {
+    if (!isMaster) return;
+    const ok = await confirmAction({
+      message: "This removes every change-log row and cannot be undone.",
+      action: "Clear",
+    });
+    if (!ok) return;
+    clearTaskDeadlineChangeLog();
+    await flushWorkspace();
+  }
+
   const views: { id: ViewFilter; label: string; count: number }[] = [
     { id: "all", label: "All", count: counts.all },
     { id: "unassigned", label: "Unassigned", count: counts.unassigned },
@@ -408,27 +467,51 @@ function TasksPageInner({
             </p>
           )}
         </div>
-        <Link
-          href={
-            contractId
-              ? `/tasks/new?contractId=${encodeURIComponent(contractId)}`
-              : "/tasks/new"
-          }
-          className={cn(
-            buttonVariants(),
-            "bg-[var(--fh-accent)] text-[var(--fh-ink)] hover:bg-[#f0b01a]"
+        <div className="flex flex-wrap gap-2">
+          {canViewDeadlineLog && (
+            <Button
+              type="button"
+              variant={showLog ? "default" : "outline"}
+              className={
+                showLog
+                  ? "bg-[var(--fh-steel)] text-white hover:bg-[#244a5e]"
+                  : undefined
+              }
+              onClick={() => setShowLog((open) => !open)}
+            >
+              Change log
+              <span className="ml-1.5 tabular-nums opacity-80">
+                {deadlineLog.length}
+              </span>
+            </Button>
           )}
-        >
-          Add New Task
-        </Link>
+          <Link
+            href={
+              contractId
+                ? `/tasks/new?contractId=${encodeURIComponent(contractId)}`
+                : "/tasks/new"
+            }
+            className={cn(
+              buttonVariants(),
+              "bg-[var(--fh-accent)] text-[var(--fh-ink)] hover:bg-[#f0b01a]"
+            )}
+          >
+            Add New Task
+          </Link>
+        </div>
       </header>
 
       <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <ListSearchBar
           value={q}
           onChange={setQ}
-          placeholder="Search title, contract, person, status, date…"
+          placeholder={
+            showLog
+              ? "Search task, who, reason, date…"
+              : "Search title, contract, person, status, date…"
+          }
         />
+        {!showLog && (
         <div className="flex items-center gap-2">
           <Label className="text-xs text-[var(--fh-muted)]">Priority</Label>
           <select
@@ -446,8 +529,20 @@ function TasksPageInner({
             ))}
           </select>
         </div>
+        )}
       </div>
 
+      {canViewDeadlineLog && showLog ? (
+        <TaskDeadlineLogPanel
+          entries={deadlineLog}
+          contracts={data.contracts}
+          tasks={data.tasks}
+          query={q}
+          isMaster={isMaster}
+          onClear={() => void onClearDeadlineLog()}
+        />
+      ) : (
+      <>
       <nav className="flex shrink-0 flex-wrap gap-1.5" aria-label="Task views">
         {views.map((v) => (
           <button
@@ -580,7 +675,119 @@ function TasksPageInner({
           ];
         })}
       />
+      </>
+      )}
     </HubPage>
+  );
+}
+
+function TaskDeadlineLogPanel({
+  entries,
+  contracts,
+  tasks,
+  query,
+  isMaster,
+  onClear,
+}: {
+  entries: TaskDeadlineChangeLogEntry[];
+  contracts: { id: string; projectNo: string; projectName: string }[];
+  tasks: Task[];
+  query: string;
+  isMaster: boolean;
+  onClear: () => void;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+      <div className="flex shrink-0 items-center justify-between gap-3">
+        <p className="text-xs text-[var(--fh-muted)]">
+          {entries.length} change{entries.length === 1 ? "" : "s"}
+        </p>
+        {isMaster ? (
+          <Button type="button" variant="outline" size="sm" onClick={onClear}>
+            Clear
+          </Button>
+        ) : null}
+      </div>
+      <HubDataScroll className="overflow-x-auto rounded-xl border border-[var(--fh-line)] bg-white">
+        <table className="w-full min-w-[760px] text-left text-sm">
+          <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-xs uppercase tracking-wide text-[var(--fh-muted)]">
+            <tr>
+              <th className="px-3 py-2 font-medium">When</th>
+              <th className="px-3 py-2 font-medium">Who</th>
+              <th className="px-3 py-2 font-medium">Project</th>
+              <th className="px-3 py-2 font-medium">Task</th>
+              <th className="px-3 py-2 font-medium">From</th>
+              <th className="px-3 py-2 font-medium">To</th>
+              <th className="px-3 py-2 font-medium">Reason</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--fh-line)]">
+            {entries.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={7}
+                  className="px-3 py-8 text-center text-[var(--fh-muted)]"
+                >
+                  {query.trim()
+                    ? "No changes match your search."
+                    : "No deadline changes yet."}
+                </td>
+              </tr>
+            ) : (
+              entries.map((entry) => {
+                const task = tasks.find((row) => row.id === entry.taskId);
+                const contractId = entry.contractId || task?.contractId || null;
+                const contract = contractId
+                  ? contracts.find((row) => row.id === contractId)
+                  : null;
+                return (
+                  <tr key={entry.id}>
+                    <td className="px-3 py-2 tabular-nums text-xs text-[var(--fh-muted)]">
+                      {formatDisplayDateTime(entry.at)}
+                    </td>
+                    <td className="px-3 py-2">{entry.by}</td>
+                    <td className="px-3 py-2">{contract?.projectNo ?? "—"}</td>
+                    <td className="px-3 py-2">
+                      {task?.title || entry.taskTitle || "—"}
+                    </td>
+                    <td className="px-3 py-2 tabular-nums">
+                      {formatDisplayDate(entry.fromDate)}
+                    </td>
+                    <td className="px-3 py-2 tabular-nums">
+                      {formatDisplayDate(entry.toDate)}
+                    </td>
+                    <td className="px-3 py-2">{entry.reason}</td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </HubDataScroll>
+      <ReportExportIcons
+        filename="tasks-change-log"
+        title="Tasks — Change log"
+        filters={reportFilterSummary({ tab: "Change log", search: query })}
+        headers={["When", "Who", "Project no.", "Project", "Task", "From", "To", "Reason"]}
+        rows={entries.map((entry) => {
+          const task = tasks.find((row) => row.id === entry.taskId);
+          const contractId = entry.contractId || task?.contractId || null;
+          const contract = contractId
+            ? contracts.find((row) => row.id === contractId)
+            : null;
+          return [
+            formatDisplayDateTime(entry.at),
+            entry.by,
+            contract?.projectNo ?? "",
+            contract?.projectName ?? "",
+            task?.title || entry.taskTitle || "",
+            formatDisplayDate(entry.fromDate),
+            formatDisplayDate(entry.toDate),
+            entry.reason,
+          ];
+        })}
+      />
+    </div>
   );
 }
 
@@ -924,6 +1131,7 @@ function TaskEditor({
   const [department, setDepartment] = useState(task.department ?? "none");
   const [assignees, setAssignees] = useState<string[]>(task.assignees);
   const [dueDate, setDueDate] = useState(task.dueDate ?? "");
+  const [deadlineReason, setDeadlineReason] = useState("");
   const [priority, setPriority] = useState<TaskPriority>(task.priority);
   const [status, setStatus] = useState<TaskStatus>(
     task.status === "not_required" ? "completed" : task.status
@@ -949,6 +1157,8 @@ function TaskEditor({
 
   const canUpdate = canUpdateTask(actor, task);
   const departmentLocked = departmentIsSet(task.department);
+  const mayMoveDeadline = canMoveTaskDeadline(actor, task);
+  const deadlineLocked = !!task.dueDate && !mayMoveDeadline;
   const canName = canNamePeople(actor, task, canAssignPeople);
   const selectable = peopleForDepartment(people, department);
   const openSubs = subtasks.filter(taskIsOpen);
@@ -1010,14 +1220,15 @@ function TaskEditor({
       {
         department: nextDepartment,
         assignees: nextAssignees,
-        dueDate: dueDate || null,
+        dueDate: deadlineLocked ? task.dueDate : dueDate || null,
       },
-      { actor, people }
+      { actor, people, deadlineReason }
     );
     if (!saved.ok) {
       setErr(saved.error);
       return;
     }
+    setDeadlineReason("");
     const updated = updateTask(task.id, { priority }, { actor, people });
     if (!updated) {
       setErr(TASK_SAVE_DENIED);
@@ -1411,12 +1622,18 @@ function TaskEditor({
           </div>
           <div className="min-w-0 space-y-1 lg:col-span-3">
             <Label className="text-xs">Deadline</Label>
-            <Input
-              type="date"
-              className="min-w-0 bg-white"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-            />
+            {deadlineLocked ? (
+              <p className="flex h-9 items-center text-sm text-[var(--fh-ink)]">
+                {formatDisplayDate(task.dueDate)}
+              </p>
+            ) : (
+              <Input
+                type="date"
+                className="min-w-0 bg-white"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+              />
+            )}
           </div>
           <div className="col-span-2 min-w-0 space-y-1 lg:col-span-2">
             <Label className="text-xs">Priority</Label>
@@ -1463,6 +1680,17 @@ function TaskEditor({
             </div>
           )}
         </div>
+        {task.dueDate && dueDate && dueDate !== task.dueDate && mayMoveDeadline && (
+          <div className="space-y-1">
+            <Label className="text-xs">Reason for the new deadline</Label>
+            <Input
+              className="bg-white"
+              value={deadlineReason}
+              onChange={(e) => setDeadlineReason(e.target.value)}
+              placeholder="One line"
+            />
+          </div>
+        )}
         <Button
           size="sm"
           {...entrySaveProps}
@@ -1778,6 +2006,7 @@ function SubtaskEditor({
   const [department, setDepartment] = useState(task.department ?? "none");
   const [assignees, setAssignees] = useState<string[]>(task.assignees);
   const [dueDate, setDueDate] = useState(task.dueDate ?? "");
+  const [deadlineReason, setDeadlineReason] = useState("");
   const [status, setStatus] = useState<TaskStatus>(task.status);
   const [notes, setNotes] = useState(task.notes ?? "");
   const [reason, setReason] = useState(task.notRequiredReason ?? "");
@@ -1785,6 +2014,8 @@ function SubtaskEditor({
 
   const canUpdate = canUpdateTask(actor, task);
   const departmentLocked = departmentIsSet(task.department);
+  const mayMoveDeadline = canMoveTaskDeadline(actor, task);
+  const deadlineLocked = !!task.dueDate && !mayMoveDeadline;
   const canName = canNamePeople(actor, task, canAssignPeople);
   const selectable = peopleForDepartment(
     people,
@@ -1848,12 +2079,18 @@ function SubtaskEditor({
             ))}
           </select>
         )}
-        <Input
-          type="date"
-          className="h-9 bg-white"
-          value={dueDate}
-          onChange={(e) => setDueDate(e.target.value)}
-        />
+        {deadlineLocked ? (
+          <p className="flex h-9 items-center text-sm text-[var(--fh-ink)]">
+            {formatDisplayDate(task.dueDate)}
+          </p>
+        ) : (
+          <Input
+            type="date"
+            className="h-9 bg-white"
+            value={dueDate}
+            onChange={(e) => setDueDate(e.target.value)}
+          />
+        )}
         <select
           className="flex h-9 rounded-lg border border-input bg-white px-2 text-sm"
           value={status}
@@ -1866,6 +2103,13 @@ function SubtaskEditor({
           ))}
         </select>
       </div>
+      {task.dueDate && dueDate && dueDate !== task.dueDate && mayMoveDeadline && (
+        <Input
+          placeholder="Reason for the new deadline"
+          value={deadlineReason}
+          onChange={(e) => setDeadlineReason(e.target.value)}
+        />
+      )}
       {task.status === "awaiting_verification" && (
         <p className="text-xs text-[var(--fh-ink)]">{waitingForCopy(task)}</p>
       )}
@@ -1942,14 +2186,15 @@ function SubtaskEditor({
               {
                 department: nextDepartment,
                 assignees: nextAssignees,
-                dueDate: dueDate || null,
+                dueDate: deadlineLocked ? task.dueDate : dueDate || null,
               },
-              { actor, people }
+              { actor, people, deadlineReason }
             );
             if (!assigned.ok) {
               setErr(assigned.error);
               return;
             }
+            setDeadlineReason("");
             const result = updateTaskStatus(task.id, status, {
               notes,
               notRequiredReason: reason,
