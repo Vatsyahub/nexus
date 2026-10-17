@@ -104,7 +104,9 @@ function diffRecords<T>(
   const nextIds = new Set(after.map((row) => idOf(row)));
   const upsert = after.filter((row) => {
     const prev = baseById.get(idOf(row));
-    return !prev || !same(prev, row);
+    if (!prev) return true;
+    if (prev === row) return false;
+    return !same(prev, row);
   });
   const remove = before
     .map((row) => idOf(row))
@@ -124,12 +126,23 @@ function applyRecords<T>(
   const rows = [...(current ?? [])];
   if (!change) return rows;
   const remove = new Set(change.delete ?? []);
-  const kept = rows.filter((row) => !remove.has(idOf(row)));
+  const indexById = new Map<string, number>();
+  const kept: T[] = [];
+  for (const row of rows) {
+    const id = idOf(row);
+    if (remove.has(id)) continue;
+    if (!indexById.has(id)) indexById.set(id, kept.length);
+    kept.push(row);
+  }
   for (const row of change.upsert ?? []) {
     const id = idOf(row);
-    const index = kept.findIndex((item) => idOf(item) === id);
-    if (index < 0) kept.push(row);
-    else kept[index] = row;
+    const index = indexById.get(id);
+    if (index == null) {
+      indexById.set(id, kept.length);
+      kept.push(row);
+    } else {
+      kept[index] = row;
+    }
   }
   return kept;
 }
@@ -177,6 +190,7 @@ function diffContractBodies(
   const upsert = next.filter((row) => {
     const prev = baseById.get(row.id);
     if (!prev) return true;
+    if (prev === row) return false;
     return !same(contractBody(prev), contractBody(row));
   });
   const remove = base
@@ -196,9 +210,10 @@ function diffContractExpenses(
   const baseById = new Map(base.map((contract) => [contract.id, contract]));
   const out: Record<string, RecordChange<ContractExpense>> = {};
   for (const row of next) {
-    if (!baseById.has(row.id)) continue;
+    const prev = baseById.get(row.id);
+    if (!prev || prev === row) continue;
     const change = diffRecords(
-      baseById.get(row.id)?.expenses ?? [],
+      prev.expenses ?? [],
       row.expenses ?? [],
       (expense) => expense.id
     );
@@ -212,10 +227,17 @@ function applyContractChanges(
   changes: WorkspaceChanges
 ): Contract[] {
   const remove = new Set(changes.contracts?.delete ?? []);
-  const rows = current.filter((contract) => !remove.has(contract.id));
+  const indexById = new Map<string, number>();
+  const rows: Contract[] = [];
+  for (const contract of current) {
+    if (remove.has(contract.id)) continue;
+    if (!indexById.has(contract.id)) indexById.set(contract.id, rows.length);
+    rows.push(contract);
+  }
   for (const row of changes.contracts?.upsert ?? []) {
-    const index = rows.findIndex((contract) => contract.id === row.id);
-    if (index < 0) {
+    const index = indexById.get(row.id);
+    if (index == null) {
+      indexById.set(row.id, rows.length);
       rows.push(row);
       continue;
     }

@@ -28,6 +28,7 @@ import {
 import { matchesAny } from "@/lib/list-search";
 import { ListSearchWithDateRange } from "@/components/list-date-range";
 import { ListSearchBar } from "@/components/list-search";
+import { RowWindowFooter, useVisibleRows } from "@/components/list-window";
 import { ProjectIdentity } from "@/components/project-identity";
 import {
   ReportExportIcons,
@@ -424,6 +425,7 @@ function CollectionsTable({
   rows: CollectionReportRow[];
   filters: string;
 }) {
+  const page = useVisibleRows(rows, (row) => row.paymentId);
   return (
     <>
       <ReportsTableScroll className="mt-4">
@@ -459,7 +461,7 @@ function CollectionsTable({
                 </td>
               </tr>
             ) : (
-              rows.map((r) => (
+              page.visible.map((r) => (
                 <tr key={r.paymentId}>
                   <td className={cn(reportTd, "tabular-nums")}>
                     {formatDisplayDate(r.date)}
@@ -496,6 +498,11 @@ function CollectionsTable({
             )}
           </tbody>
         </table>
+        <RowWindowFooter
+          shown={page.shown}
+          total={page.total}
+          onShowMore={page.showMore}
+        />
       </ReportsTableScroll>
       <ReportExportIcons
         filename="collections"
@@ -851,6 +858,7 @@ function ExpensesTable({
   rows: ExpenseReportRow[];
   filters: string;
 }) {
+  const page = useVisibleRows(rows, (row) => row.expenseId);
   return (
     <>
       <ReportsTableScroll className="mt-4">
@@ -882,7 +890,7 @@ function ExpensesTable({
                 </td>
               </tr>
             ) : (
-              rows.map((r) => (
+              page.visible.map((r) => (
                 <tr key={r.expenseId}>
                   <td className={reportTd}>
                     <ProjectIdentity
@@ -902,6 +910,11 @@ function ExpensesTable({
             )}
           </tbody>
         </table>
+        <RowWindowFooter
+          shown={page.shown}
+          total={page.total}
+          onShowMore={page.showMore}
+        />
       </ReportsTableScroll>
       <ReportExportIcons
         filename="expenses"

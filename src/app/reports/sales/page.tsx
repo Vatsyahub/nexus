@@ -19,6 +19,11 @@ import {
   reportFilterSummary,
 } from "@/components/report-export-icons";
 import { HubPage } from "@/components/hub-scroll";
+import {
+  RowWindowFooter,
+  rowWindowKey,
+  useRowWindow,
+} from "@/components/list-window";
 import { cn } from "@/lib/utils";
 import {
   ReportsEmpty,
@@ -267,6 +272,11 @@ function InvoicesTable({
   rows: ReturnType<typeof buildSalesInvoiceRows>;
   filters: string;
 }) {
+  const rowWindow = useRowWindow(
+    rows.length,
+    rowWindowKey(rows.length, rows[0]?.invoiceId, rows.at(-1)?.invoiceId)
+  );
+  const visible = rows.slice(0, rowWindow.visibleCount);
   return (
     <>
       <ReportsTableScroll className="mt-4">
@@ -302,7 +312,7 @@ function InvoicesTable({
                 </td>
               </tr>
             ) : (
-              rows.map((r) => (
+              visible.map((r) => (
                 <tr key={r.invoiceId}>
                   <td className={reportTd}>
                     <ProjectIdentity
@@ -333,6 +343,11 @@ function InvoicesTable({
             )}
           </tbody>
         </table>
+        <RowWindowFooter
+          shown={rowWindow.visibleCount}
+          total={rows.length}
+          onShowMore={rowWindow.showMore}
+        />
       </ReportsTableScroll>
       <ReportExportIcons
         filename="sales-invoices"
@@ -370,6 +385,11 @@ function ContractsTable({
   rows: ReturnType<typeof buildSalesContractRows>;
   filters: string;
 }) {
+  const rowWindow = useRowWindow(
+    rows.length,
+    rowWindowKey(rows.length, rows[0]?.contractId, rows.at(-1)?.contractId)
+  );
+  const visible = rows.slice(0, rowWindow.visibleCount);
   return (
     <>
       <ReportsTableScroll className="mt-4">
@@ -409,7 +429,7 @@ function ContractsTable({
                 </td>
               </tr>
             ) : (
-              rows.map((r) => (
+              visible.map((r) => (
                 <tr key={r.contractId}>
                   <td className={reportTd}>
                     <ProjectIdentity
@@ -438,6 +458,11 @@ function ContractsTable({
             )}
           </tbody>
         </table>
+        <RowWindowFooter
+          shown={rowWindow.visibleCount}
+          total={rows.length}
+          onShowMore={rowWindow.showMore}
+        />
       </ReportsTableScroll>
       <ReportExportIcons
         filename="sales-contracts"

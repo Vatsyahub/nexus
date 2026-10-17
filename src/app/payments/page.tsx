@@ -17,6 +17,12 @@ import { paymentMatchesQuery } from "@/lib/list-search";
 import { paymentLinkLabel } from "@/lib/payment-display";
 import { formatDisplayDate } from "@/lib/dates";
 import { HubDataScroll, HubPage } from "@/components/hub-scroll";
+import {
+  RowWindowFooter,
+  rowWindowKey,
+  useRowWindow,
+} from "@/components/list-window";
+import { workspaceIndex } from "@/lib/workspace-index";
 import { cn } from "@/lib/utils";
 
 function formatMoney(n: number) {
@@ -34,12 +40,13 @@ export default function PaymentsPage() {
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
 
+  const index = useMemo(() => workspaceIndex(data), [data]);
   const payments = useMemo(() => {
     return data.payments
       .filter((p) => {
-        const c = data.contracts.find((x) => x.id === p.contractId);
+        const c = index.contractById.get(p.contractId);
         const inv = p.invoiceId
-          ? data.invoices.find((i) => i.id === p.invoiceId)
+          ? index.invoiceById.get(p.invoiceId) ?? null
           : null;
         if (!paymentMatchesQuery(p, c, inv, q)) return false;
         if (filterFrom && p.date < filterFrom) return false;
@@ -51,7 +58,12 @@ export default function PaymentsPage() {
         (a, b) =>
           b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)
       );
-  }, [data.payments, data.contracts, data.invoices, q, filterFrom, filterTo]);
+  }, [data.payments, index, q, filterFrom, filterTo]);
+  const rowWindow = useRowWindow(
+    payments.length,
+    rowWindowKey(payments.length, payments[0]?.id, payments.at(-1)?.id)
+  );
+  const visiblePayments = payments.slice(0, rowWindow.visibleCount);
 
   return (
     <HubPage className="max-w-5xl">
@@ -124,10 +136,10 @@ export default function PaymentsPage() {
                   </td>
                 </tr>
               ) : (
-                payments.map((p) => {
-                  const c = data.contracts.find((x) => x.id === p.contractId);
+                visiblePayments.map((p) => {
+                  const c = index.contractById.get(p.contractId);
                   const inv = p.invoiceId
-                    ? data.invoices.find((i) => i.id === p.invoiceId)
+                    ? index.invoiceById.get(p.invoiceId) ?? null
                     : null;
                   return (
                     <tr key={p.id} className="hover:bg-[var(--fh-bg)]/60">
@@ -193,6 +205,11 @@ export default function PaymentsPage() {
               )}
             </tbody>
           </table>
+          <RowWindowFooter
+            shown={rowWindow.visibleCount}
+            total={payments.length}
+            onShowMore={rowWindow.showMore}
+          />
         </HubDataScroll>
       </section>
     </HubPage>

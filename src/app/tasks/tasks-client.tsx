@@ -63,6 +63,11 @@ import {
   TASK_SAVE_DENIED,
 } from "@/lib/task-permissions";
 import { HubDataScroll, HubPage } from "@/components/hub-scroll";
+import {
+  RowWindowFooter,
+  rowWindowKey,
+  useRowWindow,
+} from "@/components/list-window";
 import { cn } from "@/lib/utils";
 
 export type AssignablePerson = {
@@ -278,6 +283,25 @@ function TasksPageInner({
     return map;
   }, [data.contracts]);
 
+  const taskById = useMemo(() => {
+    const map = new Map<string, Task>();
+    for (const task of data.tasks) {
+      if (!map.has(task.id)) map.set(task.id, task);
+    }
+    return map;
+  }, [data.tasks]);
+
+  const tasksByParent = useMemo(() => {
+    const map = new Map<string, Task[]>();
+    for (const task of data.tasks) {
+      if (!task.parentId) continue;
+      const list = map.get(task.parentId);
+      if (list) list.push(task);
+      else map.set(task.parentId, [task]);
+    }
+    return map;
+  }, [data.tasks]);
+
   // Open the task from a notification deep-link so data can be entered.
   useEffect(() => {
     if (!focusTaskId) return;
@@ -307,15 +331,15 @@ function TasksPageInner({
       const c = t.contractId ? contractById.get(t.contractId) ?? null : null;
       if (taskMatchesQuery(t, c, q)) return true;
       if (!t.parentId) {
-        return data.tasks.some((s) => {
-          if (s.parentId !== t.id || !taskVisibleInLists(s)) return false;
+        return (tasksByParent.get(t.id) ?? []).some((s) => {
+          if (!taskVisibleInLists(s)) return false;
           const sc = s.contractId
             ? contractById.get(s.contractId) ?? null
             : null;
           return taskMatchesQuery(s, sc, q);
         });
       }
-      const parent = data.tasks.find((p) => p.id === t.parentId);
+      const parent = taskById.get(t.parentId);
       if (!parent) return false;
       const pc = parent.contractId
         ? contractById.get(parent.contractId) ?? null
@@ -325,6 +349,8 @@ function TasksPageInner({
   }, [
     data.tasks,
     contractById,
+    taskById,
+    tasksByParent,
     q,
     contractId,
     priorityFilter,
@@ -334,7 +360,17 @@ function TasksPageInner({
     () => scoped.filter((t) => !t.parentId),
     [scoped]
   );
-  const childrenOf = (id: string) => scoped.filter((t) => t.parentId === id);
+  const childrenByParent = useMemo(() => {
+    const map = new Map<string, Task[]>();
+    for (const task of scoped) {
+      if (!task.parentId) continue;
+      const list = map.get(task.parentId);
+      if (list) list.push(task);
+      else map.set(task.parentId, [task]);
+    }
+    return map;
+  }, [scoped]);
+  const childrenOf = (id: string) => childrenByParent.get(id) ?? [];
 
   const isMyTask = useMemo(() => {
     const name = currentUserName.trim();
@@ -342,11 +378,11 @@ function TasksPageInner({
       if (!name) return false;
       if (isAssignedTo(t, name)) return true;
       // Include parent when a subtask is appointed to this user
-      return scoped.some(
-        (s) => s.parentId === t.id && isAssignedTo(s, name)
+      return (childrenByParent.get(t.id) ?? []).some((s) =>
+        isAssignedTo(s, name)
       );
     };
-  }, [currentUserName, scoped]);
+  }, [currentUserName, childrenByParent]);
 
   const counts = useMemo(() => {
     const open = roots.filter(taskIsOpen);
@@ -379,6 +415,26 @@ function TasksPageInner({
       .slice()
       .sort((a, b) => sortTasks(a, b, today));
   }, [roots, view, today, isMyTask]);
+
+  const rowWindow = useRowWindow(
+    visibleRoots.length,
+    rowWindowKey(
+      visibleRoots.length,
+      visibleRoots[0]?.id,
+      visibleRoots.at(-1)?.id
+    )
+  );
+  const focusRootId = focusTaskId
+    ? taskById.get(focusTaskId)?.parentId || focusTaskId
+    : null;
+  const focusAt = focusRootId
+    ? visibleRoots.findIndex((task) => task.id === focusRootId)
+    : -1;
+  const shownCount = Math.max(
+    rowWindow.visibleCount,
+    focusAt >= 0 ? focusAt + 1 : 0
+  );
+  const shownRoots = visibleRoots.slice(0, shownCount);
 
   const views: { id: ViewFilter; label: string; count: number }[] = [
     { id: "all", label: "All", count: counts.all },
@@ -493,7 +549,7 @@ function TasksPageInner({
             No tasks in this view.
           </div>
         ) : (
-          visibleRoots.map((t) => {
+          shownRoots.map((t) => {
             const contract = t.contractId
               ? contractById.get(t.contractId)
               : null;
@@ -532,6 +588,11 @@ function TasksPageInner({
             );
           })
         )}
+        <RowWindowFooter
+          shown={shownCount}
+          total={visibleRoots.length}
+          onShowMore={rowWindow.showMore}
+        />
       </HubDataScroll>
 
       <ReportExportIcons

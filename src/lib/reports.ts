@@ -18,6 +18,7 @@ import { isScheduleDateNa } from "@/lib/types";
 import { matchesAny } from "@/lib/list-search";
 import { dateSearchForms, isDateInInclusiveRange } from "@/lib/dates";
 import { formatMoney } from "@/lib/format-money";
+import { workspaceIndex } from "@/lib/workspace-index";
 import {
   contractActualRetentionHold,
   contractActualTdsHold,
@@ -43,8 +44,8 @@ function tiLinkedPaidBreakdown(ti: Invoice, data: FlowhubData) {
   let netPaid = 0;
   let gstPaid = 0;
   let otherPaid = 0;
-  for (const p of data.payments) {
-    if (p.invoiceId !== ti.id || !isTiLinkedPayment(p)) continue;
+  for (const p of workspaceIndex(data).paymentsByInvoice.get(ti.id) ?? []) {
+    if (!isTiLinkedPayment(p)) continue;
     netPaid += Number(p.netAmount) || 0;
     gstPaid += Number(p.gstAmount) || 0;
     otherPaid += Number(p.otherDeductions) || 0;
@@ -134,13 +135,7 @@ export type ReconciliationSummaryRow = {
 };
 
 function contractTis(contractId: string, data: FlowhubData): Invoice[] {
-  return data.invoices
-    .filter((i) => i.type === "TI" && i.contractId === contractId)
-    .slice()
-    .sort(
-      (a, b) =>
-        a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt)
-    );
+  return (workspaceIndex(data).tisByContract.get(contractId) ?? []).slice();
 }
 
 function tiNumberMap(tis: Invoice[]): Map<string, string> {
@@ -443,7 +438,7 @@ export function buildOpenPiRows(
     .filter((i) => i.type === "PI" && !converted.has(i.id))
     .filter((i) => !contractId || i.contractId === contractId)
     .map((i) => {
-      const c = data.contracts.find((x) => x.id === i.contractId);
+      const c = workspaceIndex(data).contractById.get(i.contractId);
       return {
         invoiceId: i.id,
         contractId: i.contractId,
@@ -559,8 +554,8 @@ export type SalesContractRow = {
 
 function linkedNetReceived(ti: Invoice, data: FlowhubData): number {
   let net = 0;
-  for (const p of data.payments) {
-    if (p.invoiceId !== ti.id || !isTiLinkedPayment(p)) continue;
+  for (const p of workspaceIndex(data).paymentsByInvoice.get(ti.id) ?? []) {
+    if (!isTiLinkedPayment(p)) continue;
     net += Number(p.netAmount) || 0;
   }
   return net;
@@ -581,18 +576,19 @@ function netOutstandingBeforeUnlinked(ti: Invoice, data: FlowhubData): number {
  * against each TI’s net outstanding (billed net − holds − linked net).
  * Uses payment.netAmount only — not paymentTowardOutstanding (net + GST + other).
  */
-function unlinkedNetAmountAllocations(data: FlowhubData): Map<string, number> {
-  const allocated = new Map<string, number>();
-  const byContract = new Map<string, Payment[]>();
-  for (const p of data.payments) {
-    if (p.link !== "unlinked") continue;
-    const list = byContract.get(p.contractId) ?? [];
-    list.push(p);
-    byContract.set(p.contractId, list);
-  }
+const unlinkedNetCache = new WeakMap<FlowhubData, Map<string, number>>();
 
-  for (const [contractId, pays] of byContract) {
-    let pool = pays
+function unlinkedNetAmountAllocations(data: FlowhubData): Map<string, number> {
+  const cached = unlinkedNetCache.get(data);
+  if (cached) return cached;
+
+  const index = workspaceIndex(data);
+  const allocated = new Map<string, number>();
+
+  for (const [contractId, pays] of index.paymentsByContract) {
+    const unlinked = pays.filter((p) => p.link === "unlinked");
+    if (unlinked.length === 0) continue;
+    let pool = unlinked
       .slice()
       .sort(
         (a, b) =>
@@ -600,7 +596,7 @@ function unlinkedNetAmountAllocations(data: FlowhubData): Map<string, number> {
       )
       .reduce((s, p) => s + (Number(p.netAmount) || 0), 0);
 
-    for (const ti of contractTis(contractId, data)) {
+    for (const ti of index.tisByContract.get(contractId) ?? []) {
       const need = Math.max(0, netOutstandingBeforeUnlinked(ti, data));
       const take = Math.min(pool, need);
       if (take > 0) {
@@ -609,6 +605,8 @@ function unlinkedNetAmountAllocations(data: FlowhubData): Map<string, number> {
       }
     }
   }
+
+  unlinkedNetCache.set(data, allocated);
   return allocated;
 }
 

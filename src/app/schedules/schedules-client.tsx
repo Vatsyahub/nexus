@@ -44,6 +44,12 @@ import {
   formatScheduleDateRange,
 } from "@/lib/dates";
 import { HubDataScroll, HubPage } from "@/components/hub-scroll";
+import {
+  RowWindowFooter,
+  rowWindowKey,
+  useRowWindow,
+} from "@/components/list-window";
+import { workspaceIndex } from "@/lib/workspace-index";
 import { contractStatusLabel } from "@/lib/nexus-core";
 import { cn } from "@/lib/utils";
 
@@ -111,17 +117,27 @@ export default function SchedulesClient({
   const [viewContractId, setViewContractId] = useState("");
 
   const today = todayIso();
+  const contractById = useMemo(
+    () => workspaceIndex(data).contractById,
+    [data]
+  );
+  const scheduleContractIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const line of data.schedules) ids.add(line.contractId);
+    return ids;
+  }, [data.schedules]);
 
   const viewContracts = useMemo(() => {
-    return [...data.contracts]
-      .filter((c) => data.schedules.some((s) => s.contractId === c.id))
+    return data.contracts
+      .filter((c) => scheduleContractIds.has(c.id))
+      .slice()
       .sort((a, b) => a.projectNo.localeCompare(b.projectNo));
-  }, [data.contracts, data.schedules]);
+  }, [data.contracts, scheduleContractIds]);
 
   const listed = useMemo(() => {
     return data.schedules
       .filter((s) => {
-        const c = data.contracts.find((x) => x.id === s.contractId);
+        const c = contractById.get(s.contractId);
         const item = s.boqItemId
           ? c?.boq.find((b) => b.id === s.boqItemId)
           : null;
@@ -145,7 +161,7 @@ export default function SchedulesClient({
       });
   }, [
     data.schedules,
-    data.contracts,
+    contractById,
     q,
     committedFilter,
     fromDate,
@@ -153,6 +169,11 @@ export default function SchedulesClient({
     tab,
     today,
   ]);
+  const rowWindow = useRowWindow(
+    listed.length,
+    rowWindowKey(listed.length, listed[0]?.id, listed.at(-1)?.id)
+  );
+  const visibleLines = listed.slice(0, rowWindow.visibleCount);
 
   const nearCount = useMemo(
     () => data.schedules.filter((s) => scheduleIsNear(s, today)).length,
@@ -169,9 +190,7 @@ export default function SchedulesClient({
     return [...(data.scheduleChangeLog ?? [])]
       .filter((e) => {
         if (!tokens.length) return true;
-        const c = e.contractId
-          ? data.contracts.find((x) => x.id === e.contractId)
-          : null;
+        const c = e.contractId ? contractById.get(e.contractId) ?? null : null;
         return tokens.every((token) => {
           const t = token.toLowerCase();
           if (c && matchesToken(t, [
@@ -193,7 +212,7 @@ export default function SchedulesClient({
         });
       })
       .sort((a, b) => b.at.localeCompare(a.at));
-  }, [data.scheduleChangeLog, data.contracts, q]);
+  }, [data.scheduleChangeLog, contractById, q]);
 
   async function onClearChangeLog() {
     if (!isMaster) return;
@@ -448,7 +467,7 @@ export default function SchedulesClient({
                 ) : (
                   changelog.map((e) => {
                     const c = e.contractId
-                      ? data.contracts.find((x) => x.id === e.contractId)
+                      ? contractById.get(e.contractId)
                       : null;
                     return (
                       <tr key={e.id}>
@@ -472,7 +491,7 @@ export default function SchedulesClient({
             headers={["When", "Who", "Project no.", "Project", "Change"]}
             rows={changelog.map((e) => {
               const c = e.contractId
-                ? data.contracts.find((x) => x.id === e.contractId)
+                ? contractById.get(e.contractId)
                 : null;
               return [
                 formatDisplayDateTime(e.at),
@@ -515,8 +534,8 @@ export default function SchedulesClient({
                     </td>
                   </tr>
                 ) : (
-                  listed.map((s) => {
-                    const c = data.contracts.find((x) => x.id === s.contractId);
+                  visibleLines.map((s) => {
+                    const c = contractById.get(s.contractId);
                     const item = s.boqItemId
                       ? c?.boq.find((b) => b.id === s.boqItemId)
                       : null;
@@ -609,6 +628,11 @@ export default function SchedulesClient({
                 )}
               </tbody>
             </table>
+            <RowWindowFooter
+              shown={rowWindow.visibleCount}
+              total={listed.length}
+              onShowMore={rowWindow.showMore}
+            />
           </HubDataScroll>
           <ReportExportIcons
             filename="schedules"
@@ -643,7 +667,7 @@ export default function SchedulesClient({
               "Commitment",
             ]}
             rows={listed.map((s) => {
-              const c = data.contracts.find((x) => x.id === s.contractId);
+              const c = contractById.get(s.contractId);
               const item = s.boqItemId
                 ? c?.boq.find((b) => b.id === s.boqItemId)
                 : null;

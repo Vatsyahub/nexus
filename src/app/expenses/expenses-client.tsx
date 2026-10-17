@@ -18,6 +18,11 @@ import { ContractTypeahead } from "@/components/contract-typeahead";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { ListSearchBar } from "@/components/list-search";
 import {
+  RowWindowFooter,
+  rowWindowKey,
+  useRowWindow,
+} from "@/components/list-window";
+import {
   DeleteIconButton,
   EditIconButton,
   HistoryIconButton,
@@ -141,6 +146,11 @@ export function ExpensesClient({
     () => rows.reduce((s, r) => s + r.expense.amount, 0),
     [rows]
   );
+  const rowWindow = useRowWindow(
+    rows.length,
+    rowWindowKey(rows.length, rows[0]?.expense.id, rows.at(-1)?.expense.id)
+  );
+  const visibleExpenses = rows.slice(0, rowWindow.visibleCount);
 
   const hasAnyHistory = useMemo(
     () =>
@@ -492,7 +502,7 @@ export function ExpensesClient({
                 </td>
               </tr>
             ) : (
-              rows.map(({ contractId, projectNo, projectName, expense: e }) => (
+              visibleExpenses.map(({ contractId, projectNo, projectName, expense: e }) => (
                 <tr
                   key={e.id}
                   className={cn(
@@ -568,6 +578,11 @@ export function ExpensesClient({
             )}
           </tbody>
         </table>
+        <RowWindowFooter
+          shown={rowWindow.visibleCount}
+          total={rows.length}
+          onShowMore={rowWindow.showMore}
+        />
       </section>
       </HubDataScroll>
 

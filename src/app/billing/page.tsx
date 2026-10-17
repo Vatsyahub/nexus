@@ -17,6 +17,12 @@ import { ListSearchBar } from "@/components/list-search";
 import { invoiceMatchesQuery } from "@/lib/list-search";
 import { formatDisplayDate } from "@/lib/dates";
 import { HubDataScroll, HubPage } from "@/components/hub-scroll";
+import {
+  RowWindowFooter,
+  rowWindowKey,
+  useRowWindow,
+} from "@/components/list-window";
+import { workspaceIndex } from "@/lib/workspace-index";
 import { cn } from "@/lib/utils";
 
 function formatMoney(n: number) {
@@ -35,10 +41,14 @@ export default function BillingHomePage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
 
+  const contractById = useMemo(
+    () => workspaceIndex(data).contractById,
+    [data]
+  );
   const listed = useMemo(() => {
     return data.invoices
       .filter((inv) => {
-        const c = data.contracts.find((x) => x.id === inv.contractId);
+        const c = contractById.get(inv.contractId);
         const due =
           inv.type === "TI" ? invoiceDueDate(inv, data) : null;
         if (!invoiceMatchesQuery(inv, c, q, { dueDate: due })) return false;
@@ -49,7 +59,12 @@ export default function BillingHomePage() {
       })
       .slice()
       .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
-  }, [data, q, typeFilter, from, to]);
+  }, [data, contractById, q, typeFilter, from, to]);
+  const rowWindow = useRowWindow(
+    listed.length,
+    rowWindowKey(listed.length, listed[0]?.id, listed.at(-1)?.id)
+  );
+  const visibleInvoices = listed.slice(0, rowWindow.visibleCount);
 
   return (
     <HubPage>
@@ -126,8 +141,8 @@ export default function BillingHomePage() {
                   </td>
                 </tr>
               ) : (
-                listed.map((inv) => {
-                  const c = data.contracts.find((x) => x.id === inv.contractId);
+                visibleInvoices.map((inv) => {
+                  const c = contractById.get(inv.contractId);
                   const expected = invoiceExpectedCash(inv, data);
                   const dueDate = inv.type === "TI" ? invoiceDueDate(inv, data) : "—";
                   const due = inv.type === "TI" ? invoiceOutstanding(inv, data) : null;
@@ -180,6 +195,11 @@ export default function BillingHomePage() {
               )}
             </tbody>
           </table>
+          <RowWindowFooter
+            shown={rowWindow.visibleCount}
+            total={listed.length}
+            onShowMore={rowWindow.showMore}
+          />
         </HubDataScroll>
       </section>
     </HubPage>

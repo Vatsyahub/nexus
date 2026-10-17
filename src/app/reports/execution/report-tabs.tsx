@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, type FormEvent } from "react";
+import { RowWindowFooter, useVisibleRows } from "@/components/list-window";
 import { Trash2 } from "lucide-react";
 import type { FlowhubData } from "@/lib/types";
 import { SCHEDULE_KIND_LABELS } from "@/lib/types";
@@ -119,6 +120,7 @@ export function SchedulesTab({ data }: { data: FlowhubData }) {
       ]);
     });
   }, [all, q, dateFrom, dateTo]);
+  const page = useVisibleRows(rows, (row) => row.scheduleId);
 
   return (
     <div className="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -169,7 +171,7 @@ export function SchedulesTab({ data }: { data: FlowhubData }) {
                 }
               />
             ) : (
-              rows.map((r) => (
+              page.visible.map((r) => (
                 <tr key={r.scheduleId}>
                   <td className={reportTd}>
                     <ProjectIdentity
@@ -207,6 +209,11 @@ export function SchedulesTab({ data }: { data: FlowhubData }) {
             )}
           </tbody>
         </table>
+        <RowWindowFooter
+          shown={page.shown}
+          total={page.total}
+          onShowMore={page.showMore}
+        />
       </ReportsTableScroll>
       <ReportExportIcons
         filename="execution-schedules"
@@ -259,6 +266,7 @@ export function SummaryTab({ data }: { data: FlowhubData }) {
       matchesAny(needle, [r.projectNo, r.projectName, r.itemName, r.unit])
     );
   }, [all, q]);
+  const page = useVisibleRows(rows, (row) => `${row.contractId}-${row.boqItemId}`);
 
   return (
     <div className="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -304,7 +312,7 @@ export function SummaryTab({ data }: { data: FlowhubData }) {
                 text={all.length === 0 ? "No BOQ items yet." : "No matching items."}
               />
             ) : (
-              rows.map((r) => (
+              page.visible.map((r) => (
                 <tr key={`${r.contractId}-${r.boqItemId}`}>
                   <td className={cn(reportTd, "max-w-[16rem]")}>
                     <ProjectIdentity
@@ -361,6 +369,11 @@ export function SummaryTab({ data }: { data: FlowhubData }) {
             )}
           </tbody>
         </table>
+        <RowWindowFooter
+          shown={page.shown}
+          total={page.total}
+          onShowMore={page.showMore}
+        />
       </ReportsTableScroll>
       <ReportExportIcons
         filename="execution-summary"

@@ -9,6 +9,7 @@ import {
   contractActualRetentionHold,
   contractRecoverablePool,
   contractRecoveredTotal,
+  deletePayment,
   getData,
   invoiceOutstanding,
   paymentCash,
@@ -519,4 +520,93 @@ test("add and update reject recovered above the pool without counting an edit tw
   });
   assert.equal(shortCash, null);
   assert.equal(getData().payments.find((p) => p.id === pool.id)?.netAmount, 80);
+});
+
+test("deleting recoverable cash is refused while tax invoices still recover it", () => {
+  const created = addContract({
+    projectName: "Delete pool",
+    projectNo: `C-DEL-${Date.now()}`,
+    orderNos: "T-DEL",
+    orderDate: "2026-10-01",
+    closureDate: "2026-12-31",
+    orderValue: 1000,
+    gstApplicable: false,
+    city: "Delhi",
+    state: "Delhi",
+    country: "India",
+    billingTerms: { supply: 100 },
+    paymentDueDays: 30,
+    retentionPercent: 0,
+    tdsPercent: 0,
+    dlpMonths: 12,
+    abgRequired: false,
+    abgPercent: null,
+    abgValue: null,
+    pbgRequired: false,
+    pbgPercent: null,
+    pbgValue: null,
+    contractorAssigned: "",
+    boq: [
+      {
+        id: "boq-del",
+        catalogKey: "item-del",
+        name: "Delete item",
+        unit: "Nos",
+        rate: 1000,
+        quantity: 1,
+      },
+    ],
+  });
+  const contractId = created.contract.id;
+  const invoice = addInvoice({
+    type: "TI",
+    number: "TI-DEL",
+    date: "2026-01-01",
+    contractId,
+    lines: [
+      {
+        boqItemId: "boq-del",
+        itemName: "Delete item",
+        termKey: "supply",
+        billedQty: 1,
+        rate: 1000,
+        termPercent: 100,
+        lineNet: 1000,
+      },
+    ],
+  });
+  assert.ok(invoice);
+  const pool = addPayment({
+    contractId,
+    invoiceId: null,
+    link: "recoverable",
+    date: "2026-01-02",
+    netAmount: 100,
+    gstAmount: 0,
+    retentionAmount: 0,
+    tdsAmount: 0,
+    otherDeductions: 0,
+    otherDeductionReason: "",
+    recovered: 0,
+  });
+  const recovered = addPayment({
+    contractId,
+    invoiceId: invoice.id,
+    link: "TI",
+    date: "2026-01-03",
+    netAmount: 0,
+    gstAmount: 0,
+    retentionAmount: 0,
+    tdsAmount: 0,
+    otherDeductions: 0,
+    otherDeductionReason: "",
+    recovered: 40,
+  });
+  assert.ok(pool);
+  assert.ok(recovered);
+  assert.equal(deletePayment(pool.id), false);
+  assert.equal(getData().payments.some((p) => p.id === pool.id), true);
+  assert.equal(deletePayment(recovered.id), true);
+  assert.equal(deletePayment(pool.id), true);
+  assert.equal(getData().payments.some((p) => p.id === pool.id), false);
 });

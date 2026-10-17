@@ -7,6 +7,12 @@ import {
   taskIsOpen,
   useFlowhubData,
 } from "@/lib/store";
+import { workspaceIndex } from "@/lib/workspace-index";
+import {
+  RowWindowFooter,
+  rowWindowKey,
+  useRowWindow,
+} from "@/components/list-window";
 import { contractDisplayStatus, todayIso } from "@/lib/nexus-core";
 import { GST_RATE } from "@/lib/types";
 import { buttonVariants } from "@/components/ui/button";
@@ -38,6 +44,7 @@ export default function ContractsPage() {
   const [q, setQ] = useState("");
   const today = todayIso();
 
+  const index = useMemo(() => workspaceIndex(data), [data]);
   const rows = useMemo(() => {
     return data.contracts
       .filter((c) => contractMatchesQuery(c, q))
@@ -48,6 +55,11 @@ export default function ContractsPage() {
         return da.localeCompare(db);
       });
   }, [data.contracts, q]);
+  const rowWindow = useRowWindow(
+    rows.length,
+    rowWindowKey(rows.length, rows[0]?.id, rows.at(-1)?.id)
+  );
+  const visibleRows = rows.slice(0, rowWindow.visibleCount);
 
   return (
     <HubPage>
@@ -98,16 +110,17 @@ export default function ContractsPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              rows.map((c) => {
+              visibleRows.map((c) => {
                 const withGst = c.gstApplicable
                   ? c.orderValue * (1 + GST_RATE)
                   : c.orderValue;
-                const billedNet = data.invoices
-                  .filter((i) => i.contractId === c.id && i.type === "TI")
-                  .reduce((s, i) => s + (Number(i.netAmount) || 0), 0);
+                let billedNet = 0;
+                for (const invoice of index.tisByContract.get(c.id) ?? []) {
+                  billedNet += Number(invoice.netAmount) || 0;
+                }
                 const yetToBill = c.orderValue - billedNet;
-                const pending = data.tasks.filter(
-                  (t) => t.contractId === c.id && !t.parentId && taskIsOpen(t)
+                const pending = (index.tasksByContract.get(c.id) ?? []).filter(
+                  (t) => !t.parentId && taskIsOpen(t)
                 ).length;
                 return (
                   <TableRow key={c.id}>
@@ -167,6 +180,11 @@ export default function ContractsPage() {
             )}
           </TableBody>
         </Table>
+        <RowWindowFooter
+          shown={rowWindow.visibleCount}
+          total={rows.length}
+          onShowMore={rowWindow.showMore}
+        />
       </HubDataScroll>
     </HubPage>
   );

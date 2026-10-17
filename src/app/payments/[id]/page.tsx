@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   deletePayment,
   flushWorkspace,
+  PAYMENT_DELETE_BLOCKED,
   invoiceBalanceLabel,
   invoiceOutstanding,
   paymentAccounted,
@@ -42,6 +44,7 @@ export default function PaymentDetailPage() {
   const id = String(params.id);
   const router = useRouter();
   const data = useFlowhubData();
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const payment = data.payments.find((p) => p.id === id);
   const contract = data.contracts.find((c) => c.id === payment?.contractId);
   const invoice = payment?.invoiceId
@@ -91,7 +94,11 @@ export default function PaymentDetailPage() {
     ) {
       return;
     }
-    deletePayment(id);
+    const removed = deletePayment(id);
+    if (!removed) {
+      setDeleteError(PAYMENT_DELETE_BLOCKED);
+      return;
+    }
     await flushWorkspace();
     router.push("/payments");
   }
@@ -111,6 +118,11 @@ export default function PaymentDetailPage() {
           <DeleteIconButton label="Delete payment" onClick={onDelete} />
         </div>
       </div>
+      {deleteError ? (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {deleteError}
+        </p>
+      ) : null}
 
       <article className="rounded-xl border border-[var(--fh-line)] bg-white p-6 sm:p-8 shadow-sm">
         <header className="border-b border-[var(--fh-line)] pb-6">

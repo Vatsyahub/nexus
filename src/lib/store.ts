@@ -109,6 +109,11 @@ import {
   type WorkspaceChangeRequest,
 } from "@/lib/workspace-changes";
 import { STALE_WORKSPACE_SAVE_MESSAGE } from "@/lib/workspace-guard";
+import {
+  handoverByContract,
+  itemKey,
+  workspaceIndex,
+} from "@/lib/workspace-index";
 
 export type { TaskActor };
 export {
@@ -467,7 +472,7 @@ function normalizeData(raw: FlowhubData): FlowhubData {
     itemCatalog: raw.itemCatalog ?? [],
     invoices: (raw.invoices ?? []).map(normalizeInvoice),
     payments: (raw.payments ?? []).map((p) =>
-      normalizePayment(p, raw.invoices ?? [])
+      normalizePayment(p, invoicesByFirstId(raw.invoices ?? []))
     ),
     schedules: (raw.schedules ?? []).map(normalizeSchedule),
     scheduleChangeLog: purgeExpiredScheduleChangeLog(raw.scheduleChangeLog),
@@ -783,7 +788,7 @@ export function closureDateNeedsAttention(
   today?: string
 ): boolean {
   const d = data ?? read();
-  const contract = d.contracts.find((c) => c.id === contractId);
+  const contract = workspaceIndex(d).contractById.get(contractId);
   if (!contract?.closureDate) return false;
   if (contractDisplayStatus(d, contract, today ?? nexusTodayIso()) === "Completed")
     return false;
@@ -795,9 +800,7 @@ export function closureDateNeedsAttention(
       const day = String(t.getDate()).padStart(2, "0");
       return `${t.getFullYear()}-${m}-${day}`;
     })();
-  const handover = d.schedules.find(
-    (s) => s.contractId === contractId && s.kind === "handover"
-  );
+  const handover = handoverByContract(d.schedules).get(contractId);
   const handoverDate =
     handover && handover.startDate && !isScheduleDateNa(handover.startDate)
       ? handover.startDate
@@ -3728,13 +3731,16 @@ export function deleteInvoice(id: string): boolean {
   return true;
 }
 
+export const PAYMENT_DELETE_BLOCKED =
+  "This payment still backs recovered amounts on tax invoices. Reduce those recovered amounts before deleting it.";
+
 export function deletePayment(id: string): boolean {
   const data = read();
-  if (!data.payments.some((p) => p.id === id)) return false;
-  write({
-    ...data,
-    payments: data.payments.filter((p) => p.id !== id),
-  });
+  const current = data.payments.find((p) => p.id === id);
+  if (!current) return false;
+  const payments = data.payments.filter((p) => p.id !== id);
+  if (!recoverablePoolHolds(payments, current.contractId)) return false;
+  write({ ...data, payments });
   return true;
 }
 
@@ -3752,7 +3758,7 @@ export function invoiceExtraTotal(invoice: Invoice) {
  */
 export function invoiceRetentionHold(invoice: Invoice, data?: FlowhubData) {
   const d = data ?? read();
-  const contract = d.contracts.find((c) => c.id === invoice.contractId);
+  const contract = workspaceIndex(d).contractById.get(invoice.contractId);
   return ((contract?.retentionPercent ?? 0) * invoice.netAmount) / 100;
 }
 
@@ -3763,7 +3769,7 @@ export function invoiceRetentionHold(invoice: Invoice, data?: FlowhubData) {
  */
 export function invoiceTdsHold(invoice: Invoice, data?: FlowhubData) {
   const d = data ?? read();
-  const contract = d.contracts.find((c) => c.id === invoice.contractId);
+  const contract = workspaceIndex(d).contractById.get(invoice.contractId);
   return (
     ((contract?.tdsPercent ?? DEFAULT_TDS_PERCENT) * invoice.netAmount) / 100
   );
@@ -3793,9 +3799,12 @@ export function invoiceActualRetentionHold(
 ) {
   if (invoice.type !== "TI") return 0;
   const d = data ?? read();
-  return d.payments
-    .filter((p) => p.invoiceId === invoice.id && isTiLinkedPayment(p))
-    .reduce((s, p) => s + (Number(p.retentionAmount) || 0), 0);
+  let sum = 0;
+  for (const p of workspaceIndex(d).paymentsByInvoice.get(invoice.id) ?? []) {
+    if (!isTiLinkedPayment(p)) continue;
+    sum += Number(p.retentionAmount) || 0;
+  }
+  return sum;
 }
 
 /**
@@ -3805,9 +3814,12 @@ export function invoiceActualRetentionHold(
 export function invoiceActualTdsHold(invoice: Invoice, data?: FlowhubData) {
   if (invoice.type !== "TI") return 0;
   const d = data ?? read();
-  return d.payments
-    .filter((p) => p.invoiceId === invoice.id && isTiLinkedPayment(p))
-    .reduce((s, p) => s + (Number(p.tdsAmount) || 0), 0);
+  let sum = 0;
+  for (const p of workspaceIndex(d).paymentsByInvoice.get(invoice.id) ?? []) {
+    if (!isTiLinkedPayment(p)) continue;
+    sum += Number(p.tdsAmount) || 0;
+  }
+  return sum;
 }
 
 /**
@@ -3819,9 +3831,12 @@ export function contractActualRetentionHold(
   data?: FlowhubData
 ) {
   const d = data ?? read();
-  return d.payments
-    .filter((p) => p.contractId === contractId && isContractMoneyPayment(p))
-    .reduce((s, p) => s + (Number(p.retentionAmount) || 0), 0);
+  let sum = 0;
+  for (const p of workspaceIndex(d).paymentsByContract.get(contractId) ?? []) {
+    if (!isContractMoneyPayment(p)) continue;
+    sum += Number(p.retentionAmount) || 0;
+  }
+  return sum;
 }
 
 /**
@@ -3829,9 +3844,12 @@ export function contractActualRetentionHold(
  */
 export function contractActualTdsHold(contractId: string, data?: FlowhubData) {
   const d = data ?? read();
-  return d.payments
-    .filter((p) => p.contractId === contractId && isContractMoneyPayment(p))
-    .reduce((s, p) => s + (Number(p.tdsAmount) || 0), 0);
+  let sum = 0;
+  for (const p of workspaceIndex(d).paymentsByContract.get(contractId) ?? []) {
+    if (!isContractMoneyPayment(p)) continue;
+    sum += Number(p.tdsAmount) || 0;
+  }
+  return sum;
 }
 
 /** Excess actual over expected held (no cap). */
@@ -3841,7 +3859,7 @@ export function holdExcess(actual: number, expected: number) {
 
 export function invoiceDueDate(invoice: Invoice, data?: FlowhubData) {
   const d = data ?? read();
-  const contract = d.contracts.find((c) => c.id === invoice.contractId);
+  const contract = workspaceIndex(d).contractById.get(invoice.contractId);
   const raw = String(invoice.date ?? "").trim();
   // Anchor at noon to avoid UTC timezone day-shifts; fall back to today if invalid
   // so one bad TI cannot crash Invoices and Outstandings.
@@ -3858,12 +3876,20 @@ export function invoiceDueDate(invoice: Invoice, data?: FlowhubData) {
   return `${y}-${m}-${day}`;
 }
 
+function invoicesByFirstId(invoices: readonly Invoice[]): Map<string, Invoice> {
+  const map = new Map<string, Invoice>();
+  for (const invoice of invoices) {
+    if (!map.has(invoice.id)) map.set(invoice.id, invoice);
+  }
+  return map;
+}
+
 function normalizePayment(
   p: Payment & { invoiceId?: string | null },
-  invoices: Invoice[]
+  invoices: Map<string, Invoice>
 ): Payment {
   const invoiceId = p.invoiceId ?? null;
-  const invoice = invoiceId ? invoices.find((i) => i.id === invoiceId) : null;
+  const invoice = invoiceId ? invoices.get(invoiceId) ?? null : null;
   let link = p.link;
   if (!link) {
     if (!invoiceId) link = "unlinked";
@@ -3886,20 +3912,21 @@ function normalizePayment(
  * Unlinked ret/TDS are NOT allocated here — they roll
  * into contract-level actual held only.
  */
+const unlinkedOutstandingCache = new WeakMap<FlowhubData, Map<string, number>>();
+
 function unlinkedTowardOutstandingAllocations(
   data: FlowhubData
 ): Map<string, number> {
-  const allocated = new Map<string, number>();
-  const byContract = new Map<string, Payment[]>();
-  for (const p of data.payments) {
-    if (p.link !== "unlinked") continue;
-    const list = byContract.get(p.contractId) ?? [];
-    list.push(p);
-    byContract.set(p.contractId, list);
-  }
+  const cached = unlinkedOutstandingCache.get(data);
+  if (cached) return cached;
 
-  for (const [contractId, pays] of byContract) {
-    let pool = pays
+  const index = workspaceIndex(data);
+  const allocated = new Map<string, number>();
+
+  for (const [contractId, pays] of index.paymentsByContract) {
+    const unlinked = pays.filter((p) => p.link === "unlinked");
+    if (unlinked.length === 0) continue;
+    let pool = unlinked
       .slice()
       .sort(
         (a, b) =>
@@ -3907,18 +3934,12 @@ function unlinkedTowardOutstandingAllocations(
       )
       .reduce((s, p) => s + paymentTowardOutstanding(p), 0);
 
-    const tis = data.invoices
-      .filter((i) => i.type === "TI" && i.contractId === contractId)
-      .slice()
-      .sort(
-        (a, b) =>
-          a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt)
-      );
-
-    for (const ti of tis) {
-      const linked = data.payments
-        .filter((p) => p.invoiceId === ti.id && isTiLinkedPayment(p))
-        .reduce((s, p) => s + paymentTowardOutstanding(p), 0);
+    for (const ti of index.tisByContract.get(contractId) ?? []) {
+      let linked = 0;
+      for (const p of index.paymentsByInvoice.get(ti.id) ?? []) {
+        if (!isTiLinkedPayment(p)) continue;
+        linked += paymentTowardOutstanding(p);
+      }
       const need = Math.max(0, invoiceExpectedCash(ti, data) - linked);
       const take = Math.min(pool, need);
       if (take > 0) {
@@ -3927,6 +3948,8 @@ function unlinkedTowardOutstandingAllocations(
       }
     }
   }
+
+  unlinkedOutstandingCache.set(data, allocated);
   return allocated;
 }
 
@@ -3937,14 +3960,14 @@ function unlinkedTowardOutstandingAllocations(
  */
 export function paymentReceivedTotal(invoiceId: string, data?: FlowhubData) {
   const d = data ?? read();
-  const invoice = d.invoices.find((i) => i.id === invoiceId);
-  const linked = d.payments
-    .filter((p) => {
-      if (p.invoiceId !== invoiceId) return false;
-      if (!invoice || invoice.type !== "TI") return true;
-      return isTiLinkedPayment(p);
-    })
-    .reduce((s, p) => s + paymentTowardOutstanding(p), 0);
+  const index = workspaceIndex(d);
+  const invoice = index.invoiceById.get(invoiceId);
+  let linked = 0;
+  for (const p of index.paymentsByInvoice.get(invoiceId) ?? []) {
+    if (!invoice || invoice.type !== "TI" || isTiLinkedPayment(p)) {
+      linked += paymentTowardOutstanding(p);
+    }
+  }
   const unlinked =
     invoice?.type === "TI"
       ? (unlinkedTowardOutstandingAllocations(d).get(invoiceId) ?? 0)
@@ -5347,14 +5370,7 @@ export function suppliedQty(
   data?: FlowhubData
 ): number {
   const d = data ?? read();
-  let total = 0;
-  for (const dc of d.deliveryChallans) {
-    if (dc.contractId !== contractId) continue;
-    for (const l of dc.lines) {
-      if (l.boqItemId === boqItemId) total += Number(l.qty) || 0;
-    }
-  }
-  return total;
+  return workspaceIndex(d).suppliedByItem.get(itemKey(contractId, boqItemId)) ?? 0;
 }
 
 export function installationProgressFor(
@@ -5364,9 +5380,8 @@ export function installationProgressFor(
 ): InstallationProgress | null {
   const d = data ?? read();
   return (
-    d.installationProgress.find(
-      (p) => p.contractId === contractId && p.boqItemId === boqItemId
-    ) ?? null
+    workspaceIndex(d).installationByItem.get(itemKey(contractId, boqItemId)) ??
+    null
   );
 }
 
@@ -5385,8 +5400,8 @@ export function leftToSupplyQty(
   data?: FlowhubData
 ): number {
   const d = data ?? read();
-  const item = d.contracts
-    .find((c) => c.id === contractId)
+  const item = workspaceIndex(d)
+    .contractById.get(contractId)
     ?.boq.find((b) => b.id === boqItemId);
   const boq = Number(item?.quantity) || 0;
   return Math.max(0, boq - suppliedQty(contractId, boqItemId, d));

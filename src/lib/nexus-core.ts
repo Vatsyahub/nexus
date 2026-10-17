@@ -14,6 +14,7 @@ import {
   type NexusCosts,
   type ScheduleLine,
 } from "@/lib/types";
+import { handoverByContract, workspaceIndex } from "@/lib/workspace-index";
 
 export function todayIso(d = new Date()): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -166,9 +167,7 @@ function handoverLine(
   data: FlowhubData,
   contractId: string
 ): ScheduleLine | undefined {
-  return data.schedules.find(
-    (s) => s.contractId === contractId && s.kind === "handover"
-  );
+  return handoverByContract(data.schedules).get(contractId);
 }
 
 /**
@@ -202,9 +201,11 @@ export function contractIsHandedOver(
 }
 
 export function taxInvoiceNet(data: FlowhubData, contractId: string): number {
-  return data.invoices
-    .filter((i) => i.type === "TI" && i.contractId === contractId)
-    .reduce((s, i) => s + (Number(i.netAmount) || 0), 0);
+  let sum = 0;
+  for (const invoice of workspaceIndex(data).tisByContract.get(contractId) ?? []) {
+    sum += Number(invoice.netAmount) || 0;
+  }
+  return sum;
 }
 
 /** Work-order value until handover, tax-invoice nets after handover. */
