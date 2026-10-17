@@ -173,12 +173,61 @@ export type ExecutionSummaryRow = {
   leftToSupply: number;
   /** Supplied − installed */
   leftToInstall: number;
+  /**
+   * Supplied minus tax-invoice qty billed on the Supply term only.
+   * Never negative.
+   */
+  unbilledSupplyQty: number;
+  /**
+   * Installed minus tax-invoice qty billed on the Installation term only.
+   * Never negative.
+   */
+  unbilledInstallQty: number;
 };
+
+const SUPPLY_BILLING_TERM = "supply";
+const INSTALLATION_BILLING_TERM = "installation";
+
+/**
+ * Tax-invoice billed qty for one contract + BOQ line, split by term.
+ * Only term keys `supply` and `installation` are kept. Proforma invoices,
+ * advance, GAD, testing, handover, and custom terms are left out.
+ * Lines on another contract do not count. A negative line on the matching
+ * term reduces that term's total.
+ */
+export function taxInvoiceBilledByLine(
+  data: FlowhubData
+): Map<string, { supply: number; installation: number }> {
+  const totals = new Map<string, { supply: number; installation: number }>();
+  for (const invoice of data.invoices ?? []) {
+    if (invoice?.type !== "TI" || !invoice.contractId) continue;
+    for (const line of invoice.lines ?? []) {
+      if (!line?.boqItemId) continue;
+      const term = line.termKey;
+      if (term !== SUPPLY_BILLING_TERM && term !== INSTALLATION_BILLING_TERM) {
+        continue;
+      }
+      const qty = Number(line.billedQty);
+      if (!Number.isFinite(qty)) continue;
+      const key = `${invoice.contractId}\0${line.boqItemId}`;
+      const current = totals.get(key) ?? { supply: 0, installation: 0 };
+      if (term === SUPPLY_BILLING_TERM) current.supply += qty;
+      else current.installation += qty;
+      totals.set(key, current);
+    }
+  }
+  return totals;
+}
+
+function unbilledQty(actual: number, billed: number): number {
+  return Math.max(0, actual - billed);
+}
 
 export function buildExecutionSummaryRows(
   data: FlowhubData,
   contractId?: string
 ): ExecutionSummaryRow[] {
+  const billedByLine = taxInvoiceBilledByLine(data);
   const rows: ExecutionSummaryRow[] = [];
   for (const c of data.contracts) {
     if (contractId && c.id !== contractId) continue;
@@ -186,6 +235,10 @@ export function buildExecutionSummaryRows(
       const boqQty = Number(b.quantity) || 0;
       const supplied = suppliedQty(c.id, b.id, data);
       const installed = installedQty(c.id, b.id, data);
+      const billed = billedByLine.get(`${c.id}\0${b.id}`) ?? {
+        supply: 0,
+        installation: 0,
+      };
       rows.push({
         contractId: c.id,
         projectNo: c.projectNo,
@@ -198,6 +251,8 @@ export function buildExecutionSummaryRows(
         installed,
         leftToSupply: Math.max(0, boqQty - supplied),
         leftToInstall: Math.max(0, supplied - installed),
+        unbilledSupplyQty: unbilledQty(supplied, billed.supply),
+        unbilledInstallQty: unbilledQty(installed, billed.installation),
       });
     }
   }
@@ -206,6 +261,39 @@ export function buildExecutionSummaryRows(
       a.projectNo.localeCompare(b.projectNo) ||
       a.itemName.localeCompare(b.itemName)
   );
+}
+
+/** Excel / PDF columns for Operations → Summary, in on-sheet order. */
+export const EXECUTION_SUMMARY_EXPORT_HEADERS = [
+  "Project",
+  "Project no.",
+  "Item",
+  "Unit",
+  "BOQ qty",
+  "Supplied",
+  "Installed",
+  "Left to supply",
+  "Left for installation",
+  "Unbilled Supply Qty",
+  "Unbilled Install Qty",
+] as const;
+
+export function executionSummaryExportRow(
+  row: ExecutionSummaryRow
+): (string | number)[] {
+  return [
+    row.projectName,
+    row.projectNo,
+    row.itemName,
+    row.unit,
+    row.boqQty,
+    row.supplied,
+    row.installed,
+    row.leftToSupply,
+    row.leftToInstall,
+    row.unbilledSupplyQty,
+    row.unbilledInstallQty,
+  ];
 }
 
 export type WorkorderStatus = "active" | "on_hold" | "completed";
@@ -411,14 +499,17 @@ export function formatItemListCityCell(
   return figures.leftForSupply;
 }
 
-/** Item name, overall BOQ, one column per city, then supplied and left. */
+/**
+ * Item name, overall BOQ, supplied, pending for supply, then one column
+ * per city. City cells stay the quantity left for supply in that city.
+ */
 export function itemListHeaders(cities: string[]): string[] {
   return [
     "Item name",
     "Total BOQ qty",
-    ...cities,
     "Total supplied",
-    "Left for supply",
+    "Pending for supply",
+    ...cities,
   ];
 }
 
@@ -429,9 +520,9 @@ export function itemListExportRow(
   return [
     row.itemName,
     row.totalQty,
-    ...cities.map((city) => formatItemListCityCell(row.byCity[city])),
     row.totalSupplied,
     row.leftForSupply,
+    ...cities.map((city) => formatItemListCityCell(row.byCity[city])),
   ];
 }
 
@@ -472,7 +563,7 @@ export function itemListCities(data: FlowhubData): string[] {
  * city column only. Lines on an Active contract with a blank city count in
  * the totals and in no city column.
  * Total supplied sums delivery-challan qty on those same BOQ lines.
- * Left for supply is that BOQ total minus supplied, and stays negative when
+ * Pending for supply is that BOQ total minus supplied, and stays negative when
  * the challans exceed the ordered quantity. Blank-city lines stay in both.
  * A city's left is that city's Active-contract BOQ qty minus delivery-challan
  * qty on those same lines, and is the only figure the city column shows.
