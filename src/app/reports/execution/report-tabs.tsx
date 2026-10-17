@@ -25,6 +25,7 @@ import {
 import { matchesAny } from "@/lib/list-search";
 import { confirmAction } from "@/components/confirm-panel";
 import { EditIconButton } from "@/components/icon-actions";
+import { itemNameChoices } from "@/lib/item-rename";
 import { confirmWorkspaceSave } from "@/lib/save-notice";
 import { deleteDeliveryChallan, flushWorkspace, renameItem } from "@/lib/store";
 import { Button } from "@/components/ui/button";
@@ -379,8 +380,16 @@ export function ItemListTab({
   const [q, setQ] = useState("");
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [unitDraft, setUnitDraft] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
   const [savingRename, setSavingRename] = useState(false);
+  const units = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const choice of itemNameChoices(data)) {
+      map.set(choice.name.trim().toLowerCase(), choice.unit.trim() || "Nos");
+    }
+    return map;
+  }, [data]);
   const cities = useMemo(() => itemListCities(data), [data]);
   const headers = useMemo(() => itemListHeaders(cities), [cities]);
   const all = useMemo(() => buildItemListRows(data), [data]);
@@ -409,28 +418,35 @@ export function ItemListTab({
   function startRename(key: string, itemName: string) {
     setEditingKey(key);
     setDraft(itemName);
+    setUnitDraft(units.get(key) || "Nos");
     setRenameError(null);
   }
 
   function cancelRename() {
     setEditingKey(null);
     setDraft("");
+    setUnitDraft("");
     setRenameError(null);
   }
 
-  async function saveRename(event: FormEvent, itemName: string) {
+  async function saveRename(event: FormEvent, itemName: string, unit: string) {
     event.preventDefault();
     const next = draft.trim();
+    const nextUnit = unitDraft.trim();
     if (!next) {
       setRenameError("Enter a new item name.");
       return;
     }
-    if (next === itemName) {
+    if (!nextUnit) {
+      setRenameError("Enter a unit.");
+      return;
+    }
+    if (next === itemName && nextUnit === unit) {
       cancelRename();
       return;
     }
     setSavingRename(true);
-    const result = renameItem(itemName, next);
+    const result = renameItem(itemName, next, nextUnit);
     if (!result.ok) {
       setSavingRename(false);
       setRenameError(result.error);
@@ -494,21 +510,37 @@ export function ItemListTab({
                     {canRename && editingKey === r.key ? (
                       <form
                         className="space-y-1"
-                        onSubmit={(event) => void saveRename(event, r.itemName)}
+                        onSubmit={(event) =>
+                          void saveRename(event, r.itemName, units.get(r.key) || "Nos")
+                        }
                       >
-                        <Input
-                          value={draft}
-                          onChange={(event) => setDraft(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Escape") {
-                              event.preventDefault();
-                              cancelRename();
-                            }
-                          }}
-                          aria-label={`New name for ${r.itemName}`}
-                          className="h-8"
-                          autoFocus
-                        />
+                        <div className="flex gap-1">
+                          <Input
+                            value={draft}
+                            onChange={(event) => setDraft(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Escape") {
+                                event.preventDefault();
+                                cancelRename();
+                              }
+                            }}
+                            aria-label={`New name for ${r.itemName}`}
+                            className="h-8 min-w-0 flex-1"
+                            autoFocus
+                          />
+                          <Input
+                            value={unitDraft}
+                            onChange={(event) => setUnitDraft(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Escape") {
+                                event.preventDefault();
+                                cancelRename();
+                              }
+                            }}
+                            aria-label={`Unit for ${r.itemName}`}
+                            className="h-8 w-16 shrink-0"
+                          />
+                        </div>
                         <div className="flex flex-wrap gap-1">
                           <Button
                             type="submit"
@@ -536,8 +568,11 @@ export function ItemListTab({
                     ) : canRename ? (
                       <div className="flex items-start gap-1">
                         <span className="min-w-0 break-words">{r.itemName}</span>
+                        <span className="shrink-0 text-[var(--fh-muted)]">
+                          {units.get(r.key) || "Nos"}
+                        </span>
                         <EditIconButton
-                          label={`Rename ${r.itemName}`}
+                          label={`Edit name and unit for ${r.itemName}`}
                           onClick={() => startRename(r.key, r.itemName)}
                           className="shrink-0"
                         />

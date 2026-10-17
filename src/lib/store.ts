@@ -1832,13 +1832,16 @@ export function rememberCatalogItem(name: string, unit: string, rate: number) {
   write(next);
 }
 
-/** Master item-list rename. One catalog row keeps its identity under the new name. */
-export function renameItem(fromName: string, toName: string) {
+/**
+ * Master item-list edit. A new name renames the item. An existing name
+ * combines into that item. `unit` is the unit Master saved for it.
+ */
+export function renameItem(fromName: string, toName: string, unit?: string) {
   if (workspaceWritesLocked) {
     return { ok: false as const, error: "This login cannot save changes." };
   }
   const current = read();
-  const result = renameItemRecords(current, fromName, toName);
+  const result = renameItemRecords(current, fromName, toName, unit);
   if (!result.ok) return result;
   if (result.data !== current) write(result.data);
   return result;

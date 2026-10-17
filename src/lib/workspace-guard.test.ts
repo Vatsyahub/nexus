@@ -961,6 +961,49 @@ test("only Master can rename an item that is already on an invoice", () => {
   assert.equal(master.itemCatalog.some((entry) => entry.key === "bolt"), false);
 });
 
+test("only Master can change the unit of an item that is on an invoice", () => {
+  const boqLine = {
+    id: "b1",
+    catalogKey: "bolt",
+    name: "Bolt",
+    unit: "Nos",
+    rate: 5,
+    quantity: 2,
+  };
+  const current = file({
+    contracts: [contract({ boq: [boqLine] })],
+    invoices: [
+      invoice({
+        lines: [
+          {
+            boqItemId: "b1",
+            itemName: "Bolt",
+            termKey: "supply",
+            billedQty: 1,
+            rate: 5,
+            termPercent: 100,
+            lineNet: 5,
+          },
+        ],
+      }),
+    ],
+    itemCatalog: [{ key: "bolt", name: "Bolt", unit: "Nos", lastRate: 5 }],
+  });
+  const incoming = file({
+    contracts: [contract({ boq: [{ ...boqLine, unit: "Set" }] })],
+    invoices: current.invoices,
+    itemCatalog: [{ key: "bolt", name: "Bolt", unit: "Set", lastRate: 5 }],
+  });
+  for (const role of ["director", "manager", "user"] as const) {
+    const saved = save(current, incoming, access(), role);
+    assert.equal(saved.contracts[0]?.boq[0]?.unit, "Nos", role);
+    assert.equal(saved.itemCatalog[0]?.unit, "Nos", role);
+  }
+  const master = save(current, incoming, access(), "master");
+  assert.equal(master.contracts[0]?.boq[0]?.unit, "Set");
+  assert.equal(master.itemCatalog[0]?.unit, "Set");
+});
+
 test("merge ignores anything but the account doors", () => {
   const current = file({ tasks: [task({ title: "Stored" })] });
   const incoming = file({ tasks: [task({ title: "Incoming" })] });
