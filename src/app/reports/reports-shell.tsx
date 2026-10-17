@@ -108,15 +108,22 @@ export function ReportsEmpty({ message }: { message: string }) {
 export function ReportsTableScroll({
   children,
   className,
+  scrollX = false,
 }: {
   children: ReactNode;
   className?: string;
+  /**
+   * Let a wide table scroll sideways so column headings stay on one line.
+   * Other reports leave this off and keep fitting the viewport.
+   */
+  scrollX?: boolean;
 }) {
   return (
     <div
       data-hub-data-scroll=""
       className={cn(
-        "min-h-24 w-full max-w-full flex-1 overflow-x-hidden overflow-y-auto overscroll-contain rounded-lg border border-[var(--fh-line)] [scrollbar-gutter:stable]",
+        "min-h-24 w-full max-w-full flex-1 overscroll-contain rounded-lg border border-[var(--fh-line)] [scrollbar-gutter:stable]",
+        scrollX ? "overflow-auto" : "overflow-x-hidden overflow-y-auto",
         className
       )}
     >

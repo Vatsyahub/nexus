@@ -26,6 +26,11 @@ type Common = {
   /** Period / filters that produced the rows (see `reportFilterSummary`). */
   filters: string;
   className?: string;
+  /**
+   * Keep each column heading on one line in Excel and PDF.
+   * Off by default so other reports keep their current layout.
+   */
+  singleLineHeaders?: boolean;
 };
 
 type Props = Common &
@@ -87,6 +92,12 @@ export function reportFilterSummary(opts: {
   return parts.length ? parts.join("  ·  ") : "No filters — all records";
 }
 
+function blobFromBytes(bytes: Uint8Array, type: string) {
+  const copy = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(copy).set(bytes);
+  return new Blob([copy], { type });
+}
+
 function stamp() {
   const d = new Date();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -146,8 +157,8 @@ const FILTER_BG = { hex: "FDF6E3", rgb: [253, 246, 227] as [number, number, numb
 const LINE = { hex: "D5DDE4", rgb: [213, 221, 228] as [number, number, number] };
 const MUTED = { hex: "5C6B76", rgb: [92, 107, 118] as [number, number, number] };
 
-async function exportExcel(props: Props) {
-  const { filename, title, filters } = props;
+export async function buildReportExcelBuffer(props: Props): Promise<Uint8Array> {
+  const { title, filters, singleLineHeaders = false } = props;
   const sections = toSections(props);
   const single = !props.sections;
   const { default: ExcelJS } = await import("exceljs");
@@ -179,7 +190,7 @@ async function exportExcel(props: Props) {
         ...sections
           .filter((s) => i < s.headers.length)
           .flatMap((s) => [
-            s.headers[i].length + 2,
+            s.headers[i].length + (singleLineHeaders ? 3 : 2),
             ...s.rows.map((r) => cellTextWidth(r[i])),
           ])
       )
@@ -261,7 +272,7 @@ async function exportExcel(props: Props) {
       cell.alignment = {
         vertical: "middle",
         horizontal: numeric[i] ? "right" : "left",
-        wrapText: true,
+        wrapText: !singleLineHeaders,
       };
       cell.border = border;
     });
@@ -317,13 +328,19 @@ async function exportExcel(props: Props) {
   }
 
   const buffer = await book.xlsx.writeBuffer();
-  const blob = new Blob([buffer], {
-    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  });
+  return new Uint8Array(buffer);
+}
+
+async function exportExcel(props: Props) {
+  const buffer = await buildReportExcelBuffer(props);
+  const blob = blobFromBytes(
+    buffer,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  );
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
+  a.download = `${safeName(props.filename)}-${stamp()}.xlsx`;
   a.href = url;
-  a.download = `${safeName(filename)}-${stamp()}.xlsx`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -341,8 +358,15 @@ function pdfText(v: ReportExportCell): string {
     .replace(/[^\x20-\x7E\u00A0-\u00FF\u2013\u2014\u2018\u2019\u201C\u201D\u2022\u2026\n]/g, "");
 }
 
-async function exportPdf(props: Props) {
-  const { filename, title, filters } = props;
+function pdfHeaderWidths(
+  measure: (text: string) => number,
+  headers: string[]
+): number[] {
+  return headers.map((h) => Math.ceil(measure(pdfText(h)) + 12));
+}
+
+export async function buildReportPdfBytes(props: Props): Promise<Uint8Array> {
+  const { title, filters, singleLineHeaders = false } = props;
   const sections = toSections(props);
   const single = !props.sections;
   const [{ jsPDF }, { autoTable }] = await Promise.all([
@@ -445,15 +469,50 @@ async function exportPdf(props: Props) {
           ]
         : rows.map((r) => headers.map((_, i) => pdfText(r[i])));
 
+    const tableFontSize = 7.5;
+    const headerFontSize = 8;
+    let horizontalPageBreak = false;
+    let columnStyles: Record<
+      number,
+      { cellWidth?: number; halign?: "right" | "left" }
+    > = Object.fromEntries(
+      numeric
+        .map((n, i) => [i, n] as const)
+        .filter(([, n]) => n)
+        .map(([i]) => [i, { halign: "right" as const }])
+    );
+    if (singleLineHeaders && headers.length > 0) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(headerFontSize);
+      const widths = pdfHeaderWidths((text) => doc.getTextWidth(text), headers);
+      const used = widths.reduce((sum, w) => sum + w, 0);
+      horizontalPageBreak = used > textW;
+      const extra = horizontalPageBreak ? 0 : Math.max(0, textW - used);
+      const textCols = numeric
+        .map((n, i) => (n ? -1 : i))
+        .filter((i) => i >= 0);
+      const share = textCols.length > 0 ? extra / textCols.length : 0;
+      columnStyles = Object.fromEntries(
+        widths.map((w, i) => [
+          i,
+          {
+            cellWidth: w + (textCols.includes(i) ? share : 0),
+            ...(numeric[i] ? { halign: "right" as const } : {}),
+          },
+        ])
+      );
+    }
+
     autoTable(doc, {
       startY: y,
       head: [headers.map(pdfText)],
       body,
       theme: "grid",
+      horizontalPageBreak,
       margin: { left: margin, right: margin, top: margin, bottom: bottomMargin },
       styles: {
         font: "helvetica",
-        fontSize: 7.5,
+        fontSize: tableFontSize,
         cellPadding: 4,
         overflow: "linebreak",
         lineColor: LINE.rgb,
@@ -465,18 +524,14 @@ async function exportPdf(props: Props) {
         fillColor: HEADER.rgb,
         textColor: 255,
         fontStyle: "bold",
-        fontSize: 8,
+        fontSize: headerFontSize,
         valign: "middle",
+        overflow: singleLineHeaders ? "hidden" : "linebreak",
         lineColor: HEADER.rgb,
       },
       bodyStyles: { fillColor: [255, 255, 255] },
       alternateRowStyles: { fillColor: STRIPE.rgb },
-      columnStyles: Object.fromEntries(
-        numeric
-          .map((n, i) => [i, n] as const)
-          .filter(([, n]) => n)
-          .map(([i]) => [i, { halign: "right" as const }])
-      ),
+      columnStyles,
       didParseCell(hook) {
         if (hook.section === "head" && numeric[hook.column.index]) {
           hook.cell.styles.halign = "right";
@@ -504,7 +559,20 @@ async function exportPdf(props: Props) {
       align: "right",
     });
   }
-  doc.save(`${safeName(filename)}-${stamp()}.pdf`);
+  return new Uint8Array(doc.output("arraybuffer"));
+}
+
+async function exportPdf(props: Props) {
+  const bytes = await buildReportPdfBytes(props);
+  const blob = blobFromBytes(bytes, "application/pdf");
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${safeName(props.filename)}-${stamp()}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /**

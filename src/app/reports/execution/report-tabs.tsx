@@ -9,12 +9,14 @@ import { formatDisplayDate, isDateInInclusiveRange } from "@/lib/dates";
 import {
   SCHEDULE_FULFILMENT_LABELS,
   WORKORDER_STATUS_LABELS,
+  EXECUTION_SUMMARY_EXPORT_HEADERS,
   buildExecutionSummaryRows,
   buildItemListRows,
   buildProjectTaskRows,
   buildScheduleFulfilmentRows,
   buildSupplyDetailRows,
   buildWorkorderRows,
+  executionSummaryExportRow,
   formatQty,
   itemListCities,
   itemListExportRow,
@@ -266,47 +268,52 @@ export function SummaryTab({ data }: { data: FlowhubData }) {
         onChange={setQ}
         placeholder="Search project, item…"
       />
-      <ReportsTableScroll className="mt-4">
-        <table className="w-full table-fixed text-left text-sm">
-          <colgroup>
-            <col className="w-[24%]" />
-            <col className="w-[26%]" />
-            <col className="w-[10%]" />
-            <col className="w-[10%]" />
-            <col className="w-[10%]" />
-            <col className="w-[10%]" />
-            <col className="w-[10%]" />
-          </colgroup>
+      <ReportsTableScroll className="mt-4" scrollX>
+        <table className="w-max min-w-full text-left text-sm">
           <thead className={theadClass}>
             <tr>
-              <th className={reportTh}>Project</th>
-              <th className={reportTh}>Item</th>
-              <th className={cn(reportTh, "text-right")}>BOQ qty</th>
-              <th className={cn(reportTh, "text-right")}>Supplied</th>
-              <th className={cn(reportTh, "text-right")}>Installed</th>
-              <th className={cn(reportTh, "text-right")}>Left to supply</th>
-              <th className={cn(reportTh, "text-right")}>
+              <th className={cn(reportTh, "whitespace-nowrap")}>Project</th>
+              <th className={cn(reportTh, "whitespace-nowrap")}>Item</th>
+              <th className={cn(reportTh, "whitespace-nowrap text-right")}>
+                BOQ qty
+              </th>
+              <th className={cn(reportTh, "whitespace-nowrap text-right")}>
+                Supplied
+              </th>
+              <th className={cn(reportTh, "whitespace-nowrap text-right")}>
+                Installed
+              </th>
+              <th className={cn(reportTh, "whitespace-nowrap text-right")}>
+                Left to supply
+              </th>
+              <th className={cn(reportTh, "whitespace-nowrap text-right")}>
                 Left for installation
+              </th>
+              <th className={cn(reportTh, "whitespace-nowrap text-right")}>
+                Unbilled Supply Qty
+              </th>
+              <th className={cn(reportTh, "whitespace-nowrap text-right")}>
+                Unbilled Install Qty
               </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--fh-line)]">
             {rows.length === 0 ? (
               <EmptyRow
-                colSpan={7}
+                colSpan={9}
                 text={all.length === 0 ? "No BOQ items yet." : "No matching items."}
               />
             ) : (
               rows.map((r) => (
                 <tr key={`${r.contractId}-${r.boqItemId}`}>
-                  <td className={reportTd}>
+                  <td className={cn(reportTd, "max-w-[16rem]")}>
                     <ProjectIdentity
                       projectNo={r.projectNo}
                       projectName={r.projectName}
                       href={`/contracts/${r.contractId}`}
                     />
                   </td>
-                  <td className={reportTd}>
+                  <td className={cn(reportTd, "max-w-[14rem]")}>
                     {r.itemName}
                     {r.unit ? (
                       <span className="block text-xs text-[var(--fh-muted)]">
@@ -333,6 +340,22 @@ export function SummaryTab({ data }: { data: FlowhubData }) {
                   >
                     {formatQty(r.leftToInstall)}
                   </td>
+                  <td
+                    className={cn(
+                      qtyCell,
+                      r.unbilledSupplyQty > 0 && "font-medium text-[var(--fh-steel)]"
+                    )}
+                  >
+                    {formatQty(r.unbilledSupplyQty)}
+                  </td>
+                  <td
+                    className={cn(
+                      qtyCell,
+                      r.unbilledInstallQty > 0 && "font-medium text-[var(--fh-steel)]"
+                    )}
+                  >
+                    {formatQty(r.unbilledInstallQty)}
+                  </td>
                 </tr>
               ))
             )}
@@ -343,28 +366,9 @@ export function SummaryTab({ data }: { data: FlowhubData }) {
         filename="execution-summary"
         title="Operations — Execution summary"
         filters={reportFilterSummary({ tab: "Summary", search: q })}
-        headers={[
-          "Project",
-          "Project no.",
-          "Item",
-          "Unit",
-          "BOQ qty",
-          "Supplied",
-          "Installed",
-          "Left to supply",
-          "Left for installation",
-        ]}
-        rows={rows.map((r) => [
-          r.projectName,
-          r.projectNo,
-          r.itemName,
-          r.unit,
-          r.boqQty,
-          r.supplied,
-          r.installed,
-          r.leftToSupply,
-          r.leftToInstall,
-        ])}
+        singleLineHeaders
+        headers={[...EXECUTION_SUMMARY_EXPORT_HEADERS]}
+        rows={rows.map((r) => executionSummaryExportRow(r))}
       />
     </div>
   );
@@ -480,34 +484,18 @@ export function ItemListTab({
         onChange={setQ}
         placeholder="Search item, city…"
       />
-      <ReportsTableScroll className="mt-4">
-        <table className="w-full table-fixed text-left text-sm">
-          <colgroup>
-            <col
-              style={{
-                width:
-                  cities.length === 0
-                    ? canRename
-                      ? "46%"
-                      : "40%"
-                    : canRename
-                      ? "32%"
-                      : "18%",
-              }}
-            />
-            <col style={{ width: cities.length === 0 ? "20%" : "12%" }} />
-            {cities.map((city) => (
-              <col key={city} />
-            ))}
-            <col style={{ width: cities.length === 0 ? "20%" : "12%" }} />
-            <col style={{ width: cities.length === 0 ? "20%" : "13%" }} />
-          </colgroup>
+      <ReportsTableScroll className="mt-4" scrollX>
+        <table className="w-max min-w-full text-left text-sm">
           <thead className={theadClass}>
             <tr>
               {headers.map((header, i) => (
                 <th
                   key={`${i}-${header}`}
-                  className={cn(reportTh, i > 0 && "text-right")}
+                  className={cn(
+                    reportTh,
+                    "whitespace-nowrap",
+                    i > 0 && "text-right"
+                  )}
                 >
                   {header}
                 </th>
@@ -622,6 +610,8 @@ export function ItemListTab({
                     )}
                   </td>
                   <td className={qtyCell}>{formatQty(r.totalQty)}</td>
+                  <td className={qtyCell}>{formatQty(r.totalSupplied)}</td>
+                  <td className={qtyCell}>{formatQty(r.leftForSupply)}</td>
                   {cities.map((city) => {
                     const cell = r.byCity[city];
                     return (
@@ -630,8 +620,6 @@ export function ItemListTab({
                       </td>
                     );
                   })}
-                  <td className={qtyCell}>{formatQty(r.totalSupplied)}</td>
-                  <td className={qtyCell}>{formatQty(r.leftForSupply)}</td>
                 </tr>
                 );
               })
@@ -643,6 +631,7 @@ export function ItemListTab({
         filename="execution-item-list"
         title="Operations — Item list"
         filters={reportFilterSummary({ tab: "Item list", search: q })}
+        singleLineHeaders
         headers={headers}
         rows={rows.map((r) => itemListExportRow(cities, r))}
       />
