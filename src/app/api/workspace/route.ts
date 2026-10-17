@@ -17,6 +17,7 @@ import {
   resolveWorkspaceWrite,
   workspaceForAccount,
 } from "@/lib/workspace-guard";
+import type { TaskEditContext } from "@/lib/task-permissions";
 import { isWorkspaceChangeRequest } from "@/lib/workspace-changes";
 import type { ClearanceRole } from "@/lib/clearance";
 
@@ -142,6 +143,15 @@ export async function PUT(req: Request) {
   const clearance = (session.user.clearance ?? "user") as ClearanceRole;
 
   const members = await audienceMembers();
+  const actorMember = members.find((member) => member.id === session.user.id);
+  const taskEdit: TaskEditContext = {
+    actor: {
+      name: actorMember?.name ?? session.user.name,
+      clearance,
+      department: actorMember?.department ?? null,
+    },
+    people: members,
+  };
 
   // The page address is ignored. Each slice follows this account's door.
   // Changes are applied onto the hub stored now. A full snapshot is not stored.
@@ -153,7 +163,8 @@ export async function PUT(req: Request) {
     current,
     isWorkspaceChangeRequest(body) ? body : asFlowhubData(body, members),
     access,
-    clearance
+    clearance,
+    taskEdit
   );
   if (decision.action === "skip") {
     return NextResponse.json(

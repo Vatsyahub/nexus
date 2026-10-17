@@ -1,0 +1,236 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  addContract,
+  addManualTask,
+  addSubtask,
+  assignTask,
+  completeTaskWithSubtasks,
+  getData,
+  updateTask,
+  updateTaskStatus,
+} from "@/lib/store";
+import type { TaskDirectoryPerson } from "@/lib/task-permissions";
+import type { TaskActor } from "@/lib/task-notices";
+
+const people: TaskDirectoryPerson[] = [
+  { name: "Priya Manager", department: "Contracts Department", clearance: "manager" },
+  { name: "Isha Install", department: "Installation Department", clearance: "manager" },
+  { name: "Anil User", department: "Drawings Department", clearance: "user" },
+  { name: "New Joiner", department: "Contracts Department", clearance: "user" },
+  { name: "Site Lead", department: "Installation Department", clearance: "user" },
+];
+
+const outsider: TaskActor = {
+  name: "Site Lead",
+  clearance: "user",
+  department: "Installation Department",
+};
+const contractsManager: TaskActor = {
+  name: "Priya Manager",
+  clearance: "manager",
+  department: "Contracts Department",
+};
+const named: TaskActor = {
+  name: "Anil User",
+  clearance: "user",
+  department: "Drawings Department",
+};
+const master: TaskActor = { name: "Master Admin", clearance: "master", department: null };
+const director: TaskActor = { name: "Deepa Director", clearance: "director", department: null };
+const installManager: TaskActor = {
+  name: "Isha Install",
+  clearance: "manager",
+  department: "Installation Department",
+};
+
+function taskByTitle(title: string) {
+  const row = getData().tasks.find((task) => task.title === title && !task.deletedAt);
+  assert.ok(row, title);
+  return row;
+}
+
+test("task and subtask saves follow the department on that row", () => {
+  const { contract } = addContract({
+    projectName: "Dept lock",
+    projectNo: "DEPT-LOCK",
+    orderNos: "DEPT-LOCK",
+    orderDate: "2026-01-01",
+    closureDate: "2026-12-31",
+    orderValue: 1000,
+    gstApplicable: false,
+    city: "Delhi",
+    state: "Delhi",
+    country: "India",
+    billingTerms: { supply: 100 },
+    paymentDueDays: 30,
+    retentionPercent: 0,
+    tdsPercent: 2,
+    dlpMonths: 12,
+    abgRequired: false,
+    abgPercent: null,
+    abgValue: null,
+    pbgRequired: false,
+    pbgPercent: null,
+    pbgValue: null,
+    contractorAssigned: "",
+    boq: [],
+  });
+
+  const created = addManualTask({
+    title: "Dept lock parent",
+    contractId: contract.id,
+    department: "Contracts Department",
+    assignees: ["Anil User"],
+  });
+  const sub = addSubtask(created.id, {
+    title: "Dept lock install",
+    department: "Installation Department",
+  });
+  assert.ok(sub);
+  assert.equal(sub?.department, "Installation Department");
+
+  assert.equal(
+    updateTask(created.id, { notes: "outsider" }, { actor: outsider, people }),
+    null
+  );
+  assert.equal(taskByTitle("Dept lock parent").notes, "");
+  assert.equal(
+    updateTaskStatus(created.id, "in_progress", {
+      actor: outsider,
+      notes: "still no",
+    }),
+    null
+  );
+  assert.equal(taskByTitle("Dept lock parent").notes, "");
+
+  const sameDeptUser: TaskActor = {
+    name: "New Joiner",
+    clearance: "user",
+    department: "Contracts Department",
+  };
+  assert.equal(
+    updateTask(created.id, { notes: "same dept" }, { actor: sameDeptUser, people }),
+    null
+  );
+
+  const byNamed = updateTask(
+    created.id,
+    { notes: "named note", priority: "high" },
+    { actor: named, people }
+  );
+  assert.equal(byNamed?.notes, "named note");
+  assert.equal(byNamed?.priority, "high");
+
+  const waiting = updateTaskStatus(created.id, "completed", {
+    actor: named,
+    notes: "ready",
+  });
+  assert.equal(waiting?.status, "awaiting_verification");
+  assert.equal(taskByTitle("Dept lock parent").status, "awaiting_verification");
+
+  const byDirector = updateTask(
+    created.id,
+    { priority: "urgent" },
+    { actor: director, people }
+  );
+  assert.equal(byDirector?.priority, "urgent");
+  const finished = updateTaskStatus(created.id, "completed", { actor: director });
+  assert.equal(finished?.status, "completed");
+
+  const byManager = assignTask(
+    created.id,
+    {
+      department: "Contracts Department",
+      assignees: ["New Joiner"],
+      dueDate: "2026-11-15",
+    },
+    { actor: contractsManager, people }
+  );
+  assert.equal(byManager.ok, true);
+  assert.equal(taskByTitle("Dept lock parent").dueDate, "2026-11-15");
+  assert.deepEqual(taskByTitle("Dept lock parent").assignees, ["New Joiner"]);
+
+  const foreign = assignTask(
+    created.id,
+    {
+      department: "Contracts Department",
+      assignees: ["Site Lead"],
+    },
+    { actor: contractsManager, people }
+  );
+  assert.equal(foreign.ok, false);
+  assert.deepEqual(taskByTitle("Dept lock parent").assignees, ["New Joiner"]);
+
+  const open = addManualTask({
+    title: "Dept lock open",
+    contractId: contract.id,
+    department: null,
+  });
+  const setOnce = assignTask(
+    open.id,
+    { department: "Accounts Department", dueDate: "2026-12-01" },
+    { actor: outsider, people }
+  );
+  assert.equal(setOnce.ok, true);
+  assert.equal(taskByTitle("Dept lock open").department, "Accounts Department");
+  const relock = assignTask(
+    open.id,
+    { department: "Contracts Department" },
+    { actor: master, people }
+  );
+  assert.equal(relock.ok, false);
+  if (!relock.ok) {
+    assert.match(relock.error, /cannot be changed/);
+  }
+  assert.equal(taskByTitle("Dept lock open").department, "Accounts Department");
+
+  assert.equal(
+    updateTask(sub.id, { notes: "parent dept" }, { actor: contractsManager, people }),
+    null
+  );
+  const subSaved = updateTask(
+    sub.id,
+    { notes: "own dept" },
+    { actor: installManager, people }
+  );
+  assert.equal(subSaved?.notes, "own dept");
+  assert.equal(subSaved?.department, "Installation Department");
+  const subLocked = assignTask(
+    sub.id,
+    { department: "Contracts Department" },
+    { actor: master, people }
+  );
+  assert.equal(subLocked.ok, false);
+  assert.equal(taskByTitle("Dept lock install").department, "Installation Department");
+
+  const parentForClose = addManualTask({
+    title: "Dept lock close parent",
+    contractId: contract.id,
+    department: "Contracts Department",
+  });
+  const otherSub = addSubtask(parentForClose.id, {
+    title: "Dept lock close sub",
+    department: "Installation Department",
+  });
+  assert.ok(otherSub);
+  const blockedClose = completeTaskWithSubtasks(
+    parentForClose.id,
+    [{ id: otherSub.id, status: "completed" }],
+    { actor: contractsManager }
+  );
+  assert.equal(blockedClose.ok, false);
+  if (!blockedClose.ok) {
+    assert.match(blockedClose.error, /own department/);
+  }
+  assert.equal(taskByTitle("Dept lock close sub").status, "in_progress");
+
+  const managerFinish = updateTaskStatus(sub.id, "completed", { actor: installManager });
+  assert.equal(managerFinish?.status, "completed");
+  const masterFinish = updateTaskStatus(parentForClose.id, "in_progress", {
+    actor: master,
+    notes: "master note",
+  });
+  assert.equal(masterFinish?.status, "in_progress");
+  assert.equal(taskByTitle("Dept lock close parent").notes, "master note");
+});

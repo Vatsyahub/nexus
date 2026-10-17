@@ -12,6 +12,7 @@ import {
   type TaskPriority,
 } from "@/lib/types";
 import type { ClearanceRole } from "@/lib/clearance";
+import { peopleNamedInDepartment } from "@/lib/task-permissions";
 import type { AssignablePerson } from "../tasks-client";
 import { ContractTypeahead } from "@/components/contract-typeahead";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
@@ -28,8 +29,10 @@ function peopleForDepartment(
   people: AssignablePerson[],
   department: string
 ): AssignablePerson[] {
-  if (department === "none" || !department) return people;
-  return people.filter((p) => p.department === department);
+  return peopleNamedInDepartment(
+    people,
+    department === "none" ? null : department
+  );
 }
 
 export function NewTaskClient({
@@ -109,7 +112,14 @@ export function NewTaskClient({
       title: finalTitle,
       contractId,
       department: department === "none" ? null : department,
-      assignees: assignPeople ? assignees : [],
+      assignees: assignPeople
+        ? assignees.filter((name) =>
+            selectable.some(
+              (person) =>
+                person.name.trim().toLowerCase() === name.trim().toLowerCase()
+            )
+          )
+        : [],
       dueDate: dueDate || null,
       priority,
       catalogKey,

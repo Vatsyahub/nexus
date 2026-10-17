@@ -21,6 +21,10 @@ import {
   isWorkspaceChangeRequest,
   type WorkspaceChangeRequest,
 } from "@/lib/workspace-changes";
+import {
+  applyTaskEditPolicy,
+  type TaskEditContext,
+} from "@/lib/task-permissions";
 
 /**
  * Company-file slices and the report doors that already show their figures.
@@ -270,7 +274,8 @@ export function mergeWorkspaceSave(
   current: FlowhubData,
   incoming: FlowhubData,
   access: AccessMap,
-  clearance: ClearanceRole
+  clearance: ClearanceRole,
+  taskEdit?: TaskEditContext
 ): FlowhubData {
   const master = clearance === "master";
   const contractsEdit = edits(access, "contracts");
@@ -401,6 +406,15 @@ export function mergeWorkspaceSave(
     scheduleChangeLog = current.scheduleChangeLog;
   }
 
+  if (taskEdit && edits(access, "tasks")) {
+    tasks = applyTaskEditPolicy(
+      current.tasks,
+      tasks,
+      taskEdit.actor,
+      taskEdit.people
+    );
+  }
+
   tasks = tasksAfterDepartmentCatalogChange(current, incoming, tasks);
 
   const clearedNotices = pruneClearedNotices(
@@ -448,7 +462,8 @@ export function resolveWorkspaceWrite(
   current: FlowhubData,
   incoming: FlowhubData | WorkspaceChangeRequest,
   access: AccessMap,
-  clearance: ClearanceRole
+  clearance: ClearanceRole,
+  taskEdit?: TaskEditContext
 ): WorkspaceWrite {
   if (!isWorkspaceChangeRequest(incoming)) {
     return {
@@ -460,7 +475,13 @@ export function resolveWorkspaceWrite(
   }
 
   const patched = applyWorkspaceChanges(current, incoming.changes);
-  const merged = mergeWorkspaceSave(current, patched, access, clearance);
+  const merged = mergeWorkspaceSave(
+    current,
+    patched,
+    access,
+    clearance,
+    taskEdit
+  );
   return {
     action: "save",
     data: {
