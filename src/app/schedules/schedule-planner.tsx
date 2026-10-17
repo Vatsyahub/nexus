@@ -303,7 +303,7 @@ export function SchedulePlanner({
       handoverDate > contract.closureDate
     ) {
       const ok = await confirmAction({
-        message: `Handover date is after the contract closure date (${contract.closureDate}). Save anyway? The closure date will show in red on the contracts list.`,
+        message: `Handover date is after the contract closure date (${contract.closureDate}). Save this schedule date anyway?`,
         action: "Save anyway",
       });
       if (!ok) return;

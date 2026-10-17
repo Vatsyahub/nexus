@@ -12,13 +12,17 @@ import {
   runLoginAttempt,
 } from "@/lib/login-throttle";
 import { authConfig } from "@/auth.config";
+import {
+  jwtAfterUserLookup,
+  type JwtAccountLookup,
+} from "@/lib/account-session";
 
 const credentialsSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
 });
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
   ...authConfig,
   providers: [
     Credentials({
@@ -108,10 +112,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // Keep JWT in sync with DB whenever this Node callback runs
       // (session API / sign-in). Middleware still uses the cookie JWT.
       // Never throw — a DB blip must not wipe the session mid-navigation.
+      // A missing user row does not keep a token. Returning null drops the session.
       try {
-        const real = token.realId
+        const realId = token.realId ? String(token.realId) : "";
+        const real = realId
           ? await prisma.user.findUnique({
-              where: { id: String(token.realId) },
+              where: { id: realId },
               select: {
                 name: true,
                 clearance: true,
@@ -119,10 +125,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               },
             })
           : null;
+        const lookup: JwtAccountLookup = realId
+          ? real
+            ? { status: "found", mustChangePassword: real.mustChangePassword }
+            : { status: "missing" }
+          : {
+              status: "found",
+              mustChangePassword: Boolean(token.mustChangePassword),
+            };
+        const kept = jwtAfterUserLookup(token, lookup);
+        if (!kept) return null;
+        token.mustChangePassword = Boolean(kept.mustChangePassword);
         if (real) {
           token.realClearance = clearanceFromDb(real.clearance);
           token.realName = real.name;
-          token.mustChangePassword = real.mustChangePassword;
           if (token.realClearance !== "master") token.impersonateId = null;
         }
 
@@ -162,6 +178,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
       } catch {
         // keep existing token claims
+        return jwtAfterUserLookup(token, { status: "error" });
       }
 
       return token;

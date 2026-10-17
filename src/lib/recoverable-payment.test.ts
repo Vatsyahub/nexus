@@ -9,11 +9,13 @@ import {
   contractActualRetentionHold,
   contractRecoverablePool,
   contractRecoveredTotal,
+  deletePayment,
   getData,
   invoiceOutstanding,
   paymentCash,
   paymentTowardOutstanding,
   recoverablePoolHolds,
+  recoverablePoolViolation,
   recoverableRunningLineFigures,
   updatePayment,
 } from "@/lib/store";
@@ -519,4 +521,366 @@ test("add and update reject recovered above the pool without counting an edit tw
   });
   assert.equal(shortCash, null);
   assert.equal(getData().payments.find((p) => p.id === pool.id)?.netAmount, 80);
+});
+
+test("moving a recoverable payment also checks the pool it leaves", () => {
+  const left = "left-move";
+  const dest = "dest-move";
+  const payments = [
+    pay({
+      id: "move-60",
+      contractId: left,
+      link: "recoverable",
+      netAmount: 60,
+    }),
+    pay({
+      id: "move-40",
+      contractId: left,
+      link: "recoverable",
+      netAmount: 40,
+    }),
+    pay({
+      id: "move-ti",
+      contractId: left,
+      link: "TI",
+      invoiceId: "ti-move",
+      recovered: 50,
+    }),
+  ];
+  const fields = {
+    date: "2026-03-01",
+    gstAmount: 0,
+    retentionAmount: 0,
+    tdsAmount: 0,
+    otherDeductions: 0,
+    otherDeductionReason: "",
+    recovered: 0,
+  };
+
+  assert.equal(
+    recoverablePoolViolation(
+      payments,
+      { ...payments[0], ...fields, contractId: dest },
+      left
+    ),
+    "left"
+  );
+  assert.equal(
+    recoverablePoolViolation(
+      payments,
+      { ...payments[1], ...fields, contractId: dest },
+      left
+    ),
+    null
+  );
+  assert.equal(
+    recoverablePoolViolation(
+      payments,
+      { ...payments[0], ...fields, netAmount: 0 },
+      left
+    ),
+    "entry"
+  );
+
+  const createdLeft = addContract({
+    projectName: "Pool left behind",
+    projectNo: `C-MOVE-LEFT-${Date.now()}`,
+    orderNos: "T-MOVE-L",
+    orderDate: "2026-10-01",
+    closureDate: "2026-12-31",
+    orderValue: 5000,
+    gstApplicable: false,
+    city: "Delhi",
+    state: "Delhi",
+    country: "India",
+    billingTerms: { supply: 100 },
+    paymentDueDays: 30,
+    retentionPercent: 0,
+    tdsPercent: 0,
+    dlpMonths: 12,
+    abgRequired: false,
+    abgPercent: null,
+    abgValue: null,
+    pbgRequired: false,
+    pbgPercent: null,
+    pbgValue: null,
+    contractorAssigned: "",
+    boq: [
+      {
+        id: "boq-move-left",
+        catalogKey: "item-move-left",
+        name: "Left item",
+        unit: "Nos",
+        rate: 1000,
+        quantity: 1,
+      },
+    ],
+  });
+  const createdDest = addContract({
+    projectName: "Pool destination",
+    projectNo: `C-MOVE-DEST-${Date.now()}`,
+    orderNos: "T-MOVE-D",
+    orderDate: "2026-10-01",
+    closureDate: "2026-12-31",
+    orderValue: 5000,
+    gstApplicable: false,
+    city: "Delhi",
+    state: "Delhi",
+    country: "India",
+    billingTerms: { supply: 100 },
+    paymentDueDays: 30,
+    retentionPercent: 0,
+    tdsPercent: 0,
+    dlpMonths: 12,
+    abgRequired: false,
+    abgPercent: null,
+    abgValue: null,
+    pbgRequired: false,
+    pbgPercent: null,
+    pbgValue: null,
+    contractorAssigned: "",
+    boq: [
+      {
+        id: "boq-move-dest",
+        catalogKey: "item-move-dest",
+        name: "Dest item",
+        unit: "Nos",
+        rate: 1000,
+        quantity: 1,
+      },
+    ],
+  });
+  const leftId = createdLeft.contract.id;
+  const destId = createdDest.contract.id;
+  const invoice = addInvoice({
+    type: "TI",
+    number: `TI-MOVE-${Date.now()}`,
+    date: "2026-02-01",
+    contractId: leftId,
+    lines: [
+      {
+        boqItemId: "boq-move-left",
+        itemName: "Left item",
+        termKey: "supply",
+        billedQty: 1,
+        rate: 1000,
+        termPercent: 100,
+        lineNet: 1000,
+      },
+    ],
+  });
+  assert.ok(invoice);
+  const base = {
+    date: "2026-03-02",
+    gstAmount: 0,
+    retentionAmount: 0,
+    tdsAmount: 0,
+    otherDeductions: 0,
+    otherDeductionReason: "",
+    invoiceId: null,
+    recovered: 0,
+  };
+  const pool = addPayment({
+    ...base,
+    contractId: leftId,
+    link: "recoverable",
+    netAmount: 100,
+  });
+  const recovered = addPayment({
+    ...base,
+    contractId: leftId,
+    invoiceId: invoice.id,
+    link: "TI",
+    netAmount: 0,
+    recovered: 80,
+  });
+  assert.ok(pool);
+  assert.ok(recovered);
+
+  const moved = updatePayment(pool.id, {
+    ...base,
+    contractId: destId,
+    link: "recoverable",
+    netAmount: 100,
+  });
+  assert.equal(moved, null);
+  assert.equal(getData().payments.find((p) => p.id === pool.id)?.contractId, leftId);
+  assert.equal(contractRecoverablePool(getData().payments, leftId), 100);
+  assert.equal(contractRecoveredTotal(getData().payments, leftId), 80);
+
+  const spare = addPayment({
+    ...base,
+    contractId: leftId,
+    link: "recoverable",
+    netAmount: 30,
+  });
+  assert.ok(spare);
+  const spareMove = updatePayment(spare.id, {
+    ...base,
+    contractId: destId,
+    link: "recoverable",
+    netAmount: 30,
+  });
+  assert.ok(spareMove);
+  assert.equal(spareMove.contractId, destId);
+  assert.equal(contractRecoverablePool(getData().payments, leftId), 100);
+  assert.equal(contractRecoveredTotal(getData().payments, leftId), 80);
+});
+
+test("deletePayment refuses a delete that leaves recovered above the pool", () => {
+  const created = addContract({
+    projectName: "Delete pool",
+    projectNo: `C-DEL-POOL-${Date.now()}`,
+    orderNos: "T-DEL-POOL",
+    orderDate: "2026-10-01",
+    closureDate: "2026-12-31",
+    orderValue: 5000,
+    gstApplicable: false,
+    city: "Delhi",
+    state: "Delhi",
+    country: "India",
+    billingTerms: { supply: 100 },
+    paymentDueDays: 30,
+    retentionPercent: 0,
+    tdsPercent: 0,
+    dlpMonths: 12,
+    abgRequired: false,
+    abgPercent: null,
+    abgValue: null,
+    pbgRequired: false,
+    pbgPercent: null,
+    pbgValue: null,
+    contractorAssigned: "",
+    boq: [
+      {
+        id: "boq-del-pool",
+        catalogKey: "item-del-pool",
+        name: "Delete pool item",
+        unit: "Nos",
+        rate: 1000,
+        quantity: 1,
+      },
+    ],
+  });
+  const other = addContract({
+    projectName: "Other contract payment",
+    projectNo: `C-DEL-OTHER-${Date.now()}`,
+    orderNos: "T-DEL-OTHER",
+    orderDate: "2026-10-01",
+    closureDate: "2026-12-31",
+    orderValue: 1000,
+    gstApplicable: false,
+    city: "Delhi",
+    state: "Delhi",
+    country: "India",
+    billingTerms: { supply: 100 },
+    paymentDueDays: 30,
+    retentionPercent: 0,
+    tdsPercent: 0,
+    dlpMonths: 12,
+    abgRequired: false,
+    abgPercent: null,
+    abgValue: null,
+    pbgRequired: false,
+    pbgPercent: null,
+    pbgValue: null,
+    contractorAssigned: "",
+    boq: [
+      {
+        id: "boq-del-other",
+        catalogKey: "item-del-other",
+        name: "Other item",
+        unit: "Nos",
+        rate: 100,
+        quantity: 1,
+      },
+    ],
+  });
+  const contractId = created.contract.id;
+  const invoice = addInvoice({
+    type: "TI",
+    number: `TI-DEL-POOL-${Date.now()}`,
+    date: "2026-02-01",
+    contractId,
+    lines: [
+      {
+        boqItemId: "boq-del-pool",
+        itemName: "Delete pool item",
+        termKey: "supply",
+        billedQty: 1,
+        rate: 1000,
+        termPercent: 100,
+        lineNet: 1000,
+      },
+    ],
+  });
+  assert.ok(invoice);
+  const base = {
+    date: "2026-03-02",
+    gstAmount: 0,
+    retentionAmount: 0,
+    tdsAmount: 0,
+    otherDeductions: 0,
+    otherDeductionReason: "",
+    invoiceId: null,
+    recovered: 0,
+  };
+  const big = addPayment({
+    ...base,
+    contractId,
+    link: "recoverable",
+    netAmount: 60,
+  });
+  const small = addPayment({
+    ...base,
+    contractId,
+    link: "recoverable",
+    netAmount: 40,
+  });
+  const recovered = addPayment({
+    ...base,
+    contractId,
+    invoiceId: invoice.id,
+    link: "TI",
+    netAmount: 0,
+    recovered: 50,
+  });
+  const unrelated = addPayment({
+    ...base,
+    contractId,
+    link: "unlinked",
+    netAmount: 15,
+  });
+  const elsewhere = addPayment({
+    ...base,
+    contractId: other.contract.id,
+    link: "unlinked",
+    netAmount: 5,
+  });
+  assert.ok(big && small && recovered && unrelated && elsewhere);
+  assert.equal(contractRecoverablePool(getData().payments, contractId), 100);
+  assert.equal(contractRecoveredTotal(getData().payments, contractId), 50);
+
+  assert.equal(deletePayment(big.id), false);
+  assert.ok(getData().payments.some((p) => p.id === big.id));
+  assert.equal(contractRecoverablePool(getData().payments, contractId), 100);
+  assert.equal(contractRecoveredTotal(getData().payments, contractId), 50);
+
+  assert.equal(deletePayment(unrelated.id), true);
+  assert.equal(getData().payments.some((p) => p.id === unrelated.id), false);
+  assert.equal(deletePayment(elsewhere.id), true);
+  assert.equal(getData().payments.some((p) => p.id === elsewhere.id), false);
+  assert.equal(contractRecoveredTotal(getData().payments, contractId), 50);
+
+  assert.equal(deletePayment(small.id), true);
+  assert.equal(getData().payments.some((p) => p.id === small.id), false);
+  assert.equal(contractRecoverablePool(getData().payments, contractId), 60);
+  assert.equal(contractRecoveredTotal(getData().payments, contractId), 50);
+  assert.ok(getData().payments.some((p) => p.id === big.id));
+
+  assert.equal(deletePayment(recovered.id), true);
+  assert.equal(getData().payments.some((p) => p.id === recovered.id), false);
+  assert.equal(contractRecoveredTotal(getData().payments, contractId), 0);
+  assert.equal(contractRecoverablePool(getData().payments, contractId), 60);
+  assert.equal(deletePayment("missing-payment"), false);
 });

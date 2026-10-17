@@ -110,7 +110,8 @@ export default function ScheduleDetailPage() {
       return;
     }
     const itemKinds = kind === "supply" || kind === "installation";
-    const end = itemKinds ? endDate || startDate : startDate;
+    const startNa = itemKinds && isScheduleDateNa(startDate);
+    const end = itemKinds ? (startNa ? startDate : endDate || startDate) : startDate;
     if (!startDate) {
       setMsg("Date is required (or set NA).");
       return;
@@ -123,7 +124,7 @@ export default function ScheduleDetailPage() {
       setMsg("End date cannot be before start date.");
       return;
     }
-    if (itemKinds && (!(Number(quantity) > 0) || !boqItemId)) {
+    if (itemKinds && !startNa && (!(Number(quantity) > 0) || !boqItemId)) {
       setMsg("BOQ item and quantity are required for supply / installation.");
       return;
     }
@@ -134,7 +135,7 @@ export default function ScheduleDetailPage() {
       startDate > c.closureDate
     ) {
       const ok = await confirmAction({
-        message: `Handover date is after the contract closure date (${c.closureDate}). Save anyway? The closure date will show in red on the contracts list.`,
+        message: `Handover date is after the contract closure date (${c.closureDate}). Save this schedule date anyway?`,
         action: "Save anyway",
       });
       if (!ok) return;
@@ -144,7 +145,7 @@ export default function ScheduleDetailPage() {
       {
         kind,
         boqItemId: itemKinds ? boqItemId : null,
-        quantity: itemKinds ? Number(quantity) : null,
+        quantity: itemKinds && !startNa ? Number(quantity) : null,
         startDate,
         endDate: end,
         committed,
@@ -157,6 +158,10 @@ export default function ScheduleDetailPage() {
     }
     const saved = await confirmWorkspaceSave();
     if (!saved) return;
+    if (startNa) {
+      router.push("/schedules");
+      return;
+    }
     setEditing(false);
     setMsg(null);
     if (updated.cascade?.length) {
@@ -438,7 +443,7 @@ export default function ScheduleDetailPage() {
                       type="number"
                       value={quantity}
                       onChange={(e) => setQuantity(e.target.value)}
-                      required
+                      required={!isScheduleDateNa(startDate)}
                     />
                   </div>
                   <ScheduleDateField

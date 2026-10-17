@@ -207,9 +207,10 @@ test("handover keeps saved supply lines and an honest change log", () => {
   assert.equal(handoverLine.endDate, today);
 
   const contract = after.contracts.find((c) => c.id === contractId);
-  assert.equal(contract?.status, "completed");
-  const locked = updateContract(contractId, { status: "active" });
-  assert.equal(locked?.status, "completed");
+  assert.equal(contract?.handoverDate ?? null, null);
+  assert.equal(contract?.status, "active");
+  const stillOpen = updateContract(contractId, { status: "active" });
+  assert.equal(stillOpen?.status, "active");
 
   const supplyDateUpdates = getData().scheduleChangeLog.filter(
     (e) =>
@@ -269,10 +270,9 @@ test("handover keeps saved supply lines and an honest change log", () => {
   assert.equal(movedA?.endDate, "2026-10-18");
   assert.equal(keptB?.quantity, 80);
   assert.equal(keptHandover?.startDate, today);
-  assert.equal(
-    getData().contracts.find((c) => c.id === contractId)?.status,
-    "completed"
-  );
+  const afterMove = getData().contracts.find((c) => c.id === contractId);
+  assert.equal(afterMove?.handoverDate ?? null, null);
+  assert.equal(afterMove?.status, "active");
 });
 
 test("planner commitment edit updates uncommitted lines without touching dates", () => {

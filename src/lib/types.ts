@@ -151,7 +151,7 @@ export type Contract = {
   retentionPercent: number;
   /** TDS % of invoice net — default 2; editable per contract */
   tdsPercent: number;
-  /** DLP whole months (3–60); clock starts from actual handover */
+  /** DLP whole months (3–60); counted from handoverDate, not a schedule line */
   dlpMonths: number;
   abgRequired: boolean;
   /** Percent of order value (net / before GST) */
@@ -191,6 +191,12 @@ export type Contract = {
   retentionRecoveredAt: string | null;
   /** Soft free-text until filled */
   contractorAssigned: string;
+  /**
+   * True handover date (YYYY-MM-DD). Empty until someone confirms it
+   * on the contract page. Schedule handover lines are targets and
+   * never fill this.
+   */
+  handoverDate: string | null;
   boq: BoqItem[];
   /** Confirmed BOQ amendments, oldest first */
   amendments: BoqAmendment[];
@@ -199,7 +205,8 @@ export type Contract = {
   /**
    * Active, On hold, or Completed.
    * "complete" is the older stored word for Completed.
-   * Completed is set by handover, not by hand.
+   * The screen shows Completed only from handoverDate (today or earlier).
+   * A stored completed word left by an old schedule line does not.
    */
   status: "active" | "on_hold" | "completed" | "complete";
   createdAt: string;

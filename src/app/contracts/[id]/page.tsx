@@ -48,7 +48,9 @@ import {
 import { cn } from "@/lib/utils";
 import { defaultAccess, mayMutate } from "@/lib/access";
 import {
+  acceptedHandoverDate,
   contractDisplayStatus,
+  handoverDateToSave,
   storedContractStatus,
   todayIso,
 } from "@/lib/nexus-core";
@@ -106,6 +108,10 @@ export default function ContractDetailPage() {
   const [pbgRetrievedDate, setPbgRetrievedDate] = useState("");
   const [retentionRecoverDate, setRetentionRecoverDate] = useState("");
   const [contractor, setContractor] = useState("");
+  const [handoverStep, setHandoverStep] = useState<"idle" | "date" | "confirm">(
+    "idle"
+  );
+  const [handoverDraft, setHandoverDraft] = useState("");
   const [tdsEdit, setTdsEdit] = useState("");
   const [billingEditor, setBillingEditor] = useState<BillingEditorState | null>(
     null
@@ -144,6 +150,11 @@ export default function ContractDetailPage() {
       cancelled = true;
     };
   }, [session?.user?.clearance]);
+
+  useEffect(() => {
+    setHandoverStep("idle");
+    setHandoverDraft("");
+  }, [id]);
 
   useEffect(() => {
     if (!contract) return;
@@ -420,6 +431,34 @@ export default function ContractDetailPage() {
     await flushWorkspace();
     setContractor("");
     setMsg("Contractor assignment saved.");
+  }
+
+  function startHandover() {
+    setHandoverDraft(contract?.handoverDate ?? "");
+    setHandoverStep("date");
+  }
+
+  function askHandoverConfirm(e: FormEvent) {
+    e.preventDefault();
+    if (!acceptedHandoverDate(handoverDraft)) {
+      setMsg("Enter a handover date.");
+      return;
+    }
+    setHandoverStep("confirm");
+  }
+
+  async function confirmHandover() {
+    const date = handoverDateToSave(handoverDraft, true);
+    if (!date) {
+      setMsg("Enter a handover date.");
+      setHandoverStep("date");
+      return;
+    }
+    updateContract(id, { handoverDate: date });
+    await flushWorkspace();
+    setHandoverStep("idle");
+    setHandoverDraft("");
+    setMsg("Handover date saved.");
   }
 
   const billingEditing =
@@ -782,36 +821,115 @@ export default function ContractDetailPage() {
         />
       </div>
 
-      <section className="rounded-xl border border-[var(--fh-line)] bg-white p-5">
-        <h2 className="font-[family-name:var(--font-display)] text-xl text-[var(--fh-steel)]">
-          Contractor assigned
-        </h2>
-        <p className="mt-3 text-sm font-medium">
-          {c.contractorAssigned || (
-            <span className="text-[var(--fh-muted)]">Not assigned yet</span>
-          )}
-        </p>
-        <form
-          onSubmit={saveContractor}
-          {...entryRootProps}
-          className="mt-3 flex flex-wrap gap-2"
-        >
-          <Input
-            value={contractor}
-            onChange={(e) => setContractor(e.target.value)}
-            placeholder={c.contractorAssigned || "Contractor name"}
-            className="max-w-sm"
-          />
-          <Button
-            type="submit"
-            {...entrySaveProps}
-            size="sm"
-            className="bg-[var(--fh-steel)]"
+      <div className="grid gap-6 lg:grid-cols-2">
+        <section className="rounded-xl border border-[var(--fh-line)] bg-white p-5">
+          <h2 className="font-[family-name:var(--font-display)] text-xl text-[var(--fh-steel)]">
+            Contractor assigned
+          </h2>
+          <p className="mt-3 text-sm font-medium">
+            {c.contractorAssigned || (
+              <span className="text-[var(--fh-muted)]">Not assigned yet</span>
+            )}
+          </p>
+          <form
+            onSubmit={saveContractor}
+            {...entryRootProps}
+            className="mt-3 flex flex-wrap gap-2"
           >
-            Save
-          </Button>
-        </form>
-      </section>
+            <Input
+              value={contractor}
+              onChange={(e) => setContractor(e.target.value)}
+              placeholder={c.contractorAssigned || "Contractor name"}
+              className="max-w-sm"
+            />
+            <Button
+              type="submit"
+              {...entrySaveProps}
+              size="sm"
+              className="bg-[var(--fh-steel)]"
+            >
+              Save
+            </Button>
+          </form>
+        </section>
+
+        <section className="rounded-xl border border-[var(--fh-line)] bg-white p-5">
+          <h2 className="font-[family-name:var(--font-display)] text-xl text-[var(--fh-steel)]">
+            Handover
+          </h2>
+          <p className="mt-3 text-sm font-medium">
+            {c.handoverDate ? (
+              formatDisplayDate(c.handoverDate)
+            ) : (
+              <span className="text-[var(--fh-muted)]">Not handed over</span>
+            )}
+          </p>
+          {handoverStep === "idle" ? (
+            <Button
+              type="button"
+              size="sm"
+              className="mt-3 bg-[var(--fh-steel)]"
+              onClick={startHandover}
+            >
+              Handover
+            </Button>
+          ) : handoverStep === "date" ? (
+            <form
+              onSubmit={askHandoverConfirm}
+              {...entryRootProps}
+              className="mt-3 flex flex-wrap items-end gap-2"
+            >
+              <div className="space-y-1">
+                <Label htmlFor="contract-handover-date">Handover date</Label>
+                <Input
+                  id="contract-handover-date"
+                  type="date"
+                  value={handoverDraft}
+                  onChange={(e) => setHandoverDraft(e.target.value)}
+                  required
+                />
+              </div>
+              <Button type="submit" size="sm" variant="outline">
+                Continue
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setHandoverStep("idle")}
+              >
+                Cancel
+              </Button>
+            </form>
+          ) : (
+            <div className="mt-3 space-y-3">
+              <p className="text-sm text-[var(--fh-ink)]">
+                Save handover date {formatDisplayDate(handoverDraft)}? This
+                replaces the date on the contract.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  {...entrySaveProps}
+                  size="sm"
+                  className="bg-[var(--fh-steel)]"
+                  onClick={() => void confirmHandover()}
+                >
+                  Confirm
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setHandoverStep("date")}
+                >
+                  Back
+                </Button>
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
 
       <section className="rounded-xl border border-[var(--fh-line)] bg-white p-5">
         <div className="flex items-center justify-between gap-2">
