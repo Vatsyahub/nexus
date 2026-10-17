@@ -19,6 +19,7 @@ import {
   type ScheduleLine,
 } from "@/lib/types";
 import { confirmAction } from "@/components/confirm-panel";
+import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -668,6 +669,7 @@ export default function SchedulesClient({
           <div
             role="dialog"
             className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--fh-line)] bg-white p-5 shadow-lg"
+            {...entryRootProps}
           >
             <h2 className="font-[family-name:var(--font-display)] text-xl text-[var(--fh-steel)]">
               Confirm cascaded dates
@@ -723,6 +725,7 @@ export default function SchedulesClient({
             <div className="mt-4 flex flex-wrap gap-2">
               <Button
                 type="button"
+                {...entrySaveProps}
                 className="bg-[var(--fh-steel)]"
                 onClick={() => void confirmCascade()}
               >

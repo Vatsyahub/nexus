@@ -33,6 +33,7 @@ import {
   ReportExportIcons,
   reportFilterSummary,
 } from "@/components/report-export-icons";
+import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -737,6 +738,7 @@ function RetentionsTable({
                       recoveringId === r.contractId ? (
                         <form
                           onSubmit={(e) => onSubmitRecover(e, r.contractId)}
+                          {...entryRootProps}
                           className="flex flex-wrap items-end gap-2"
                         >
                           <div className="space-y-1">
@@ -753,6 +755,7 @@ function RetentionsTable({
                           </div>
                           <Button
                             type="submit"
+                            {...entrySaveProps}
                             size="sm"
                             className="bg-[var(--fh-steel)]"
                           >

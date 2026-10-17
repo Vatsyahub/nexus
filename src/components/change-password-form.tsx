@@ -6,6 +6,7 @@ import {
   changePassword,
   type ChangePasswordState,
 } from "@/app/actions/password";
+import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
 import { PasswordField } from "@/components/password-field";
 
@@ -59,6 +60,7 @@ export function ChangePasswordForm({
     <form
       action={action}
       onSubmit={onSubmit}
+      {...entryRootProps}
       className="mx-auto max-w-md space-y-4"
       noValidate
     >
@@ -124,6 +126,7 @@ export function ChangePasswordForm({
       )}
       <Button
         type="submit"
+        {...entrySaveProps}
         disabled={pending || finishing}
         className="bg-[var(--fh-accent)] text-[var(--fh-ink)] hover:bg-[#f0b01a]"
       >

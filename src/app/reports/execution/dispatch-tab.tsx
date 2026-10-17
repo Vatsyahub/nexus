@@ -10,6 +10,7 @@ import {
 } from "@/lib/store";
 import { formatQty } from "@/lib/execution-reports";
 import { ContractTypeahead } from "@/components/contract-typeahead";
+import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -146,6 +147,7 @@ function AddDcForm({
   return (
     <form
       onSubmit={onSubmit}
+      {...entryRootProps}
       className="space-y-4 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)]/50 p-4"
     >
       <h3 className="font-[family-name:var(--font-display)] text-lg text-[var(--fh-steel)]">
@@ -239,6 +241,7 @@ function AddDcForm({
       <div className="flex justify-end">
         <Button
           type="submit"
+          {...entrySaveProps}
           disabled={saving}
           className="bg-[var(--fh-accent)] text-[var(--fh-ink)] hover:bg-[#f0b01a]"
         >

@@ -22,6 +22,7 @@ import {
 } from "@/lib/nexus-core";
 import { confirmAction } from "@/components/confirm-panel";
 import { ContractTypeahead } from "@/components/contract-typeahead";
+import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { HubDataScroll, HubPage } from "@/components/hub-scroll";
@@ -111,6 +112,7 @@ export default function AddCostsPage() {
             {canEdit && (
               <form
                 onSubmit={(e) => void onAddColumn(e)}
+                {...entryRootProps}
                 className="mt-3 flex flex-wrap items-center gap-2"
               >
                 <Input
@@ -121,7 +123,12 @@ export default function AddCostsPage() {
                   className="max-w-xs bg-white"
                   maxLength={40}
                 />
-                <Button type="submit" size="sm" className="bg-[var(--fh-steel)]">
+                <Button
+                  type="submit"
+                  {...entrySaveProps}
+                  size="sm"
+                  className="bg-[var(--fh-steel)]"
+                >
                   Add column
                 </Button>
               </form>

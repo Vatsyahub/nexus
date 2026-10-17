@@ -7,6 +7,7 @@ import { useSession } from "next-auth/react";
 import { updateContract, useFlowhubData } from "@/lib/store";
 import { confirmWorkspaceSave } from "@/lib/save-notice";
 import { DLP_MONTHS_RANGE_MESSAGE, acceptedDlpMonths } from "@/lib/dlp-months";
+import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -116,7 +117,11 @@ export default function EditContractPage() {
         </h1>
         <p className="mt-1 text-sm text-[var(--fh-muted)]">{contract.projectNo}</p>
       </div>
-      <form onSubmit={submit} className="space-y-4 rounded-xl border border-[var(--fh-line)] bg-white p-5">
+      <form
+        onSubmit={submit}
+        {...entryRootProps}
+        className="space-y-4 rounded-xl border border-[var(--fh-line)] bg-white p-5"
+      >
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Project name" value={projectName} onChange={setProjectName} />
           <Field label="Project no." value={projectNo} onChange={setProjectNo} />
@@ -141,7 +146,7 @@ export default function EditContractPage() {
         </div>
         {error && <p className="text-sm text-red-700">{error}</p>}
         <div className="flex gap-2">
-          <Button type="submit" className="bg-[var(--fh-steel)]">
+          <Button type="submit" {...entrySaveProps} className="bg-[var(--fh-steel)]">
             Save changes
           </Button>
           <Link href={`/contracts/${id}`} className={cn(buttonVariants({ variant: "outline" }))}>

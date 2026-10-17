@@ -15,6 +15,7 @@ import { confirmAction } from "@/components/confirm-panel";
 import { confirmWorkspaceSave } from "@/lib/save-notice";
 import type { ContractExpense } from "@/lib/types";
 import { ContractTypeahead } from "@/components/contract-typeahead";
+import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { ListSearchBar } from "@/components/list-search";
 import {
   DeleteIconButton,
@@ -362,7 +363,7 @@ export function ExpensesClient({
           <h2 className="font-[family-name:var(--font-display)] text-xl text-[var(--fh-steel)]">
             Edit expense
           </h2>
-          <form onSubmit={onSubmit} className="grid gap-3 sm:grid-cols-2">
+          <form onSubmit={onSubmit} {...entryRootProps} className="grid gap-3 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <ContractTypeahead
                 contracts={contracts}
@@ -441,7 +442,7 @@ export function ExpensesClient({
               />
             </div>
             <div className="flex flex-wrap gap-2 sm:col-span-2">
-              <Button type="submit" className="bg-[var(--fh-steel)]">
+              <Button type="submit" {...entrySaveProps} className="bg-[var(--fh-steel)]">
                 Save changes
               </Button>
               <Button type="button" variant="outline" onClick={cancelForm}>

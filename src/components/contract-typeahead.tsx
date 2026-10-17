@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { Contract } from "@/lib/types";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,6 +43,7 @@ export function ContractTypeahead({
   const selected = contracts.find((c) => c.id === value) ?? null;
   const [query, setQuery] = useState(selected ? labelFor(selected) : "");
   const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -66,18 +67,56 @@ export function ContractTypeahead({
     onChange(c.id);
     setQuery(labelFor(c));
     setOpen(false);
+    setActive(-1);
   }
 
   function onInputChange(next: string) {
     setQuery(next);
     setOpen(true);
+    setActive(-1);
     if (selected && labelFor(selected) !== next) {
       onChange("");
     }
   }
 
+  function onInputKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    const inEntry = !!rootRef.current?.closest("[data-entry]");
+    const ignored = !!rootRef.current?.closest("[data-entry-ignore]");
+    if (!inEntry || ignored) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setOpen(true);
+      setActive((i) => {
+        if (filtered.length === 0) return -1;
+        return i < 0 ? 0 : (i + 1) % filtered.length;
+      });
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setOpen(true);
+      setActive((i) => {
+        if (filtered.length === 0) return -1;
+        return i < 0 ? filtered.length - 1 : (i - 1 + filtered.length) % filtered.length;
+      });
+      return;
+    }
+    if (e.key === "Escape") {
+      if (!open) return;
+      e.preventDefault();
+      setOpen(false);
+      setActive(-1);
+      return;
+    }
+    if (e.key === "Enter" && open && active >= 0 && filtered[active]) {
+      e.preventDefault();
+      e.stopPropagation();
+      pick(filtered[active]);
+    }
+  }
+
   return (
-    <div ref={rootRef} className="relative space-y-1">
+    <div ref={rootRef} className="relative space-y-1" data-suggest="">
       <Label htmlFor="contract-typeahead">{label}</Label>
       <Input
         id="contract-typeahead"
@@ -87,6 +126,15 @@ export function ContractTypeahead({
         autoComplete="off"
         onChange={(e) => onInputChange(e.target.value)}
         onFocus={() => setOpen(true)}
+        onKeyDown={onInputKeyDown}
+        onBlur={() => {
+          window.setTimeout(() => {
+            if (!rootRef.current?.contains(document.activeElement)) {
+              setOpen(false);
+              setActive(-1);
+            }
+          }, 0);
+        }}
         className="bg-white"
       />
       {open && !disabled && (
@@ -99,18 +147,23 @@ export function ContractTypeahead({
               {emptyMessage}
             </li>
           ) : (
-            filtered.map((c) => {
+            filtered.map((c, index) => {
               const suffix = optionSuffix?.(c);
+              const highlighted = index === active;
               return (
                 <li key={c.id}>
                   <button
                     type="button"
                     role="option"
                     aria-selected={c.id === value}
+                    data-active={highlighted ? "true" : undefined}
                     className={cn(
                       "flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-[var(--fh-bg)]",
-                      c.id === value && "bg-[var(--fh-accent)]/15"
+                      c.id === value && "bg-[var(--fh-accent)]/15",
+                      highlighted && "bg-[var(--fh-bg)]"
                     )}
+                    onMouseEnter={() => setActive(index)}
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => pick(c)}
                   >
                     <span className="font-medium text-[var(--fh-steel)]">

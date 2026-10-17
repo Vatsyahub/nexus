@@ -30,6 +30,7 @@ import {
   type BillingTerms,
 } from "@/lib/types";
 import { confirmAction } from "@/components/confirm-panel";
+import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -715,6 +716,7 @@ export default function ContractDetailPage() {
           ) : canRecoverRetention && c.retentionPercent > 0 ? (
             <form
               onSubmit={markRetentionRecovered}
+              {...entryRootProps}
               className="mt-3 space-y-2 border-t border-[var(--fh-line)] pt-3"
             >
               <p className="text-xs text-[var(--fh-muted)]">
@@ -731,7 +733,12 @@ export default function ContractDetailPage() {
                     required
                   />
                 </div>
-                <Button type="submit" size="sm" className="bg-[var(--fh-steel)]">
+                <Button
+                  type="submit"
+                  {...entrySaveProps}
+                  size="sm"
+                  className="bg-[var(--fh-steel)]"
+                >
                   Mark recovered
                 </Button>
               </div>
@@ -744,6 +751,7 @@ export default function ContractDetailPage() {
           </p>
           <form
             onSubmit={saveTds}
+            {...entryRootProps}
             className="mt-2 flex items-center gap-2"
           >
             <Input
@@ -757,7 +765,13 @@ export default function ContractDetailPage() {
               className="h-8 w-20"
               aria-label="TDS percent"
             />
-            <Button type="submit" size="sm" variant="outline" className="h-8 px-2.5">
+            <Button
+              type="submit"
+              {...entrySaveProps}
+              size="sm"
+              variant="outline"
+              className="h-8 px-2.5"
+            >
               Save
             </Button>
           </form>
@@ -777,14 +791,23 @@ export default function ContractDetailPage() {
             <span className="text-[var(--fh-muted)]">Not assigned yet</span>
           )}
         </p>
-        <form onSubmit={saveContractor} className="mt-3 flex flex-wrap gap-2">
+        <form
+          onSubmit={saveContractor}
+          {...entryRootProps}
+          className="mt-3 flex flex-wrap gap-2"
+        >
           <Input
             value={contractor}
             onChange={(e) => setContractor(e.target.value)}
             placeholder={c.contractorAssigned || "Contractor name"}
             className="max-w-sm"
           />
-          <Button type="submit" size="sm" className="bg-[var(--fh-steel)]">
+          <Button
+            type="submit"
+            {...entrySaveProps}
+            size="sm"
+            className="bg-[var(--fh-steel)]"
+          >
             Save
           </Button>
         </form>
@@ -815,7 +838,11 @@ export default function ContractDetailPage() {
           ) : null}
         </div>
         {billingEditing ? (
-          <form onSubmit={saveBillingTerms} className="mt-3 space-y-4">
+          <form
+            onSubmit={saveBillingTerms}
+            {...entryRootProps}
+            className="mt-3 space-y-4"
+          >
             <div className="grid gap-3 sm:grid-cols-2">
               {orderedBillingTermKeys(termsForEdit).map((key) => {
                 const label = billingTermLabel(key);
@@ -897,6 +924,7 @@ export default function ContractDetailPage() {
             <div className="flex flex-wrap gap-2">
               <Button
                 type="submit"
+                {...entrySaveProps}
                 className="bg-[var(--fh-steel)] hover:bg-[#244a5e]"
               >
                 Save billing terms
@@ -1167,7 +1195,7 @@ function GuaranteeBlock({
           )}
         </div>
         {canAdd && editing && (
-          <form onSubmit={onSave} className="grid gap-2">
+          <form onSubmit={onSave} {...entryRootProps} className="grid gap-2">
             <div className="space-y-1">
               <Label>Percent</Label>
               <Input
@@ -1225,7 +1253,12 @@ function GuaranteeBlock({
               </p>
             </div>
             <div className="flex gap-2">
-              <Button type="submit" size="sm" className="bg-[var(--fh-steel)]">
+              <Button
+                type="submit"
+                {...entrySaveProps}
+                size="sm"
+                className="bg-[var(--fh-steel)]"
+              >
                 Save {title} details
               </Button>
               <Button
@@ -1334,6 +1367,7 @@ function GuaranteeBlock({
           />
           <form
             onSubmit={onMarkRetrieved}
+            {...entryRootProps}
             className="space-y-2 rounded-md border border-[var(--fh-line)] bg-[var(--fh-bg)] p-3"
           >
             <p className="text-xs text-[var(--fh-muted)]">
@@ -1350,7 +1384,12 @@ function GuaranteeBlock({
                   required
                 />
               </div>
-              <Button type="submit" size="sm" className="bg-[var(--fh-steel)]">
+              <Button
+                type="submit"
+                {...entrySaveProps}
+                size="sm"
+                className="bg-[var(--fh-steel)]"
+              >
                 Mark retrieved
               </Button>
             </div>
@@ -1358,7 +1397,7 @@ function GuaranteeBlock({
         </>
       )}
       {showForm && (
-        <form onSubmit={onSave} className="grid gap-2">
+        <form onSubmit={onSave} {...entryRootProps} className="grid gap-2">
           <div className="space-y-1">
             <Label>{title} number</Label>
             <Input
@@ -1406,7 +1445,12 @@ function GuaranteeBlock({
             </p>
           </div>
           <div className="flex gap-2">
-            <Button type="submit" size="sm" className="bg-[var(--fh-steel)]">
+            <Button
+              type="submit"
+              {...entrySaveProps}
+              size="sm"
+              className="bg-[var(--fh-steel)]"
+            >
               Save {title} details
             </Button>
             {filled && editing && (

@@ -11,6 +11,7 @@ import {
 import { formatDisplayDate } from "@/lib/dates";
 import { formatQty } from "@/lib/execution-reports";
 import { ContractTypeahead } from "@/components/contract-typeahead";
+import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import {
   ReportExportIcons,
   reportFilterSummary,
@@ -111,9 +112,12 @@ export function InstallationsTab({
   }
 
   return (
-    <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+    <div
+      className="mt-4 flex min-h-0 flex-1 flex-col gap-4 overflow-hidden"
+      {...entryRootProps}
+    >
       <div className="flex flex-wrap items-end gap-4">
-        <div className="min-w-[16rem] max-w-xl flex-1">
+        <div className="min-w-[16rem] max-w-xl flex-1" data-entry-ignore="">
           <ContractTypeahead
             contracts={data.contracts}
             value={contractId}
@@ -152,6 +156,7 @@ export function InstallationsTab({
               cannot exceed supplied qty.
             </p>
           )}
+          <div {...entryRootProps}>
           <ReportsTableScroll>
             <table className="w-full table-fixed text-left text-sm">
               <colgroup>
@@ -221,12 +226,6 @@ export function InstallationsTab({
                                 [item.id]: e.target.value,
                               }))
                             }
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                void save(item.id);
-                              }
-                            }}
                             aria-label={`New installed total for ${item.name}`}
                             aria-invalid={over || undefined}
                             className={cn(
@@ -245,6 +244,7 @@ export function InstallationsTab({
                         <td className="px-1 py-1.5 sm:px-1.5">
                           <Button
                             type="button"
+                            {...entrySaveProps}
                             size="sm"
                             variant="outline"
                             disabled={
@@ -266,6 +266,7 @@ export function InstallationsTab({
               </tbody>
             </table>
           </ReportsTableScroll>
+          </div>
           <ReportExportIcons
             filename={`installations-${contract.projectNo}`}
             title="Operations — Installations"

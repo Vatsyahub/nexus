@@ -27,6 +27,7 @@ import {
 import { ScheduleDateField } from "@/components/schedule-date-field";
 import { defaultAccess } from "@/lib/access";
 import { canEditSchedules } from "@/lib/schedule-permissions";
+import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -302,7 +303,7 @@ export default function ScheduleDetailPage() {
               </Button>
             </div>
           ) : (
-            <div className="mt-3 flex flex-wrap items-end gap-3">
+            <div className="mt-3 flex flex-wrap items-end gap-3" {...entryRootProps}>
               <div className="space-y-1">
                 <Label htmlFor="completionDate">Completion date</Label>
                 <Input
@@ -314,6 +315,7 @@ export default function ScheduleDetailPage() {
               </div>
               <Button
                 type="button"
+                {...entrySaveProps}
                 size="sm"
                 className="bg-[var(--fh-steel)]"
                 disabled={!completionDate}
@@ -383,7 +385,7 @@ export default function ScheduleDetailPage() {
             </div>
           </dl>
         ) : (
-          <form onSubmit={onSave} className="mt-6 space-y-4">
+          <form onSubmit={onSave} {...entryRootProps} className="mt-6 space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1">
                 <Label>Type</Label>
@@ -467,7 +469,7 @@ export default function ScheduleDetailPage() {
               )}
             </div>
             <div className="flex gap-2">
-              <Button type="submit" className="bg-[var(--fh-steel)]">
+              <Button type="submit" {...entrySaveProps} className="bg-[var(--fh-steel)]">
                 Save changes
               </Button>
               <Button
@@ -483,7 +485,10 @@ export default function ScheduleDetailPage() {
       </article>
 
       {cascade && cascade.length > 0 && (
-        <div className="rounded-xl border border-[var(--fh-line)] bg-white p-5">
+        <div
+          className="rounded-xl border border-[var(--fh-line)] bg-white p-5"
+          {...entryRootProps}
+        >
           <h2 className="font-[family-name:var(--font-display)] text-xl text-[var(--fh-steel)]">
             Confirm cascaded dates
           </h2>
@@ -530,6 +535,7 @@ export default function ScheduleDetailPage() {
           <div className="mt-4 flex gap-2">
             <Button
               type="button"
+              {...entrySaveProps}
               className="bg-[var(--fh-steel)]"
               onClick={() => void confirmCascade()}
             >

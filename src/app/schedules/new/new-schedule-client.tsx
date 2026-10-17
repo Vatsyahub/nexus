@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { isContractScheduleComplete, useFlowhubData } from "@/lib/store";
 import { ContractTypeahead } from "@/components/contract-typeahead";
+import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { buttonVariants } from "@/components/ui/button";
@@ -39,7 +40,10 @@ export function NewScheduleClient() {
         Back to schedules
       </Link>
 
-      <div className="space-y-4 rounded-xl border border-[var(--fh-line)] bg-white p-6">
+      <div
+        className="space-y-4 rounded-xl border border-[var(--fh-line)] bg-white p-6"
+        {...entryRootProps}
+      >
         <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold text-[var(--fh-steel)]">
           Add schedule
         </h1>
@@ -101,6 +105,7 @@ export function NewScheduleClient() {
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"
+            {...entrySaveProps}
             className="bg-[var(--fh-steel)]"
             disabled={!contractId}
             onClick={() => {

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { KeyRound, VenetianMask, X } from "lucide-react";
 import { resetUserPassword, type UserActionState } from "@/app/actions/users";
+import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -101,7 +102,11 @@ function OtherUserActions({
         </Button>
       </div>
       {open && (
-        <form action={action} className="flex flex-wrap items-end justify-end gap-2">
+        <form
+          action={action}
+          {...entryRootProps}
+          className="flex flex-wrap items-end justify-end gap-2"
+        >
           <input type="hidden" name="userId" value={user.id} />
           <div className="space-y-1 text-left">
             <Label htmlFor={`reset-${user.id}`} className="text-xs">
@@ -118,6 +123,7 @@ function OtherUserActions({
           </div>
           <Button
             type="submit"
+            {...entrySaveProps}
             size="sm"
             disabled={pending}
             className="bg-[var(--fh-accent)] text-[var(--fh-ink)] hover:bg-[#f0b01a]"

@@ -14,6 +14,7 @@ import {
 import type { ClearanceRole } from "@/lib/clearance";
 import type { AssignablePerson } from "../tasks-client";
 import { ContractTypeahead } from "@/components/contract-typeahead";
+import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -134,6 +135,7 @@ export function NewTaskClient({
 
       <form
         onSubmit={submit}
+        {...entryRootProps}
         className="space-y-4 border border-[var(--fh-line)] bg-white p-5"
       >
         {error && (
@@ -253,7 +255,7 @@ export function NewTaskClient({
           )}
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="submit" className="bg-[var(--fh-steel)]">
+          <Button type="submit" {...entrySaveProps} className="bg-[var(--fh-steel)]">
             Create task
           </Button>
           <Link

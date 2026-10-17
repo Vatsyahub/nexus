@@ -16,6 +16,7 @@ import {
 import { formatRecoverableRunningLine } from "@/lib/payment-display";
 import { type Payment, type PaymentLink } from "@/lib/types";
 import { ContractTypeahead } from "@/components/contract-typeahead";
+import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -206,6 +207,7 @@ export function PaymentForm({
   return (
     <form
       onSubmit={submit}
+      {...entryRootProps}
       className="space-y-4 rounded-xl border border-[var(--fh-line)] bg-white p-5"
     >
       <div className="grid gap-3 sm:grid-cols-2">
@@ -343,6 +345,7 @@ export function PaymentForm({
       <div className="flex flex-wrap gap-2">
         <Button
           type="submit"
+          {...entrySaveProps}
           disabled={pending}
           className="bg-[var(--fh-steel)] hover:bg-[#244a5e]"
         >
