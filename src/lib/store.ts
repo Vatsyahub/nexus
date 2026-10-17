@@ -923,6 +923,33 @@ function scheduleWindowBlank(w: ScheduleWindowInput): boolean {
 }
 
 /**
+ * Planner NA control on a supply or installation window.
+ * Start is NA and end is NA or omitted — the planner sets both together.
+ * A real date on the other side is not NA; that still has to be corrected.
+ */
+function scheduleWindowNa(w: ScheduleWindowInput): boolean {
+  const start = String(w.startDate ?? "").trim();
+  if (!isScheduleDateNa(start)) return false;
+  const end = String(w.endDate ?? "").trim();
+  return !end || isScheduleDateNa(end);
+}
+
+function lineDatesNa(line: ScheduleLine): boolean {
+  return isScheduleDateNa(line.startDate) && isScheduleDateNa(line.endDate);
+}
+
+/**
+ * The BOQ item is marked NA when every supply window on this save is NA.
+ * That item is not part of the schedule: no supply qty and no other lines.
+ */
+function itemSuppliesMarkedNa(supplies: ScheduleWindowInput[]): boolean {
+  const meaningful = supplies.filter(
+    (w) => w.edited || !scheduleWindowBlank(w)
+  );
+  return meaningful.length > 0 && meaningful.every(scheduleWindowNa);
+}
+
+/**
  * Keep stored supply/install lines unless this save edited that window.
  * A handover date is often saved from a form that still holds the original
  * plan, and that must not put user-edited dates or qty back.
@@ -936,10 +963,16 @@ function mergeScheduleWindows(
     (w) => w.edited || !scheduleWindowBlank(w)
   );
   const anyEdited = meaningful.some((w) => w.edited === true);
-  if (!anyEdited && existing.length > 0) return existing;
+  if (!anyEdited && existing.length > 0) {
+    if (!meaningful.some((w) => scheduleWindowNa(w))) return existing;
+    return existing.filter((line, i) => {
+      const w = meaningful[i];
+      return !(w && scheduleWindowNa(w) && lineDatesNa(line));
+    });
+  }
   if (!anyEdited) {
     return meaningful
-      .filter((w) => !scheduleWindowBlank(w))
+      .filter((w) => !scheduleWindowBlank(w) && !scheduleWindowNa(w))
       .map((w) => apply(w));
   }
   const result: ScheduleLine[] = [];
@@ -949,6 +982,12 @@ function mergeScheduleWindows(
     const w = meaningful[i];
     if (!w) {
       if (prior) result.push(prior);
+      continue;
+    }
+    if (scheduleWindowNa(w)) {
+      const priorNa = prior ? lineDatesNa(prior) : false;
+      if (w.edited || priorNa || !prior) continue;
+      result.push(prior);
       continue;
     }
     if (!w.edited && prior) {
@@ -1047,6 +1086,9 @@ export function saveContractSchedulePlan(
       supplies: [],
       installations: [],
     };
+    // NA on the item's supply dates omits the item. Supply qty is not
+    // required, and any supply or installation line already stored is dropped.
+    if (itemSuppliesMarkedNa(item.supplies)) continue;
     const existingSupply = prior.filter(
       (s) => s.kind === "supply" && s.boqItemId === boq.id
     );
