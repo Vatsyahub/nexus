@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { defaultAccess } from "@/lib/access";
 import type { ClearanceRole } from "@/lib/clearance";
 import type { AssignablePerson } from "../tasks-client";
 import { NewTaskClient } from "./new-task-client";
@@ -36,12 +37,14 @@ export default async function NewTaskPage({
   }));
 
   const role = (session.user.clearance ?? "user") as ClearanceRole;
+  const access = session.user.access ?? defaultAccess(role);
 
   return (
     <NewTaskClient
       people={people}
       role={role}
       defaultContractId={contractId}
+      canEditTasks={access.tasks === "edit"}
     />
   );
 }

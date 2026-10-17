@@ -8,7 +8,7 @@ import {
   type NexusCosts,
 } from "@/lib/types";
 import { normalizeNexusCosts } from "@/lib/nexus-core";
-import { tasksAfterDepartmentCatalogChange } from "@/lib/departments";
+import { departmentCatalogOnSave } from "@/lib/departments";
 import { keepInUseItemNames } from "@/lib/item-rename";
 import {
   mergeClearedNotices,
@@ -177,9 +177,12 @@ export function workspaceForAccount(
     doorLevel(access, "nexus_core") === "block"
       ? EMPTY_NEXUS_COSTS
       : normalizeNexusCosts(data.nexusCosts);
+  const operationsOpen = doorLevel(access, "reports_operations") !== "block";
 
   return {
     ...data,
+    deliveryChallans: operationsOpen ? data.deliveryChallans ?? [] : [],
+    installationProgress: operationsOpen ? data.installationProgress ?? [] : [],
     contracts,
     invoices: receives(access, "billing", BILLING_REPORTS) ? data.invoices : [],
     payments: receives(access, "payments", PAYMENT_REPORTS) ? data.payments : [],
@@ -340,8 +343,13 @@ export function mergeWorkspaceSave(
     ? normalizeNexusCosts(incoming.nexusCosts)
     : normalizeNexusCosts(current.nexusCosts);
   let itemCatalog = contractsEdit ? incoming.itemCatalog : current.itemCatalog;
-  let deliveryChallans = incoming.deliveryChallans;
-  let installationProgress = incoming.installationProgress;
+  const operationsEdit = edits(access, "reports_operations");
+  let deliveryChallans = operationsEdit
+    ? incoming.deliveryChallans
+    : current.deliveryChallans;
+  let installationProgress = operationsEdit
+    ? incoming.installationProgress
+    : current.installationProgress;
   let notifications = incoming.notifications;
 
   if (contractsEdit && !master) {
@@ -436,7 +444,8 @@ export function mergeWorkspaceSave(
     );
   }
 
-  tasks = tasksAfterDepartmentCatalogChange(current, incoming, tasks);
+  const catalog = departmentCatalogOnSave(current, incoming, tasks, master);
+  tasks = catalog.tasks;
 
   if (edits(access, "tasks")) {
     const reconciled = reconcileTaskDeadlineChanges({
@@ -479,6 +488,9 @@ export function mergeWorkspaceSave(
     expenseCategories: expensesEdit
       ? incoming.expenseCategories
       : current.expenseCategories,
+    customDepartments: catalog.customDepartments,
+    departmentRenames: catalog.departmentRenames,
+    deletedDepartments: catalog.deletedDepartments,
     itemCatalog,
     deliveryChallans,
     installationProgress,

@@ -166,14 +166,29 @@ test("task and subtask saves follow the department on that row", () => {
     title: "Dept lock open",
     contractId: contract.id,
     department: null,
+    assignees: ["Anil User"],
   });
-  const setOnce = assignTask(
+  const namedDenied = assignTask(
+    open.id,
+    { department: "Accounts Department" },
+    { actor: named, people }
+  );
+  assert.equal(namedDenied.ok, false);
+  const outsiderDenied = assignTask(
     open.id,
     { department: "Accounts Department", dueDate: "2026-12-01" },
     { actor: outsider, people }
   );
+  assert.equal(outsiderDenied.ok, false);
+  assert.equal(taskByTitle("Dept lock open").department, null);
+  const setOnce = assignTask(
+    open.id,
+    { department: "Accounts Department", dueDate: "2026-12-01" },
+    { actor: director, people }
+  );
   assert.equal(setOnce.ok, true);
   assert.equal(taskByTitle("Dept lock open").department, "Accounts Department");
+  assert.equal(taskByTitle("Dept lock open").dueDate, "2026-12-01");
   const relock = assignTask(
     open.id,
     { department: "Contracts Department" },
@@ -203,6 +218,33 @@ test("task and subtask saves follow the department on that row", () => {
   );
   assert.equal(subLocked.ok, false);
   assert.equal(taskByTitle("Dept lock install").department, "Installation Department");
+  const removed = assignTask(
+    sub.id,
+    { department: null },
+    { actor: master, people }
+  );
+  assert.equal(removed.ok, true);
+  assert.equal(taskByTitle("Dept lock install").department, null);
+  const wrongDept = assignTask(
+    sub.id,
+    { department: "Contracts Department" },
+    { actor: installManager, people }
+  );
+  assert.equal(wrongDept.ok, false);
+  const setAgain = assignTask(
+    sub.id,
+    { department: "Installation Department" },
+    { actor: installManager, people }
+  );
+  assert.equal(setAgain.ok, true);
+  assert.equal(taskByTitle("Dept lock install").department, "Installation Department");
+  const masterClearParent = assignTask(
+    open.id,
+    { department: null },
+    { actor: master, people }
+  );
+  assert.equal(masterClearParent.ok, false);
+  assert.equal(taskByTitle("Dept lock open").department, "Accounts Department");
 
   const parentForClose = addManualTask({
     title: "Dept lock close parent",

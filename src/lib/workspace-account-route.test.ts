@@ -6,6 +6,7 @@ type Row = { id: string; mustChangePassword: boolean } | null;
 const state: {
   user: Row;
   upserts: number;
+  writes: number;
   signedOut: number;
   refreshed: number;
   token: { id?: string; realId?: string } | null;
@@ -13,6 +14,7 @@ const state: {
 } = {
   user: { id: "user-1", mustChangePassword: false },
   upserts: 0,
+  writes: 0,
   signedOut: 0,
   refreshed: 0,
   token: { id: "user-1", realId: "user-1" },
@@ -65,6 +67,10 @@ mock.module("@/lib/prisma", {
           return {};
         },
       },
+      $executeRawUnsafe: async () => {
+        state.writes += 1;
+        return 1;
+      },
     },
   },
 });
@@ -98,6 +104,7 @@ function saveRequest() {
 test("a removed user is signed out and the workspace is not saved", async () => {
   state.user = null;
   state.upserts = 0;
+  state.writes = 0;
   state.signedOut = 0;
   state.refreshed = 0;
   const res = await PUT(saveRequest());
@@ -107,11 +114,13 @@ test("a removed user is signed out and the workspace is not saved", async () => 
   assert.equal(state.signedOut, 1);
   assert.equal(state.refreshed, 0);
   assert.equal(state.upserts, 0);
+  assert.equal(state.writes, 0);
 });
 
 test("a forced password change opens the password page and does not save", async () => {
   state.user = { id: "user-1", mustChangePassword: true };
   state.upserts = 0;
+  state.writes = 0;
   state.signedOut = 0;
   state.refreshed = 0;
   const res = await PUT(saveRequest());
@@ -122,18 +131,21 @@ test("a forced password change opens the password page and does not save", async
   assert.equal(state.refreshed, 1);
   assert.equal(state.signedOut, 0);
   assert.equal(state.upserts, 0);
+  assert.equal(state.writes, 0);
 });
 
 test("a live login can still save", async () => {
   state.user = { id: "user-1", mustChangePassword: false };
   state.upserts = 0;
+  state.writes = 0;
   state.signedOut = 0;
   state.refreshed = 0;
   const res = await PUT(saveRequest());
   const body = await res.json();
   assert.equal(res.status, 200);
   assert.equal(body.ok, true);
-  assert.equal(state.upserts, 1);
+  assert.equal(state.upserts, 0);
+  assert.equal(state.writes, 1);
   assert.equal(state.signedOut, 0);
   assert.equal(state.refreshed, 0);
   assert.ok(
@@ -166,9 +178,11 @@ test("an impersonated save checks the signed-in account", async () => {
   state.session = { user: { id: "other", name: "Other", clearance: "user" } };
   state.user = { id: "user-1", mustChangePassword: true };
   state.upserts = 0;
+  state.writes = 0;
   state.signedOut = 0;
   const res = await PUT(saveRequest());
   assert.equal(res.status, 403);
   assert.equal(state.upserts, 0);
+  assert.equal(state.writes, 0);
   assert.equal(state.signedOut, 0);
 });

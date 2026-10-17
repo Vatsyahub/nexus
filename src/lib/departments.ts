@@ -287,6 +287,57 @@ export function departmentCatalogChanges(
   return changes;
 }
 
+/**
+ * Master keeps a department rename or delete, including the departments on
+ * tasks. Every other save leaves the department list and those task
+ * departments as stored. A task department that did not come from that
+ * catalog change is left for the task rules.
+ */
+export function departmentCatalogOnSave(
+  current: Pick<
+    FlowhubData,
+    "tasks" | "customDepartments" | "departmentRenames" | "deletedDepartments"
+  >,
+  incoming: Pick<
+    FlowhubData,
+    "customDepartments" | "departmentRenames" | "deletedDepartments"
+  >,
+  tasks: Task[],
+  master: boolean
+): {
+  tasks: Task[];
+  customDepartments: string[];
+  departmentRenames: Record<string, string>;
+  deletedDepartments: string[];
+} {
+  if (master) {
+    return {
+      tasks: tasksAfterDepartmentCatalogChange(current, incoming, tasks),
+      ...departmentCatalogFields(incoming),
+    };
+  }
+  const moves = departmentCatalogChanges(current, incoming);
+  const currentById = new Map((current.tasks ?? []).map((task) => [task.id, task]));
+  const kept =
+    moves.length === 0
+      ? tasks
+      : tasks.map((task) => {
+          const prev = currentById.get(task.id);
+          if (!prev) return task;
+          const move = moves.find((item) =>
+            sameDepartment(prev.department, item.from)
+          );
+          if (!move) return task;
+          const becameTarget =
+            move.to === null
+              ? !(task.department || "").trim()
+              : sameDepartment(task.department, move.to);
+          if (!becameTarget) return task;
+          return { ...task, department: prev.department };
+        });
+  return { tasks: kept, ...departmentCatalogFields(current) };
+}
+
 export function tasksAfterDepartmentCatalogChange(
   current: Pick<
     FlowhubData,

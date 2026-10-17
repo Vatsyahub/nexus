@@ -1180,3 +1180,69 @@ test("merge ignores anything but the account doors", () => {
   assert.equal(merged.tasks[0]?.title, "Incoming");
   assert.equal(merged.payments.length, 0);
 });
+
+test("operations view can read dispatch records and view or block cannot change them", () => {
+  const challan = {
+    id: "dc1",
+    contractId: "c1",
+    dcNo: "DC-1",
+    date: "2026-04-01",
+    lines: [{ boqItemId: "b1", qty: 1 }],
+    createdAt: "2026-04-01T00:00:00.000Z",
+    createdBy: "Ada",
+  };
+  const progress = {
+    id: "ip1",
+    contractId: "c1",
+    boqItemId: "b1",
+    installedQty: 2,
+    lastUpdatedAt: "2026-04-02",
+    history: [],
+  };
+  const current = file({
+    deliveryChallans: [challan],
+    installationProgress: [progress],
+  });
+  const incoming = file({
+    deliveryChallans: [{ ...challan, dcNo: "DC-2" }],
+    installationProgress: [{ ...progress, installedQty: 9 }],
+  });
+  const viewed = workspaceForAccount(
+    current,
+    access({ reports_operations: "view" }),
+    "user"
+  );
+  assert.equal(viewed.deliveryChallans[0]?.dcNo, "DC-1");
+  assert.equal(viewed.installationProgress[0]?.installedQty, 2);
+  const hidden = workspaceForAccount(
+    current,
+    access({ reports_operations: "block" }),
+    "user"
+  );
+  assert.equal(hidden.deliveryChallans.length, 0);
+  assert.equal(hidden.installationProgress.length, 0);
+  const viewSave = mergeWorkspaceSave(
+    current,
+    incoming,
+    access({ reports_operations: "view" }),
+    "user"
+  );
+  assert.equal(viewSave.deliveryChallans[0]?.dcNo, "DC-1");
+  assert.equal(viewSave.installationProgress[0]?.installedQty, 2);
+  const blockSave = mergeWorkspaceSave(
+    current,
+    incoming,
+    access({ reports_operations: "block" }),
+    "user"
+  );
+  assert.equal(blockSave.deliveryChallans[0]?.dcNo, "DC-1");
+  assert.equal(blockSave.installationProgress[0]?.installedQty, 2);
+  const editSave = mergeWorkspaceSave(
+    current,
+    incoming,
+    access({ reports_operations: "edit" }),
+    "user"
+  );
+  assert.equal(editSave.deliveryChallans[0]?.dcNo, "DC-2");
+  assert.equal(editSave.installationProgress[0]?.installedQty, 9);
+});

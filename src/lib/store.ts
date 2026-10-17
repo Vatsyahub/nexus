@@ -90,11 +90,9 @@ import {
 } from "@/lib/task-notices";
 import {
   canUpdateTask,
-  departmentChangeAllowed,
-  departmentIsSet,
   resolveTaskAssignees,
+  resolveTaskDepartment,
   subtaskUpdateDenied,
-  TASK_DEPARTMENT_LOCKED,
   TASK_SAVE_DENIED,
   type TaskDirectoryPerson,
 } from "@/lib/task-permissions";
@@ -4119,12 +4117,15 @@ export function assignTask(
     return { ok: false, error: TASK_SAVE_DENIED };
   }
   const requestedDepartment = (assignment.department || "").trim() || null;
-  if (!departmentChangeAllowed(current.department, requestedDepartment)) {
-    return { ok: false, error: TASK_DEPARTMENT_LOCKED };
-  }
-  const department = departmentIsSet(current.department)
-    ? current.department
-    : requestedDepartment;
+  const decision = resolveTaskDepartment({
+    parentId: current.parentId,
+    currentDepartment: current.department,
+    nextDepartment: requestedDepartment,
+    assignees: current.assignees,
+    actor: opts.actor,
+  });
+  if (!decision.ok) return decision;
+  const department = decision.department;
   const names = resolveTaskAssignees({
     currentDepartment: current.department,
     nextDepartment: department,
@@ -4369,18 +4370,18 @@ export function updateTask(
   const current = data.tasks.find((t) => t.id === id);
   if (!current) return null;
   if (!opts?.actor || !canUpdateTask(opts.actor, current)) return null;
-  if (
-    patch.department !== undefined &&
-    !departmentChangeAllowed(current.department, patch.department)
-  ) {
-    return null;
+  let department = current.department;
+  if (patch.department !== undefined) {
+    const decision = resolveTaskDepartment({
+      parentId: current.parentId,
+      currentDepartment: current.department,
+      nextDepartment: patch.department,
+      assignees: current.assignees,
+      actor: opts.actor,
+    });
+    if (!decision.ok) return null;
+    department = decision.department;
   }
-  const department =
-    patch.department === undefined
-      ? current.department
-      : departmentIsSet(current.department)
-        ? current.department
-        : (patch.department || "").trim() || null;
   let assignees = patch.assignees;
   if (patch.assignees !== undefined) {
     const names = resolveTaskAssignees({
@@ -4462,14 +4463,27 @@ export function addManualTask(input: {
   parentId?: string | null;
   catalogKey?: TaskCatalogKey | null;
   source?: "system" | "manual";
-}): Task {
+},
+opts?: { actor?: TaskActor }
+): Task {
   const data = read();
   const assignees = input.assignees?.filter(Boolean) ?? [];
+  let department = input.department ?? null;
+  if (opts?.actor) {
+    const decision = resolveTaskDepartment({
+      parentId: input.parentId,
+      currentDepartment: null,
+      nextDepartment: department,
+      assignees: [],
+      actor: opts.actor,
+    });
+    department = decision.ok ? decision.department : null;
+  }
   const full: Task = {
     id: crypto.randomUUID(),
     title: input.title.trim(),
     contractId: input.contractId,
-    department: input.department ?? null,
+    department,
     assignees,
     status:
       input.department || assignees.length > 0 ? "in_progress" : "pending",
@@ -4504,16 +4518,19 @@ export function addSubtask(
   const parent = data.tasks.find((t) => t.id === parentId);
   if (!parent?.contractId) return null;
   if (opts?.actor && !canUpdateTask(opts.actor, parent)) return null;
-  return addManualTask({
-    title: input.title,
-    contractId: parent.contractId,
-    department: input.department ?? null,
-    assignees: input.assignees,
-    dueDate: input.dueDate,
-    parentId,
-    priority: parent.priority,
-    catalogKey: "custom",
-  });
+  return addManualTask(
+    {
+      title: input.title,
+      contractId: parent.contractId,
+      department: input.department ?? null,
+      assignees: input.assignees,
+      dueDate: input.dueDate,
+      parentId,
+      priority: parent.priority,
+      catalogKey: "custom",
+    },
+    opts?.actor ? { actor: opts.actor } : undefined
+  );
 }
 
 /** Close open subtasks, then complete the parent or park it for verification. */
