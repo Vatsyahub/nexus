@@ -17,6 +17,7 @@ import {
   type InvoiceExtraCharge,
   type InvoiceLine,
 } from "@/lib/types";
+import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -135,6 +136,7 @@ export default function ConvertPiPage() {
 
       <form
         onSubmit={submit}
+        {...entryRootProps}
         className="space-y-4 rounded-xl border border-[var(--fh-line)] bg-white p-5"
       >
         <div className="grid gap-3 sm:grid-cols-3">
@@ -301,6 +303,7 @@ export default function ConvertPiPage() {
 
         <Button
           type="submit"
+          {...entrySaveProps}
           className="bg-[var(--fh-accent)] text-[var(--fh-ink)] hover:bg-[#f0b01a]"
         >
           Convert to tax invoice

@@ -8,6 +8,7 @@ import {
   type UserActionState,
 } from "@/app/actions/users";
 import { listDepartments, useFlowhubData } from "@/lib/store";
+import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,6 +32,7 @@ export function UserForm({ existing }: { existing?: UserRow }) {
   return (
     <form
       action={formAction}
+      {...entryRootProps}
       className="space-y-4 rounded-xl border border-[var(--fh-line)] bg-white p-5"
     >
       {existing && <input type="hidden" name="userId" value={existing.id} />}
@@ -133,6 +135,7 @@ export function UserForm({ existing }: { existing?: UserRow }) {
       <div className="flex gap-2">
         <Button
           type="submit"
+          {...entrySaveProps}
           disabled={pending}
           className="bg-[var(--fh-accent)] text-[var(--fh-ink)] hover:bg-[#f0b01a]"
         >

@@ -21,6 +21,7 @@ import {
 } from "@/lib/types";
 import { formatDisplayDate, formatDisplayDateTime } from "@/lib/dates";
 import { formatMoney } from "@/lib/format-money";
+import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -384,7 +385,10 @@ export function BoqSection({
       )}
 
       {step === "plain" && (
-        <div className="mt-4 space-y-4 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)] p-4">
+        <div
+          className="mt-4 space-y-4 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)] p-4"
+          {...entryRootProps}
+        >
           <div>
             <p className="text-sm font-medium text-[var(--fh-steel)]">Edit BOQ</p>
             <p className="text-xs text-[var(--fh-muted)]">
@@ -555,6 +559,7 @@ export function BoqSection({
               </Button>
               <Button
                 type="button"
+                {...entrySaveProps}
                 className="bg-[var(--fh-steel)]"
                 onClick={savePlain}
                 disabled={saving || plainIssues.length > 0}
@@ -574,7 +579,10 @@ export function BoqSection({
       )}
 
       {step === "edit" && (
-        <div className="mt-4 space-y-4 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)] p-4">
+        <div
+          className="mt-4 space-y-4 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)] p-4"
+          {...entryRootProps}
+        >
           <div>
             <p className="text-sm font-medium text-[var(--fh-steel)]">
               Amendment editor · {defaultAmendmentNumber(seq)}
@@ -742,6 +750,7 @@ export function BoqSection({
               </Button>
               <Button
                 type="button"
+                {...entrySaveProps}
                 className="bg-[var(--fh-steel)]"
                 onClick={goConfirm}
                 disabled={!diffs.length || issues.length > 0}
@@ -763,6 +772,7 @@ export function BoqSection({
       {step === "confirm" && (
         <form
           onSubmit={confirm}
+          {...entryRootProps}
           className="mt-4 space-y-4 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)] p-4"
         >
           <p className="text-sm font-medium text-[var(--fh-steel)]">
@@ -876,6 +886,7 @@ export function BoqSection({
             </Button>
             <Button
               type="submit"
+              {...entrySaveProps}
               className="bg-[var(--fh-steel)]"
               disabled={saving || !(Number(confirmedValue) > 0)}
             >

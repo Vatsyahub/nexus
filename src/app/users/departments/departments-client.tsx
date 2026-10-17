@@ -16,6 +16,7 @@ import {
   useFlowhubData,
 } from "@/lib/store";
 import type { UserRow } from "@/components/user-management";
+import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -158,6 +159,7 @@ export function DepartmentsClient({ users }: { users: UserRow[] }) {
 
       <form
         onSubmit={addDept}
+        {...entryRootProps}
         className="flex flex-wrap items-end gap-2 rounded-xl border border-[var(--fh-line)] bg-white p-4"
       >
         <div className="space-y-1">
@@ -170,7 +172,7 @@ export function DepartmentsClient({ users }: { users: UserRow[] }) {
             className="w-64"
           />
         </div>
-        <Button type="submit" className="bg-[var(--fh-steel)]">
+        <Button type="submit" {...entrySaveProps} className="bg-[var(--fh-steel)]">
           Add department
         </Button>
         {msg && <p className="text-sm text-[var(--fh-steel)]">{msg}</p>}
@@ -201,6 +203,7 @@ export function DepartmentsClient({ users }: { users: UserRow[] }) {
                 {renaming ? (
                   <form
                     onSubmit={saveRename}
+                    {...entryRootProps}
                     className="flex flex-wrap items-center gap-2"
                   >
                     <Label htmlFor="renameDept" className="sr-only">
@@ -215,6 +218,7 @@ export function DepartmentsClient({ users }: { users: UserRow[] }) {
                     />
                     <Button
                       type="submit"
+                      {...entrySaveProps}
                       className="bg-[var(--fh-steel)]"
                       disabled={busy}
                     >

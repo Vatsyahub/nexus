@@ -25,6 +25,7 @@ import {
   DeleteIconButton,
   EditIconLink,
 } from "@/components/icon-actions";
+import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { ScheduleDateField } from "@/components/schedule-date-field";
 import { cn } from "@/lib/utils";
 
@@ -442,7 +443,10 @@ export function SchedulePlanner({
         )}
       </header>
 
-      <div className="space-y-5 rounded-xl border border-[var(--fh-line)] bg-white p-5">
+      <div
+        className="space-y-5 rounded-xl border border-[var(--fh-line)] bg-white p-5"
+        {...entryRootProps}
+      >
         <div className="grid gap-3 sm:grid-cols-3">
           <ScheduleDateField
             label="Testing date"
@@ -645,6 +649,7 @@ export function SchedulePlanner({
           {canEdit && (
             <Button
               type="button"
+              {...entrySaveProps}
               className="bg-[var(--fh-steel)]"
               disabled={busy}
               onClick={() => void onSave()}

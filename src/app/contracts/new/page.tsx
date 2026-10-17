@@ -30,6 +30,7 @@ import {
   type BoqItem,
   type BillingTerms,
 } from "@/lib/types";
+import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -56,6 +57,7 @@ export default function NewContractPage() {
   const data = useFlowhubData();
   const [error, setError] = useState<string | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [suggestActive, setSuggestActive] = useState(-1);
 
   const [projectName, setProjectName] = useState("");
   const [projectNo, setProjectNo] = useState("");
@@ -331,7 +333,11 @@ export default function NewContractPage() {
         </h1>
       </div>
 
-      <form onSubmit={submit} className="space-y-8 rounded-xl border border-[var(--fh-line)] bg-white p-5 sm:p-6">
+      <form
+        onSubmit={submit}
+        {...entryRootProps}
+        className="space-y-8 rounded-xl border border-[var(--fh-line)] bg-white p-5 sm:p-6"
+      >
         <section className="grid gap-4 sm:grid-cols-2">
           <Field label="Project name" value={projectName} onChange={setProjectName} required />
           <Field label="Project no." value={projectNo} onChange={setProjectNo} required />
@@ -555,12 +561,49 @@ export default function NewContractPage() {
                 const v = e.target.value;
                 setItemName(v);
                 setShowSuggestions(true);
+                setSuggestActive(-1);
                 const exact = itemCatalog.find(
                   (c) => c.name.toLowerCase() === v.trim().toLowerCase()
                 );
                 if (exact) {
                   setItemUnit(exact.unit);
                   setItemRate(String(exact.lastRate));
+                }
+              }}
+              onKeyDown={(e) => {
+                if (topMatches.length === 0) return;
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setShowSuggestions(true);
+                  setSuggestActive((i) =>
+                    i < 0 ? 0 : (i + 1) % topMatches.length
+                  );
+                  return;
+                }
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setShowSuggestions(true);
+                  setSuggestActive((i) =>
+                    i <= 0 ? topMatches.length - 1 : i - 1
+                  );
+                  return;
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setShowSuggestions(false);
+                  setSuggestActive(-1);
+                  return;
+                }
+                if (
+                  e.key === "Enter" &&
+                  showSuggestions &&
+                  suggestActive >= 0 &&
+                  topMatches[suggestActive]
+                ) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  pickCatalog(topMatches[suggestActive]);
+                  setSuggestActive(-1);
                 }
               }}
               onFocus={() => setShowSuggestions(true)}
@@ -574,14 +617,21 @@ export default function NewContractPage() {
                 className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border border-[var(--fh-line)] bg-white shadow-md"
                 role="listbox"
               >
-                {topMatches.map((hit) => (
+                {topMatches.map((hit, index) => (
                   <li key={hit.name}>
                     <button
                       type="button"
                       role="option"
-                      className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-[var(--fh-bg)]"
+                      data-active={index === suggestActive ? "true" : undefined}
+                      className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-[var(--fh-bg)]${
+                        index === suggestActive ? " bg-[var(--fh-bg)]" : ""
+                      }`}
+                      onMouseEnter={() => setSuggestActive(index)}
                       onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => pickCatalog(hit)}
+                      onClick={() => {
+                        pickCatalog(hit);
+                        setSuggestActive(-1);
+                      }}
                     >
                       <span className="font-medium text-[var(--fh-steel)]">{hit.name}</span>
                       <span className="text-xs text-[var(--fh-muted)]">
@@ -679,6 +729,7 @@ export default function NewContractPage() {
 
         <Button
           type="submit"
+          {...entrySaveProps}
           className="bg-[var(--fh-steel)] hover:bg-[#244a5e]"
         >
           {boqWarn && !valueMatch

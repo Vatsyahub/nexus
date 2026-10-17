@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { DOORS, type AccessLevel, type AccessMap } from "@/lib/access";
 import { saveUserAccess } from "@/app/actions/access";
+import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
 
 const LEVELS: { id: AccessLevel; label: string }[] = [
@@ -38,7 +39,10 @@ export function AccessEditor({
   }
 
   return (
-    <section className="space-y-4 rounded-xl border border-[var(--fh-line)] bg-white p-5">
+    <section
+      className="space-y-4 rounded-xl border border-[var(--fh-line)] bg-white p-5"
+      {...entryRootProps}
+    >
       <div>
         <h2 className="font-[family-name:var(--font-display)] text-2xl text-[var(--fh-steel)]">
           Access
@@ -87,6 +91,7 @@ export function AccessEditor({
       ))}
       <Button
         type="button"
+        {...entrySaveProps}
         className="bg-[var(--fh-steel)]"
         disabled={pending}
         onClick={() => void onSave()}

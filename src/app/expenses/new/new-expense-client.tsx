@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { addExpense, listExpenseCategories, useFlowhubData } from "@/lib/store";
 import { confirmWorkspaceSave } from "@/lib/save-notice";
 import { ContractTypeahead } from "@/components/contract-typeahead";
+import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -99,7 +100,7 @@ export function NewExpenseClient({ actorName }: { actorName: string }) {
       </div>
 
       <section className="space-y-4 rounded-xl border border-[var(--fh-line)] bg-white p-5">
-        <form onSubmit={onSubmit} className="grid gap-3 sm:grid-cols-2">
+        <form onSubmit={onSubmit} {...entryRootProps} className="grid gap-3 sm:grid-cols-2">
           <div className="sm:col-span-2">
             <ContractTypeahead
               contracts={contracts}
@@ -173,7 +174,7 @@ export function NewExpenseClient({ actorName }: { actorName: string }) {
             />
           </div>
           <div className="flex flex-wrap gap-2 sm:col-span-2">
-            <Button type="submit" className="bg-[var(--fh-steel)]">
+            <Button type="submit" {...entrySaveProps} className="bg-[var(--fh-steel)]">
               Add expense
             </Button>
             <Link

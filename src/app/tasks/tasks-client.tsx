@@ -45,6 +45,7 @@ import { DeleteIconButton } from "@/components/icon-actions";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { ListSearchBar } from "@/components/list-search";
 import {
   ReportExportIcons,
@@ -1111,7 +1112,11 @@ function TaskEditor({
   }
 
   return (
-    <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="space-y-2"
+      onClick={(e) => e.stopPropagation()}
+      {...entryRootProps}
+    >
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Button size="sm" variant="outline" onClick={onClose}>
           Hide details
@@ -1368,7 +1373,12 @@ function TaskEditor({
             </div>
           )}
         </div>
-        <Button size="sm" className="bg-[var(--fh-steel)]" onClick={saveAssignment}>
+        <Button
+          size="sm"
+          {...entrySaveProps}
+          className="bg-[var(--fh-steel)]"
+          onClick={saveAssignment}
+        >
           Save assignment
         </Button>
       </div>
@@ -1412,12 +1422,18 @@ function TaskEditor({
           <p className="text-sm text-[var(--fh-ink)]">{waitingForCopy(task)}</p>
         )}
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={saveStatus}>
+          <Button
+            size="sm"
+            variant="outline"
+            {...entrySaveProps}
+            onClick={saveStatus}
+          >
             Save status
           </Button>
           {canConfirmTaskVerification(actor, task) && (
             <Button
               size="sm"
+              {...entrySaveProps}
               className="bg-[var(--fh-ok)] text-white"
               onClick={confirmVerified}
             >
@@ -1486,6 +1502,7 @@ function TaskEditor({
             <div className="flex flex-wrap gap-2">
               <Button
                 size="sm"
+                {...entrySaveProps}
                 className="bg-[var(--fh-ok)] text-white"
                 onClick={confirmCompleteParent}
               >
@@ -1601,6 +1618,7 @@ function TaskEditor({
           <Button
             size="sm"
             variant="outline"
+            {...entrySaveProps}
             onClick={() => {
               if (!subTitle.trim() || !task.contractId) return;
               addSubtask(task.id, {
@@ -1724,6 +1742,7 @@ function SubtaskEditor({
       <div className="flex flex-wrap gap-2">
         <Button
           size="sm"
+          {...entrySaveProps}
           className="bg-[var(--fh-steel)]"
           onClick={async () => {
             if (status === "not_required" && !reason.trim()) {
@@ -1754,6 +1773,7 @@ function SubtaskEditor({
         {canConfirmTaskVerification(actor, task) && (
           <Button
             size="sm"
+            {...entrySaveProps}
             className="bg-[var(--fh-ok)] text-white"
             onClick={async () => {
               const result = confirmTaskVerification(task.id, actor);
