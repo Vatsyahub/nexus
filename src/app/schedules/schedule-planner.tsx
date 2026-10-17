@@ -65,6 +65,25 @@ function sumQty(windows: WindowDraft[]): number {
   return windows.reduce((s, w) => s + (Number(w.quantity) || 0), 0);
 }
 
+/** True when every supply window uses the date field's NA control. */
+function supplyMarkedNa(windows: WindowDraft[]): boolean {
+  const meaningful = windows.filter(
+    (w) =>
+      w.edited ||
+      String(w.startDate || "").trim() ||
+      String(w.endDate || "").trim() ||
+      Number(w.quantity) > 0
+  );
+  return (
+    meaningful.length > 0 &&
+    meaningful.every(
+      (w) =>
+        isScheduleDateNa(w.startDate) &&
+        (!String(w.endDate || "").trim() || isScheduleDateNa(w.endDate))
+    )
+  );
+}
+
 function toInputs(windows: WindowDraft[]): ScheduleWindowInput[] {
   return windows
     .filter(
@@ -261,6 +280,7 @@ export function SchedulePlanner({
     if (!contract || !canEdit) return;
     setErr(null);
     for (const it of items) {
+      if (supplyMarkedNa(it.supplies)) continue;
       const hasSupply = it.supplies.some(
         (w) => w.startDate && !isScheduleDateNa(w.startDate)
       );
@@ -296,6 +316,7 @@ export function SchedulePlanner({
         installations: toInputs(it.installations),
       }));
       for (const it of items) {
+        if (supplyMarkedNa(it.supplies)) continue;
         const s = sumQty(it.supplies);
         const i = sumQty(it.installations);
         if (s > it.boqQty || i > it.boqQty) {
@@ -523,13 +544,15 @@ export function SchedulePlanner({
                         value={w.startDate}
                         disabled={!canEdit}
                         onChange={(v) => {
+                          const na = isScheduleDateNa(v);
                           updateWindow(itemIdx, "supplies", wi, {
                             startDate: v,
-                            endDate: isScheduleDateNa(v)
+                            endDate: na
                               ? SCHEDULE_DATE_NA
                               : w.endDate === SCHEDULE_DATE_NA
                                 ? ""
                                 : w.endDate,
+                            ...(na ? { quantity: "" } : {}),
                           });
                         }}
                       />
@@ -548,7 +571,7 @@ export function SchedulePlanner({
                         <Input
                           type="number"
                           value={w.quantity}
-                          disabled={!canEdit}
+                          disabled={!canEdit || isScheduleDateNa(w.startDate)}
                           onChange={(e) =>
                             updateWindow(itemIdx, "supplies", wi, {
                               quantity: e.target.value,
@@ -567,77 +590,90 @@ export function SchedulePlanner({
                   )}
                 </div>
 
-                <div className="mt-4 space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-wide text-[var(--fh-muted)]">
-                    Installation{" "}
-                    <span className="normal-case tracking-normal">
-                      ({installSum}/{it.boqQty}
-                      {installSum === it.boqQty ? " · complete" : ""})
-                    </span>
+                {supplyMarkedNa(it.supplies) ? (
+                  <p className="mt-4 text-xs text-[var(--fh-muted)]">
+                    NA — this item is left out of the schedule. Supply qty and
+                    other dates are not saved.
                   </p>
-                  {!hasSupplyDate && (
-                    <p className="text-xs text-[var(--fh-muted)]">
-                      Add a supply date for this item before scheduling
-                      installation.
+                ) : (
+                  <div className="mt-4 space-y-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-[var(--fh-muted)]">
+                      Installation{" "}
+                      <span className="normal-case tracking-normal">
+                        ({installSum}/{it.boqQty}
+                        {installSum === it.boqQty ? " · complete" : ""})
+                      </span>
                     </p>
-                  )}
-                  {it.installations.map((w, wi) => (
-                    <div
-                      key={`i-${wi}`}
-                      className="grid gap-2 sm:grid-cols-[1fr_1fr_6rem]"
-                    >
-                      <ScheduleDateField
-                        label="Install start"
-                        value={w.startDate}
-                        disabled={!canEdit || !hasSupplyDate}
-                        onChange={(v) => {
-                          updateWindow(itemIdx, "installations", wi, {
-                            startDate: v,
-                            endDate: isScheduleDateNa(v)
-                              ? SCHEDULE_DATE_NA
-                              : w.endDate === SCHEDULE_DATE_NA
-                                ? ""
-                                : w.endDate,
-                          });
-                        }}
-                      />
-                      <ScheduleDateField
-                        label="Install end"
-                        value={w.endDate}
-                        disabled={
-                          !canEdit ||
-                          !hasSupplyDate ||
-                          isScheduleDateNa(w.startDate)
-                        }
-                        onChange={(v) =>
-                          updateWindow(itemIdx, "installations", wi, {
-                            endDate: v,
-                          })
-                        }
-                      />
-                      <div className="space-y-1">
-                        <Label className="text-xs">Qty</Label>
-                        <Input
-                          type="number"
-                          value={w.quantity}
+                    {!hasSupplyDate && (
+                      <p className="text-xs text-[var(--fh-muted)]">
+                        Add a supply date for this item before scheduling
+                        installation.
+                      </p>
+                    )}
+                    {it.installations.map((w, wi) => (
+                      <div
+                        key={`i-${wi}`}
+                        className="grid gap-2 sm:grid-cols-[1fr_1fr_6rem]"
+                      >
+                        <ScheduleDateField
+                          label="Install start"
+                          value={w.startDate}
                           disabled={!canEdit || !hasSupplyDate}
-                          onChange={(e) =>
+                          onChange={(v) => {
+                            const na = isScheduleDateNa(v);
                             updateWindow(itemIdx, "installations", wi, {
-                              quantity: e.target.value,
+                              startDate: v,
+                              endDate: na
+                                ? SCHEDULE_DATE_NA
+                                : w.endDate === SCHEDULE_DATE_NA
+                                  ? ""
+                                  : w.endDate,
+                              ...(na ? { quantity: "" } : {}),
+                            });
+                          }}
+                        />
+                        <ScheduleDateField
+                          label="Install end"
+                          value={w.endDate}
+                          disabled={
+                            !canEdit ||
+                            !hasSupplyDate ||
+                            isScheduleDateNa(w.startDate)
+                          }
+                          onChange={(v) =>
+                            updateWindow(itemIdx, "installations", wi, {
+                              endDate: v,
                             })
                           }
-                          onBlur={() => onQtyBlur(itemIdx, "installations")}
                         />
+                        <div className="space-y-1">
+                          <Label className="text-xs">Qty</Label>
+                          <Input
+                            type="number"
+                            value={w.quantity}
+                            disabled={
+                              !canEdit ||
+                              !hasSupplyDate ||
+                              isScheduleDateNa(w.startDate)
+                            }
+                            onChange={(e) =>
+                              updateWindow(itemIdx, "installations", wi, {
+                                quantity: e.target.value,
+                              })
+                            }
+                            onBlur={() => onQtyBlur(itemIdx, "installations")}
+                          />
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                  {installSum > 0 && installSum < it.boqQty && (
-                    <p className="text-xs text-[var(--fh-steel)]">
-                      {it.boqQty - installSum} of {it.boqQty} still to schedule
-                      for installation.
-                    </p>
-                  )}
-                </div>
+                    ))}
+                    {installSum > 0 && installSum < it.boqQty && (
+                      <p className="text-xs text-[var(--fh-steel)]">
+                        {it.boqQty - installSum} of {it.boqQty} still to
+                        schedule for installation.
+                      </p>
+                    )}
+                  </div>
+                )}
               </section>
             );
           })}
