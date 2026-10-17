@@ -145,6 +145,7 @@ function contract(partial: Partial<Contract> = {}): Contract {
     pbgRetrievedDate: null,
     retentionRecoveredAt: null,
     contractorAssigned: "Ada",
+    handoverDate: null,
     boq: [],
     amendments: [],
     expenses: [],
