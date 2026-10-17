@@ -108,6 +108,7 @@ import {
   diffWorkspace,
   type WorkspaceChangeRequest,
 } from "@/lib/workspace-changes";
+import { STALE_WORKSPACE_SAVE_MESSAGE } from "@/lib/workspace-guard";
 
 export type { TaskActor };
 export {
@@ -1416,6 +1417,11 @@ let persistOutstanding = 0;
  * paint over a save this tab has already applied locally.
  */
 let persistEpoch = 0;
+/**
+ * Writes at or before this epoch were refused because the hub moved on.
+ * A later edit in this tab is a new epoch and can save again.
+ */
+let staleRejectEpoch = -1;
 
 function saveInFlight(): boolean {
   return pendingLocalSave || persistOutstanding > 0;
@@ -1426,6 +1432,7 @@ type WorkspacePutResult = {
   skipped?: string;
   error?: string;
   data?: FlowhubData;
+  workspaceRevision?: number;
 };
 
 function workspaceSaveRequest(data: FlowhubData): WorkspaceChangeRequest {
@@ -1439,6 +1446,9 @@ function saveRejectedMessage(
   body: WorkspacePutResult | null,
   status: number
 ): string {
+  if (body?.skipped === "refuse-stale-revision") {
+    return STALE_WORKSPACE_SAVE_MESSAGE;
+  }
   if (body?.skipped || body?.ok === false) {
     return "Could not save. This entry was not stored.";
   }
@@ -1446,12 +1456,35 @@ function saveRejectedMessage(
   return `Could not save the workspace (${status}).`;
 }
 
-function persistToServer(data: FlowhubData) {
+/** Replace this tab with the hub that refused the save, so a retry starts there. */
+async function adoptRejectedWorkspace(body: WorkspacePutResult | null) {
+  let remote: FlowhubData | null = null;
+  if (body?.data && typeof body.data === "object") {
+    remote = normalizeData(body.data);
+  } else {
+    try {
+      const res = await fetch("/api/workspace", {
+        headers: { Accept: "application/json" },
+        credentials: "same-origin",
+      });
+      if (!res.ok) return;
+      const ctype = res.headers.get("content-type") ?? "";
+      if (!ctype.includes("application/json")) return;
+      remote = normalizeData((await res.json()) as FlowhubData);
+    } catch {
+      return;
+    }
+  }
+  setSnapshot(remote);
+  rememberEditBase(clientSnapshot);
+  notify();
+}
+
+function persistToServer() {
   if (typeof window === "undefined") return;
   // Never push until a real Postgres GET succeeded — local-fallback unlock
   // must not wipe the shared workspace.
   if (!hydrateFromServerOk) return;
-  const payload = JSON.stringify(workspaceSaveRequest(data));
   const epoch = persistEpoch;
   // Chrome drops keepalive fetches once the body reaches 64KB. The shared
   // workspace crosses that after a handful of contracts, so those saves
@@ -1459,16 +1492,29 @@ function persistToServer(data: FlowhubData) {
   persistOutstanding += 1;
   const job = persistChain.catch(() => undefined).then(async () => {
     try {
+      if (epoch <= staleRejectEpoch) {
+        throw new Error(STALE_WORKSPACE_SAVE_MESSAGE);
+      }
+      // Build the request after the previous save has stored its revision.
+      // The next save then sends that revision, not the one this tab loaded.
+      const request = workspaceSaveRequest(clientSnapshot);
+      if (Object.keys(request.changes).length === 0) return;
+      const sentSnapshot = clientSnapshot;
       const res = await fetch("/api/workspace", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: payload,
+        body: JSON.stringify(request),
       });
       let body: WorkspacePutResult | null = null;
       try {
         body = (await res.json()) as WorkspacePutResult;
       } catch {
         body = null;
+      }
+      if (body?.skipped === "refuse-stale-revision") {
+        await adoptRejectedWorkspace(body);
+        staleRejectEpoch = Math.max(staleRejectEpoch, persistEpoch);
+        throw new Error(STALE_WORKSPACE_SAVE_MESSAGE);
       }
       if (!res.ok || body?.ok !== true || body?.skipped) {
         throw new Error(saveRejectedMessage(body, res.status));
@@ -1480,7 +1526,7 @@ function persistToServer(data: FlowhubData) {
           rememberEditBase(clientSnapshot);
           notify();
         } else {
-          const extra = diffWorkspace(data, clientSnapshot);
+          const extra = diffWorkspace(sentSnapshot, clientSnapshot);
           const rebased = applyWorkspaceChanges(merged, extra);
           rebased.workspaceRevision = Math.max(
             merged.workspaceRevision ?? 0,
@@ -1490,8 +1536,20 @@ function persistToServer(data: FlowhubData) {
           rememberEditBase(merged);
           notify();
         }
+      } else if (typeof body.workspaceRevision === "number") {
+        const confirmed = {
+          ...sentSnapshot,
+          workspaceRevision: body.workspaceRevision,
+        };
+        if (epoch === persistEpoch) {
+          setSnapshot(confirmed);
+          rememberEditBase(clientSnapshot);
+          notify();
+        } else {
+          rememberEditBase(confirmed);
+        }
       } else {
-        rememberEditBase(data);
+        rememberEditBase(sentSnapshot);
       }
     } finally {
       persistOutstanding -= 1;
@@ -1529,7 +1587,7 @@ function write(data: FlowhubData): Promise<void> {
   setSnapshot(next);
   notify();
   if (!hydrateFromServerOk) pendingLocalSave = true;
-  persistToServer(clientSnapshot);
+  persistToServer();
   return persistChain;
 }
 
@@ -1667,7 +1725,7 @@ export function hydrateWorkspace(opts?: { force?: boolean }): Promise<void> {
         // never reaches here, and localStorage alone is not pushed back.
         pendingLocalSave = false;
         markReady(true);
-        persistToServer(clientSnapshot);
+        persistToServer();
       } else {
         // Non-empty or empty, the server blob replaces localStorage.
         setSnapshot(remote);
@@ -1791,6 +1849,7 @@ export function resetWorkspaceClientForTests() {
   pendingLocalSave = false;
   persistOutstanding = 0;
   persistEpoch = 0;
+  staleRejectEpoch = -1;
   workspaceWritesLocked = false;
   hydrateFromServerOk = false;
   if (hydrateRetryTimer) {

@@ -15,6 +15,7 @@ import { normalizeNexusCosts } from "@/lib/nexus-core";
 import { defaultAccess } from "@/lib/access";
 import {
   resolveWorkspaceWrite,
+  STALE_WORKSPACE_SAVE_MESSAGE,
   workspaceForAccount,
 } from "@/lib/workspace-guard";
 import type { TaskEditContext } from "@/lib/task-permissions";
@@ -167,13 +168,17 @@ export async function PUT(req: Request) {
     taskEdit
   );
   if (decision.action === "skip") {
+    const stale = decision.skipped === "refuse-stale-revision";
     return NextResponse.json(
       {
         ok: false,
         skipped: decision.skipped,
-        error: "Could not save. This entry was not stored.",
+        error: stale
+          ? STALE_WORKSPACE_SAVE_MESSAGE
+          : "Could not save. This entry was not stored.",
         currentRevision: decision.currentRevision,
         incomingRevision: decision.incomingRevision,
+        ...(stale ? { data: workspaceForAccount(current, access) } : {}),
       },
       { status: 409 }
     );

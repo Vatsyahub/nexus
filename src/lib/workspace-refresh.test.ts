@@ -369,8 +369,17 @@ describe("workspace refresh", { concurrency: false }, () => {
     updateContract("c1", { abgNumber: "ABG/UNSAVED/1" });
     await waitFor("PUT");
     const inflight = putCount;
+    const inflightBody = JSON.parse(lastPutBody) as { baseRevision?: number };
     onWorkspacePageHide();
     assert.equal(putCount, inflight + 1);
+    const hiddenBody = JSON.parse(lastPutBody) as {
+      baseRevision?: number;
+      contracts?: unknown;
+    };
+    assert.equal(inflightBody.baseRevision, 4);
+    assert.equal(hiddenBody.baseRevision, 4);
+    assert.equal(hiddenBody.contracts, undefined);
+    assert.equal(getData().workspaceRevision, 5);
   });
 
   test("a failed or empty GET does not PUT localStorage", async () => {
@@ -508,5 +517,145 @@ describe("workspace refresh", { concurrency: false }, () => {
     assert.equal(saved, false);
     assert.equal(getSaveNotice()?.tone, "error");
     assert.notEqual(getSaveNotice()?.text, "Saved.");
+  });
+
+  test("the next save sends the revision returned by the previous save", async () => {
+    await hydrateWith(workspace(4, { projectName: "Old" }));
+    const seen: number[] = [];
+    putResponder = (raw) => {
+      const sent = JSON.parse(raw) as {
+        baseRevision: number;
+        changes?: { contracts?: { upsert?: Array<Partial<Contract>> } };
+      };
+      seen.push(sent.baseRevision);
+      const upsert = sent.changes?.contracts?.upsert?.[0] ?? {};
+      const rev = sent.baseRevision === 4 ? 9 : sent.baseRevision + 1;
+      return jsonResponse({
+        ok: true,
+        workspaceRevision: rev,
+        data: workspace(rev, {
+          projectName: upsert.projectName ?? "Old",
+          city: upsert.city ?? "Delhi",
+        }),
+      });
+    };
+    updateContract("c1", { projectName: "New" });
+    await flushWorkspace();
+    assert.equal(getData().workspaceRevision, 9);
+    assert.equal(getData().contracts[0]?.projectName, "New");
+    updateContract("c1", { city: "Mumbai" });
+    await flushWorkspace();
+    assert.deepEqual(seen, [4, 9]);
+    assert.equal(getData().workspaceRevision, 10);
+    assert.equal(getData().contracts[0]?.projectName, "New");
+    assert.equal(getData().contracts[0]?.city, "Mumbai");
+  });
+
+  test("a save queued behind another sends the revision that save stored", async () => {
+    await hydrateWith(workspace(4, { projectName: "Alpha", city: "Delhi" }));
+    hangPuts = true;
+    updateContract("c1", { projectName: "New" });
+    await waitFor("PUT");
+    const first = JSON.parse(lastPutBody) as {
+      baseRevision?: number;
+      changes?: { contracts?: { upsert?: Array<{ projectName?: string }> } };
+    };
+    assert.equal(first.baseRevision, 4);
+    updateContract("c1", { city: "Mumbai" });
+    assert.equal(putCount, 1);
+
+    hangPuts = false;
+    putResponder = (raw) => {
+      const sent = JSON.parse(raw) as {
+        baseRevision: number;
+        changes?: {
+          contracts?: { upsert?: Array<{ projectName?: string; city?: string }> };
+        };
+      };
+      assert.equal(sent.baseRevision, 8);
+      const upsert = sent.changes?.contracts?.upsert?.[0] ?? {};
+      return jsonResponse({
+        ok: true,
+        workspaceRevision: 9,
+        data: workspace(9, {
+          projectName: upsert.projectName ?? "New",
+          city: upsert.city ?? "Mumbai",
+        }),
+      });
+    };
+    releaseNext(
+      "PUT",
+      {
+        ok: true,
+        workspaceRevision: 8,
+        data: workspace(8, {
+          projectName: first.changes?.contracts?.upsert?.[0]?.projectName ?? "New",
+        }),
+      }
+    );
+    await flushWorkspace();
+    assert.equal(putCount, 2);
+    assert.equal(getData().workspaceRevision, 9);
+    assert.equal(getData().contracts[0]?.projectName, "New");
+    assert.equal(getData().contracts[0]?.city, "Mumbai");
+  });
+
+  test("a stale save is not shown as saved and loads the current hub", async () => {
+    await hydrateWith(workspace(4, { projectName: "Old" }));
+    putResponder = () =>
+      jsonResponse(
+        {
+          ok: false,
+          skipped: "refuse-stale-revision",
+          error: "Could not save. This entry was not stored.",
+          currentRevision: 9,
+          incomingRevision: 4,
+          data: workspace(9, { projectName: "Kept on hub" }),
+        },
+        409
+      );
+    updateContract("c1", { projectName: "Local only" });
+    await assert.rejects(() => flushWorkspace(), /The hub changed/);
+    const saved = await confirmWorkspaceSave();
+    assert.equal(saved, false);
+    assert.equal(getSaveNotice()?.tone, "error");
+    assert.equal(
+      getSaveNotice()?.text,
+      "The hub changed. This save was not kept."
+    );
+    assert.equal(getData().workspaceRevision, 9);
+    assert.equal(getData().contracts[0]?.projectName, "Kept on hub");
+
+    putResponder = (raw) => {
+      const sent = JSON.parse(raw) as { baseRevision?: number };
+      assert.equal(sent.baseRevision, 9);
+      return jsonResponse({
+        ok: true,
+        workspaceRevision: 10,
+        data: workspace(10, { projectName: "Retried" }),
+      });
+    };
+    updateContract("c1", { projectName: "Retried" });
+    const retried = await confirmWorkspaceSave();
+    assert.equal(retried, true);
+    assert.equal(getSaveNotice()?.text, "Saved.");
+    assert.equal(getData().workspaceRevision, 10);
+    assert.equal(getData().contracts[0]?.projectName, "Retried");
+  });
+
+  test("a stale save with no copy in the response still loads the hub", async () => {
+    await hydrateWith(workspace(4, { projectName: "Old" }));
+    putResponder = () =>
+      jsonResponse({ ok: false, skipped: "refuse-stale-revision" }, 409);
+    updateContract("c1", { projectName: "Local only" });
+    const pending = flushWorkspace();
+    await waitFor("GET");
+    releaseNext("GET", workspace(9, { projectName: "Kept on hub" }));
+    await assert.rejects(() => pending, /The hub changed/);
+    const saved = await confirmWorkspaceSave();
+    assert.equal(saved, false);
+    assert.notEqual(getSaveNotice()?.text, "Saved.");
+    assert.equal(getData().workspaceRevision, 9);
+    assert.equal(getData().contracts[0]?.projectName, "Kept on hub");
   });
 });
