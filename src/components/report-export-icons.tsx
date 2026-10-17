@@ -134,6 +134,25 @@ function rowLineCount(row: ReportExportCell[]): number {
   return max;
 }
 
+/**
+ * Money headers keep two decimal places. Every other number is a quantity
+ * and keeps up to three, matching formatQty on screen.
+ * "Ret. exp." is retention expected. City names and "Change" are quantities.
+ */
+const MONEY_HEADER =
+  /%|\bret\.|\b(?:amount|value|rate|costs?|expenses?|profit|loss|paid|pay|outstanding|outst|retention|tds|gst|cash|net|extras?|deductions?|billing|invoic\w*|received|expected|price|final|other)\b/i;
+
+function isMoneyHeader(header: string): boolean {
+  return MONEY_HEADER.test(header);
+}
+
+/** Whole-number columns stay whole. Money uses two places. Quantity uses up to three. */
+function excelNumberFormat(header: string, integersOnly: boolean): string {
+  if (integersOnly) return "#,##0";
+  if (isMoneyHeader(header)) return "#,##0.00";
+  return "#,##0.###";
+}
+
 /** Columns where every non-empty cell is a number get right-aligned. */
 function numericColumns(headers: string[], rows: ReportExportCell[][]) {
   return headers.map(
@@ -302,7 +321,9 @@ export async function buildReportExcelBuffer(props: Props): Promise<Uint8Array> 
           horizontal: numeric[i] ? "right" : "left",
           wrapText: true,
         };
-        if (typeof v === "number") cell.numFmt = integerCol[i] ? "#,##0" : "#,##0.00";
+        if (typeof v === "number") {
+          cell.numFmt = excelNumberFormat(headers[i] ?? "", integerCol[i]);
+        }
         if (striped) {
           cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${STRIPE.hex}` } };
         }
@@ -347,12 +368,16 @@ async function exportExcel(props: Props) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-const pdfNumber = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 });
+const pdfMoney = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 });
+const pdfQty = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 3 });
 
 /** jsPDF's built-in fonts are WinAnsi only — swap glyphs they can't draw. */
-function pdfText(v: ReportExportCell): string {
+function pdfText(v: ReportExportCell, quantity = false): string {
   if (v == null) return "";
-  if (typeof v === "number") return Number.isFinite(v) ? pdfNumber.format(v) : "";
+  if (typeof v === "number") {
+    if (!Number.isFinite(v)) return "";
+    return (quantity ? pdfQty : pdfMoney).format(v);
+  }
   return v
     .replace(/₹\s?/g, "Rs. ")
     .replace(/[^\x20-\x7E\u00A0-\u00FF\u2013\u2014\u2018\u2019\u201C\u201D\u2022\u2026\n]/g, "");
@@ -467,7 +492,9 @@ export async function buildReportPdfBytes(props: Props): Promise<Uint8Array> {
               },
             ],
           ]
-        : rows.map((r) => headers.map((_, i) => pdfText(r[i])));
+        : rows.map((r) =>
+            headers.map((header, i) => pdfText(r[i], !isMoneyHeader(header)))
+          );
 
     const tableFontSize = 7.5;
     const headerFontSize = 8;
