@@ -976,10 +976,6 @@ function DcRecordsTable({
   const [dateTo, setDateTo] = useState("");
   const [msg, setMsg] = useState<Msg>(null);
   const all = useMemo(() => buildSupplyDetailRows(data), [data]);
-  const createdBy = useMemo(
-    () => new Map(data.deliveryChallans.map((dc) => [dc.id, dc.createdBy])),
-    [data.deliveryChallans]
-  );
   const rows = useMemo(() => {
     const needle = q.trim();
     return all.filter((r) => {
@@ -992,10 +988,9 @@ function DcRecordsTable({
         formatDisplayDate(r.dcDate),
         r.itemName,
         r.qty,
-        createdBy.get(r.dcId),
       ]);
     });
-  }, [all, q, dateFrom, dateTo, createdBy]);
+  }, [all, q, dateFrom, dateTo]);
   /** Delete sits on the first visible line of each DC. */
   const firstLineKeys = useMemo(() => {
     const seen = new Set<string>();
@@ -1051,7 +1046,6 @@ function DcRecordsTable({
             <col className="w-[12%]" />
             <col className={canEdit ? "w-[25%]" : "w-[27%]"} />
             <col className="w-[10%]" />
-            <col className="w-[10%]" />
             {canEdit && <col className="w-[4%]" />}
           </colgroup>
           <thead className={theadClass}>
@@ -1061,7 +1055,6 @@ function DcRecordsTable({
               <th className={reportTh}>DC date</th>
               <th className={reportTh}>Item</th>
               <th className={cn(reportTh, "text-right")}>Qty supplied</th>
-              <th className={reportTh}>By</th>
               {canEdit && (
                 <th className={reportTh}>
                   <span className="sr-only">Actions</span>
@@ -1072,7 +1065,7 @@ function DcRecordsTable({
           <tbody className="divide-y divide-[var(--fh-line)]">
             {rows.length === 0 ? (
               <EmptyRow
-                colSpan={canEdit ? 7 : 6}
+                colSpan={canEdit ? 6 : 5}
                 text={all.length === 0 ? "No DCs recorded yet." : "No matching DC lines."}
               />
             ) : (
@@ -1093,9 +1086,6 @@ function DcRecordsTable({
                   </td>
                   <td className={reportTd}>{r.itemName}</td>
                   <td className={qtyCell}>{formatQty(r.qty)}</td>
-                  <td className={cn(reportTd, "text-xs text-[var(--fh-muted)]")}>
-                    {createdBy.get(r.dcId) || "—"}
-                  </td>
                   {canEdit && (
                     <td className="px-1 py-2 align-top">
                       {firstLineKeys.has(r.key) && (
@@ -1127,7 +1117,7 @@ function DcRecordsTable({
           dateTo,
           dateLabel: "DC date",
         })}
-        headers={["Project", "Project no.", "DC no.", "DC date", "Item", "Qty supplied", "By"]}
+        headers={["Project", "Project no.", "DC no.", "DC date", "Item", "Qty supplied"]}
         rows={rows.map((r) => [
           r.projectName,
           r.projectNo,
@@ -1135,7 +1125,6 @@ function DcRecordsTable({
           formatDisplayDate(r.dcDate),
           r.itemName,
           r.qty,
-          createdBy.get(r.dcId) ?? "",
         ])}
       />
     </>
