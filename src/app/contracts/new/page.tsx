@@ -23,6 +23,7 @@ import {
   renameCustomBillingTerm,
   startingBillingTerms,
 } from "@/lib/billing-terms";
+import { itemNameChoices } from "@/lib/item-rename";
 import {
   DEFAULT_TDS_PERCENT,
   GST_RATE,
@@ -105,10 +106,10 @@ export default function NewContractPage() {
   const valueMatch =
     orderValueNum > 0 && Math.abs(boqTotal - orderValueNum) < 0.01;
 
-  /** Catalog from prior contracts + lines already on this BOQ */
+  /** Current hub items + lines already on this BOQ. Old spellings are not offered. */
   const itemCatalog = useMemo(() => {
     const map = new Map<string, CatalogHit>();
-    for (const c of data.itemCatalog) {
+    for (const c of itemNameChoices(data)) {
       map.set(c.key, { name: c.name, unit: c.unit, lastRate: c.lastRate });
     }
     for (const line of boq) {
@@ -116,7 +117,7 @@ export default function NewContractPage() {
       map.set(key, { name: line.name, unit: line.unit, lastRate: line.rate });
     }
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [data.itemCatalog, boq]);
+  }, [data, boq]);
 
   /** Prefix match → first 3 alphabetical choices */
   const topMatches = useMemo(() => {

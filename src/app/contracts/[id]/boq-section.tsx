@@ -20,6 +20,7 @@ import {
   type Contract,
 } from "@/lib/types";
 import { formatDisplayDate, formatDisplayDateTime } from "@/lib/dates";
+import { itemNameChoices } from "@/lib/item-rename";
 import { formatMoney } from "@/lib/format-money";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
@@ -94,6 +95,7 @@ export function BoqSection({
   onMessage: (msg: string) => void;
 }) {
   const data = useFlowhubData();
+  const itemChoices = useMemo(() => itemNameChoices(data), [data]);
   const c = contract;
   const total = boqTotal(c.boq);
   const amendments = c.amendments ?? [];
@@ -176,7 +178,7 @@ export function BoqSection({
 
   function onNewNameChange(v: string) {
     setNewName(v);
-    const hit = data.itemCatalog.find(
+    const hit = itemChoices.find(
       (x) => x.name.toLowerCase() === v.trim().toLowerCase()
     );
     if (hit) {
@@ -513,7 +515,7 @@ export function BoqSection({
                   placeholder="Type to match previous items"
                 />
                 <datalist id="plain-boq-item-catalog">
-                  {data.itemCatalog.map((x) => (
+                  {itemChoices.map((x) => (
                     <option key={x.key} value={x.name} />
                   ))}
                 </datalist>
@@ -701,7 +703,7 @@ export function BoqSection({
                   placeholder="Type to match previous items"
                 />
                 <datalist id="amendment-item-catalog">
-                  {data.itemCatalog.map((x) => (
+                  {itemChoices.map((x) => (
                     <option key={x.key} value={x.name} />
                   ))}
                 </datalist>

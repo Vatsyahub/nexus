@@ -9,6 +9,7 @@ import {
 } from "@/lib/types";
 import { normalizeNexusCosts } from "@/lib/nexus-core";
 import { tasksAfterDepartmentCatalogChange } from "@/lib/departments";
+import { keepInUseItemNames } from "@/lib/item-rename";
 import {
   mergeClearedNotices,
   pruneClearedNotices,
@@ -409,6 +410,13 @@ export function mergeWorkspaceSave(
     unionNotificationClears(current.notifications, notifications),
     clearedNotices
   );
+
+  if (!master) {
+    const kept = keepInUseItemNames(current, contracts, invoices, itemCatalog);
+    contracts = kept.contracts;
+    invoices = kept.invoices;
+    itemCatalog = kept.itemCatalog;
+  }
 
   return {
     ...incoming,

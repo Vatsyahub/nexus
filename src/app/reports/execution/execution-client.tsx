@@ -47,9 +47,11 @@ function parseTab(raw: string | null): Tab {
 
 export default function ExecutionReportClient({
   canEdit,
+  canRenameItem,
   actorName,
 }: {
   canEdit: boolean;
+  canRenameItem: boolean;
   actorName: string;
 }) {
   const data = useFlowhubData();
@@ -160,7 +162,9 @@ export default function ExecutionReportClient({
           {tab === "supply" && (
             <DcRecordsTab data={data} canEdit={canEdit} />
           )}
-          {tab === "items" && <ItemListTab data={data} />}
+          {tab === "items" && (
+            <ItemListTab data={data} canRename={canRenameItem} />
+          )}
         </section>
       )}
     </HubPage>

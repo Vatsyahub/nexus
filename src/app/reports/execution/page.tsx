@@ -30,6 +30,8 @@ export default async function ExecutionReportPage() {
     }),
     parsed.custom
   );
+  const role = (dbUser?.clearance ?? session.user.clearance ?? "").toLowerCase();
+  const canRenameItem = role === "master" && session.user.impersonating !== true;
   const actorName =
     dbUser?.name?.trim() ||
     session.user.name?.trim() ||
@@ -38,7 +40,11 @@ export default async function ExecutionReportPage() {
 
   return (
     <Suspense fallback={<ReportsLoading />}>
-      <ExecutionReportClient canEdit={canEdit} actorName={actorName} />
+      <ExecutionReportClient
+        canEdit={canEdit}
+        canRenameItem={canRenameItem}
+        actorName={actorName}
+      />
     </Suspense>
   );
 }

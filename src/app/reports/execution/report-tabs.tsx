@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { Trash2 } from "lucide-react";
 import type { FlowhubData } from "@/lib/types";
 import { SCHEDULE_KIND_LABELS } from "@/lib/types";
@@ -24,7 +24,12 @@ import {
 } from "@/lib/execution-reports";
 import { matchesAny } from "@/lib/list-search";
 import { confirmAction } from "@/components/confirm-panel";
-import { deleteDeliveryChallan, flushWorkspace } from "@/lib/store";
+import { EditIconButton } from "@/components/icon-actions";
+import { currentItemUnits } from "@/lib/item-rename";
+import { confirmWorkspaceSave } from "@/lib/save-notice";
+import { deleteDeliveryChallan, flushWorkspace, renameItem } from "@/lib/store";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ListSearchWithDateRange } from "@/components/list-date-range";
 import { ListSearchBar } from "@/components/list-search";
 import { ProjectIdentity } from "@/components/project-identity";
@@ -365,8 +370,20 @@ export function SummaryTab({ data }: { data: FlowhubData }) {
   );
 }
 
-export function ItemListTab({ data }: { data: FlowhubData }) {
+export function ItemListTab({
+  data,
+  canRename = false,
+}: {
+  data: FlowhubData;
+  canRename?: boolean;
+}) {
   const [q, setQ] = useState("");
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [unitDraft, setUnitDraft] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [savingRename, setSavingRename] = useState(false);
+  const unitsByItem = useMemo(() => currentItemUnits(data), [data]);
   const cities = useMemo(() => itemListCities(data), [data]);
   const headers = useMemo(() => itemListHeaders(cities), [cities]);
   const all = useMemo(() => buildItemListRows(data), [data]);
@@ -392,6 +409,69 @@ export function ItemListTab({ data }: { data: FlowhubData }) {
   }, [all, cities, q]);
   const colCount = headers.length;
 
+  function startRename(key: string, itemName: string) {
+    const current = unitsByItem.get(key) ?? [];
+    setEditingKey(key);
+    setDraft(itemName);
+    setUnitDraft(current.length === 1 ? current[0]! : "");
+    setRenameError(null);
+  }
+
+  function cancelRename() {
+    setEditingKey(null);
+    setDraft("");
+    setUnitDraft("");
+    setRenameError(null);
+  }
+
+  async function saveRename(event: FormEvent, itemName: string, currentUnits: string[]) {
+    event.preventDefault();
+    const next = draft.trim();
+    const nextUnit = unitDraft.trim();
+    if (!next) {
+      setRenameError("Enter a new item name.");
+      return;
+    }
+    const onlyUnit = currentUnits.length === 1 ? currentUnits[0] : null;
+    if (!nextUnit) {
+      if (currentUnits.length > 1 && next !== itemName) {
+        setSavingRename(true);
+        const result = renameItem(itemName, next);
+        if (!result.ok) {
+          setSavingRename(false);
+          setRenameError(result.error);
+          return;
+        }
+        const saved = await confirmWorkspaceSave();
+        setSavingRename(false);
+        if (!saved) return;
+        cancelRename();
+        return;
+      }
+      if (currentUnits.length > 1) {
+        cancelRename();
+        return;
+      }
+      setRenameError("Enter a unit.");
+      return;
+    }
+    if (onlyUnit && next === itemName && nextUnit === onlyUnit) {
+      cancelRename();
+      return;
+    }
+    setSavingRename(true);
+    const result = renameItem(itemName, next, nextUnit);
+    if (!result.ok) {
+      setSavingRename(false);
+      setRenameError(result.error);
+      return;
+    }
+    const saved = await confirmWorkspaceSave();
+    setSavingRename(false);
+    if (!saved) return;
+    cancelRename();
+  }
+
   return (
     <div className="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden">
       <ListSearchBar
@@ -403,7 +483,18 @@ export function ItemListTab({ data }: { data: FlowhubData }) {
       <ReportsTableScroll className="mt-4">
         <table className="w-full table-fixed text-left text-sm">
           <colgroup>
-            <col style={{ width: cities.length === 0 ? "40%" : "18%" }} />
+            <col
+              style={{
+                width:
+                  cities.length === 0
+                    ? canRename
+                      ? "46%"
+                      : "40%"
+                    : canRename
+                      ? "32%"
+                      : "18%",
+              }}
+            />
             <col style={{ width: cities.length === 0 ? "20%" : "12%" }} />
             {cities.map((city) => (
               <col key={city} />
@@ -434,9 +525,102 @@ export function ItemListTab({ data }: { data: FlowhubData }) {
                 }
               />
             ) : (
-              rows.map((r) => (
+              rows.map((r) => {
+                const rowUnits = unitsByItem.get(r.key) ?? [];
+                return (
                 <tr key={r.key}>
-                  <td className={reportTd}>{r.itemName}</td>
+                  <td className={reportTd}>
+                    {canRename && editingKey === r.key ? (
+                      <form
+                        className="space-y-1"
+                        onSubmit={(event) =>
+                          void saveRename(event, r.itemName, rowUnits)
+                        }
+                      >
+                        {rowUnits.length > 1 ? (
+                          <div className="flex flex-wrap gap-x-2 text-[var(--fh-muted)]">
+                            {rowUnits.map((unit) => (
+                              <span key={unit}>{unit}</span>
+                            ))}
+                          </div>
+                        ) : null}
+                        <div className="flex gap-1">
+                          <Input
+                            value={draft}
+                            onChange={(event) => setDraft(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Escape") {
+                                event.preventDefault();
+                                cancelRename();
+                              }
+                            }}
+                            aria-label={`New name for ${r.itemName}`}
+                            className="h-8 min-w-0 flex-1"
+                            autoFocus
+                          />
+                          <Input
+                            value={unitDraft}
+                            onChange={(event) => setUnitDraft(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Escape") {
+                                event.preventDefault();
+                                cancelRename();
+                              }
+                            }}
+                            aria-label={`Unit for ${r.itemName}`}
+                            placeholder={rowUnits.length > 1 ? "One unit" : undefined}
+                            className="h-8 w-20 shrink-0"
+                          />
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          <Button
+                            type="submit"
+                            size="sm"
+                            disabled={savingRename}
+                          >
+                            {savingRename ? "Saving…" : "Save"}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={cancelRename}
+                            disabled={savingRename}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                        {renameError && (
+                          <p role="alert" className="text-xs text-[var(--destructive)]">
+                            {renameError}
+                          </p>
+                        )}
+                      </form>
+                    ) : canRename ? (
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="min-w-0 break-words">{r.itemName}</span>
+                        {rowUnits.map((unit) => (
+                          <span
+                            key={unit}
+                            className="shrink-0 text-[var(--fh-muted)]"
+                          >
+                            {unit}
+                          </span>
+                        ))}
+                        <EditIconButton
+                          label={
+                            rowUnits.length > 1
+                              ? `Edit name and units for ${r.itemName}`
+                              : `Edit name and unit for ${r.itemName}`
+                          }
+                          onClick={() => startRename(r.key, r.itemName)}
+                          className="shrink-0"
+                        />
+                      </div>
+                    ) : (
+                      r.itemName
+                    )}
+                  </td>
                   <td className={qtyCell}>{formatQty(r.totalQty)}</td>
                   {cities.map((city) => {
                     const cell = r.byCity[city];
@@ -449,7 +633,8 @@ export function ItemListTab({ data }: { data: FlowhubData }) {
                   <td className={qtyCell}>{formatQty(r.totalSupplied)}</td>
                   <td className={qtyCell}>{formatQty(r.leftForSupply)}</td>
                 </tr>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>
