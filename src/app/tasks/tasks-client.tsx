@@ -637,12 +637,12 @@ function TaskBlock({
               <Link
                 href={`/contracts/${contract.id}`}
                 className={cn(
-                  "font-medium underline-offset-2 hover:underline",
+                  "block truncate font-medium underline-offset-2 hover:underline",
                   expanded ? "text-white" : "text-[var(--fh-steel)]"
                 )}
                 onClick={(e) => e.stopPropagation()}
               >
-                {contract.projectNo}
+                {contract.projectName}
               </Link>
               <span
                 className={cn(
@@ -650,7 +650,7 @@ function TaskBlock({
                   expanded ? "text-white/75" : "text-[var(--fh-muted)]"
                 )}
               >
-                {contract.projectName}
+                {contract.projectNo}
               </span>
             </span>
           ) : (
