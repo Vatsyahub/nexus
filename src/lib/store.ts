@@ -114,6 +114,7 @@ import {
   type WorkspaceChangeRequest,
 } from "@/lib/workspace-changes";
 import { STALE_WORKSPACE_SAVE_MESSAGE } from "@/lib/workspace-guard";
+import { LOGIN_PAGE, workspaceSaveExit } from "@/lib/account-session";
 
 export type { TaskActor };
 export {
@@ -1463,6 +1464,8 @@ type WorkspacePutResult = {
   error?: string;
   data?: FlowhubData;
   workspaceRevision?: number;
+  signedOut?: boolean;
+  redirect?: string;
 };
 
 function workspaceSaveRequest(data: FlowhubData): WorkspaceChangeRequest {
@@ -1545,6 +1548,11 @@ function persistToServer() {
         await adoptRejectedWorkspace(body);
         staleRejectEpoch = Math.max(staleRejectEpoch, persistEpoch);
         throw new Error(STALE_WORKSPACE_SAVE_MESSAGE);
+      }
+      const exit = workspaceSaveExit(body);
+      if (exit) {
+        window.location.assign(exit.path);
+        throw new Error(exit.message);
       }
       if (!res.ok || body?.ok !== true || body?.skipped) {
         throw new Error(saveRejectedMessage(body, res.status));
@@ -1714,6 +1722,20 @@ export function hydrateWorkspace(opts?: { force?: boolean }): Promise<void> {
         credentials: "same-origin",
       });
       if (res.status === 401) {
+        let signedOut = false;
+        try {
+          const body = (await res.json()) as { signedOut?: boolean };
+          signedOut = Boolean(body?.signedOut);
+        } catch {
+          signedOut = false;
+        }
+        if (signedOut) {
+          markReady(false);
+          if (!window.location.pathname.startsWith(LOGIN_PAGE)) {
+            window.location.assign(LOGIN_PAGE);
+          }
+          return;
+        }
         // Cookie race or expired JWT while SessionProvider still says authed.
         // Keep an edit made during this GET; local was captured before it.
         if (!pendingLocalSave) {
@@ -1822,6 +1844,20 @@ export function refreshWorkspace(): Promise<void> {
       });
       // A save started while this GET was in flight. Keep the local snapshot.
       if (saveInFlight() || epoch !== persistEpoch) return;
+      if (res.status === 401) {
+        try {
+          const body = (await res.json()) as { signedOut?: boolean };
+          if (
+            body?.signedOut &&
+            !window.location.pathname.startsWith(LOGIN_PAGE)
+          ) {
+            window.location.assign(LOGIN_PAGE);
+          }
+        } catch {
+          // Keep the copy on screen when the 401 has no body.
+        }
+        return;
+      }
       if (!res.ok) return;
       const ctype = res.headers.get("content-type") ?? "";
       if (!ctype.includes("application/json")) return;
