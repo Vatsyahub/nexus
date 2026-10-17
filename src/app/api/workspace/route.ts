@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { getToken } from "next-auth/jwt";
+import { auth, signOut, unstable_update } from "@/auth";
+import {
+  loginIdFromToken,
+  responseForClosedAccount,
+} from "@/lib/account-session";
 import { prisma } from "@/lib/prisma";
 import {
   pruneClearedNotices,
@@ -44,6 +49,35 @@ const empty: FlowhubData = {
   deliveryChallans: [],
   installationProgress: [],
   nexusCosts: EMPTY_NEXUS_COSTS,
+};
+
+async function readLoginToken(req: Request) {
+  const secret = process.env.AUTH_SECRET;
+  const secure = await getToken({ req, secret, secureCookie: true });
+  if (secure) return secure;
+  return getToken({ req, secret, secureCookie: false });
+}
+
+/** The signed-in account, read from the user row rather than the cookie flag. */
+async function accountForRequest(req: Request) {
+  const session = await auth();
+  const token = await readLoginToken(req);
+  const loginId = loginIdFromToken(token, session?.user?.id);
+  if (!loginId) return { loginId: "", row: null, session };
+  const row = await prisma.user.findUnique({
+    where: { id: loginId },
+    select: { id: true, mustChangePassword: true },
+  });
+  return { loginId, row, session };
+}
+
+const accountActions = {
+  signOut: async () => {
+    await signOut({ redirect: false });
+  },
+  refreshSession: async () => {
+    await unstable_update({});
+  },
 };
 
 async function audienceMembers(): Promise<NoticeAudienceMember[]> {
@@ -96,8 +130,22 @@ function asFlowhubData(
   };
 }
 
-export async function GET() {
-  const session = await auth();
+export async function GET(req: Request) {
+  const account = await accountForRequest(req);
+  if (!account.loginId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const closed = await responseForClosedAccount(
+    account.row
+      ? { mustChangePassword: account.row.mustChangePassword }
+      : null,
+    accountActions,
+    "read"
+  );
+  if (closed) {
+    return NextResponse.json(closed.body, { status: closed.status });
+  }
+  const session = account.session;
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -134,7 +182,21 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
-  const session = await auth();
+  const account = await accountForRequest(req);
+  if (!account.loginId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const closed = await responseForClosedAccount(
+    account.row
+      ? { mustChangePassword: account.row.mustChangePassword }
+      : null,
+    accountActions,
+    "write"
+  );
+  if (closed) {
+    return NextResponse.json(closed.body, { status: closed.status });
+  }
+  const session = account.session;
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

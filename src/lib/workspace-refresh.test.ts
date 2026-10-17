@@ -24,6 +24,7 @@ let hangPuts = false;
 let putCount = 0;
 let lastPutBody = "";
 let putResponder: ((body: string) => Response) | null = null;
+let assignedTo = "";
 const originalFetch = globalThis.fetch;
 const bus = new EventTarget();
 const documentStub = {
@@ -59,7 +60,13 @@ function installBrowser() {
     },
   };
   globalThis.window = {
-    location: { pathname: "/contracts/c1", search: "", assign() {} },
+    location: {
+      pathname: "/contracts/c1",
+      search: "",
+      assign(url: string) {
+        assignedTo = String(url);
+      },
+    },
     dispatchEvent() {
       return true;
     },
@@ -145,6 +152,7 @@ function contract(partial: Partial<Contract> = {}): Contract {
     pbgRetrievedDate: null,
     retentionRecoveredAt: null,
     contractorAssigned: "Ada",
+    handoverDate: null,
     boq: [],
     amendments: [],
     expenses: [],
@@ -235,6 +243,7 @@ describe("workspace refresh", { concurrency: false }, () => {
     putCount = 0;
     lastPutBody = "";
     putResponder = null;
+    assignedTo = "";
     documentStub.visibilityState = "visible";
     resetWorkspaceClientForTests();
     installBrowser();
@@ -642,6 +651,70 @@ describe("workspace refresh", { concurrency: false }, () => {
     assert.equal(getSaveNotice()?.text, "Saved.");
     assert.equal(getData().workspaceRevision, 10);
     assert.equal(getData().contracts[0]?.projectName, "Retried");
+  });
+
+  test("a removed user's save signs them out and is not stored", async () => {
+    await hydrateWith(workspace(4, { projectName: "Old" }));
+    putResponder = () =>
+      jsonResponse({ error: "Unauthorized", signedOut: true }, 401);
+    updateContract("c1", { projectName: "Should not stick" });
+    await assert.rejects(() => flushWorkspace(), /signed out/);
+    assert.equal(assignedTo, "/login");
+    const saved = await confirmWorkspaceSave();
+    assert.equal(saved, false);
+    assert.equal(getSaveNotice()?.tone, "error");
+    assert.notEqual(getSaveNotice()?.text, "Saved.");
+  });
+
+  test("a forced password change opens the password page and does not save", async () => {
+    await hydrateWith(workspace(4, { projectName: "Old" }));
+    putResponder = () =>
+      jsonResponse(
+        {
+          ok: false,
+          error: "Change your password before saving.",
+          redirect: "/settings/password",
+        },
+        403
+      );
+    updateContract("c1", { projectName: "Should not stick" });
+    await assert.rejects(() => flushWorkspace(), /Change your password/);
+    assert.equal(assignedTo, "/settings/password");
+    const saved = await confirmWorkspaceSave();
+    assert.equal(saved, false);
+    assert.equal(getSaveNotice()?.tone, "error");
+    assert.equal(
+      getSaveNotice()?.text,
+      "Change your password before saving."
+    );
+    assert.notEqual(getSaveNotice()?.text, "Saved.");
+  });
+
+  test("loading the workspace signs a removed user out", async () => {
+    const pending = hydrateWorkspace();
+    await waitFor("GET");
+    releaseNext("GET", { error: "Unauthorized", signedOut: true }, 401);
+    await pending;
+    assert.equal(assignedTo, "/login");
+    assert.equal(getData().contracts.length, 0);
+  });
+
+  test("a plain unauthorized load stays put on the first try", async () => {
+    const pending = hydrateWorkspace();
+    await waitFor("GET");
+    releaseNext("GET", { error: "Unauthorized" }, 401);
+    await pending;
+    assert.equal(assignedTo, "");
+  });
+
+  test("a refresh signs a removed user out", async () => {
+    await hydrateWith(workspace(4, { projectName: "Kept until reload" }));
+    const refreshing = refreshWorkspace();
+    await waitFor("GET");
+    releaseNext("GET", { error: "Unauthorized", signedOut: true }, 401);
+    await refreshing;
+    assert.equal(assignedTo, "/login");
+    assert.equal(getData().contracts[0]?.projectName, "Kept until reload");
   });
 
   test("a stale save with no copy in the response still loads the hub", async () => {

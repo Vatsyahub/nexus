@@ -1,18 +1,15 @@
 /**
- * Nexus Core figures. Handover uses the same schedule line the hub already
- * uses for DLP and workorders: end date, else start date, ignoring NA.
- * The line's done flag is the completion mark schedules already store.
+ * Nexus Core figures. The contract handover date is the only handover
+ * the hub uses. Schedule handover lines stay targets and are ignored here.
  */
 
 import {
   EMPTY_NEXUS_COSTS,
-  isScheduleDateNa,
   type BoqItem,
   type Contract,
   type FlowhubData,
   type NexusCostColumn,
   type NexusCosts,
-  type ScheduleLine,
 } from "@/lib/types";
 
 export function todayIso(d = new Date()): string {
@@ -162,43 +159,77 @@ export function normalizeNexusCosts(raw: unknown): NexusCosts {
   return { columns, contracts };
 }
 
-function handoverLine(
-  data: FlowhubData,
-  contractId: string
-): ScheduleLine | undefined {
-  return data.schedules.find(
-    (s) => s.contractId === contractId && s.kind === "handover"
-  );
+/** A real calendar date, or null. Does not read a schedule line. */
+export function acceptedHandoverDate(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const d = value.trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
+  const [ys, ms, ds] = d.split("-");
+  const y = Number(ys);
+  const m = Number(ms);
+  const day = Number(ds);
+  const dt = new Date(Date.UTC(y, m - 1, day));
+  if (
+    dt.getUTCFullYear() !== y ||
+    dt.getUTCMonth() !== m - 1 ||
+    dt.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return d;
 }
 
 /**
- * Same date reports and the retention clock already use:
- * handover end date, else start date. NA is not a date.
+ * Date to store after the contract-page confirm.
+ * Nothing is saved until confirmed, and the new date replaces the old one.
+ */
+export function handoverDateToSave(
+  entered: string,
+  confirmed: boolean
+): string | null {
+  if (!confirmed) return null;
+  return acceptedHandoverDate(entered);
+}
+
+/**
+ * The contract's handover date. Empty until it is confirmed on the contract.
+ * A schedule handover line is not this date.
  */
 export function handoverDateForContract(
   data: FlowhubData,
   contractId: string
 ): string | null {
-  const line = handoverLine(data, contractId);
-  const d = line?.endDate || line?.startDate || null;
-  if (!d || isScheduleDateNa(d)) return null;
-  return d.slice(0, 10);
+  const contract = data.contracts.find((c) => c.id === contractId);
+  return acceptedHandoverDate(contract?.handoverDate);
 }
 
 /**
- * Handed over when the handover schedule is marked done, or its date is
- * today or earlier. No handover line means not handed over.
+ * Handed over only when the contract date is a real date of today or earlier.
+ * An empty date, a future date, and a schedule line marked done are not.
  */
 export function contractIsHandedOver(
   data: FlowhubData,
   contractId: string,
   today: string
 ): boolean {
-  const line = handoverLine(data, contractId);
-  if (!line) return false;
-  if (line.done) return true;
   const date = handoverDateForContract(data, contractId);
-  return !!date && date <= today;
+  return !!date && date <= today.slice(0, 10);
+}
+
+/**
+ * Screen status from the contract date.
+ * A stored completed word without a qualifying date is not Completed.
+ * On hold stays On hold until the date is today or earlier.
+ */
+export function contractShownStatus(
+  contract: Pick<Contract, "status" | "handoverDate">,
+  today: string
+): ContractStatusLabel {
+  const date = acceptedHandoverDate(contract.handoverDate);
+  if (date && date <= today.slice(0, 10)) return "Completed";
+  const stored = contractStatusLabel(contract.status);
+  if (stored === "Completed") return "Active";
+  return stored;
 }
 
 export function taxInvoiceNet(data: FlowhubData, contractId: string): number {
@@ -343,16 +374,23 @@ export function contractStatusLabel(status: string): ContractStatusLabel {
 }
 
 /**
- * Handover wins: a handed-over contract is Completed even before the
- * stored word is rewritten. On hold and Active apply only before that.
+ * Completed only when the contract handover date is today or earlier.
+ * A stored completed word from an old schedule line does not count.
+ * On hold stays On hold until that date.
  */
 export function contractDisplayStatus(
   data: FlowhubData,
   contract: Pick<Contract, "id" | "status">,
   today: string
 ): ContractStatusLabel {
-  if (contractIsHandedOver(data, contract.id, today)) return "Completed";
-  return contractStatusLabel(contract.status);
+  const row = data.contracts.find((c) => c.id === contract.id);
+  return contractShownStatus(
+    {
+      status: row?.status ?? contract.status,
+      handoverDate: row?.handoverDate ?? null,
+    },
+    today
+  );
 }
 
 export type CostCentreRow = {

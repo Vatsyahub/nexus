@@ -178,6 +178,7 @@ function buildWorkspace(): FlowhubData {
       },
     ],
     retentionRecoveredAt: null,
+    handoverDate: null,
     status: "active",
     createdAt: isoDaysFromToday(-120) + "T09:00:00.000Z",
   };
@@ -232,6 +233,7 @@ function buildWorkspace(): FlowhubData {
     expenses: [],
     guaranteeEdits: [],
     retentionRecoveredAt: null,
+    handoverDate: null,
     status: "active",
     createdAt: isoDaysFromToday(-60) + "T09:00:00.000Z",
   };
@@ -277,6 +279,7 @@ function buildWorkspace(): FlowhubData {
     expenses: [],
     guaranteeEdits: [],
     retentionRecoveredAt: null,
+    handoverDate: null,
     status: "active",
     createdAt: isoDaysFromToday(-200) + "T09:00:00.000Z",
   };
@@ -328,6 +331,7 @@ function buildWorkspace(): FlowhubData {
     expenses: [],
     guaranteeEdits: [],
     retentionRecoveredAt: isoDaysFromToday(-40),
+    handoverDate: null,
     status: "complete",
     createdAt: isoDaysFromToday(-500) + "T09:00:00.000Z",
   };
@@ -382,6 +386,7 @@ function buildWorkspace(): FlowhubData {
     expenses: [],
     guaranteeEdits: [],
     retentionRecoveredAt: null,
+    handoverDate: null,
     status: "active",
     createdAt: isoDaysFromToday(-30) + "T09:00:00.000Z",
   };
@@ -427,6 +432,7 @@ function buildWorkspace(): FlowhubData {
     expenses: [],
     guaranteeEdits: [],
     retentionRecoveredAt: null,
+    handoverDate: null,
     status: "active",
     createdAt: isoDaysFromToday(-14) + "T09:00:00.000Z",
   };

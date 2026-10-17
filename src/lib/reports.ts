@@ -14,8 +14,8 @@
  */
 
 import type { Contract, FlowhubData, Invoice, Payment } from "@/lib/types";
-import { isScheduleDateNa } from "@/lib/types";
 import { matchesAny } from "@/lib/list-search";
+import { handoverDateForContract } from "@/lib/nexus-core";
 import { dateSearchForms, isDateInInclusiveRange } from "@/lib/dates";
 import { formatMoney } from "@/lib/format-money";
 import {
@@ -785,21 +785,11 @@ function addMonthsIso(iso: string, months: number): string {
   return `${d.getFullYear()}-${m}-${day}`;
 }
 
-function handoverDateForReport(
-  data: FlowhubData,
-  contractId: string
-): string | null {
-  const line = data.schedules.find(
-    (s) => s.contractId === contractId && s.kind === "handover"
-  );
-  const d = line?.endDate || line?.startDate || null;
-  if (!d || isScheduleDateNa(d)) return null;
-  return d;
-}
-
 /**
  * Contracts with actual retention held from payments.
- * Status: Recovered · Undue (no handover) · Due in N days (DLP end; negative if overdue).
+ * Status: Recovered · Undue (no contract handover date) · Due in N days
+ * (DLP end counted from that date; negative if overdue).
+ * A schedule handover line does not start this clock.
  */
 export function buildRetentionHeldRows(data: FlowhubData): RetentionHeldRow[] {
   const today = todayIso();
@@ -810,7 +800,7 @@ export function buildRetentionHeldRows(data: FlowhubData): RetentionHeldRow[] {
     })
     .filter(({ retentionHeld }) => retentionHeld > 0.005)
     .map(({ c, retentionHeld }) => {
-      const handoverDate = handoverDateForReport(data, c.id);
+      const handoverDate = handoverDateForContract(data, c.id);
       const dlpEnd =
         handoverDate != null
           ? addMonthsIso(handoverDate, c.dlpMonths || 0)

@@ -6,11 +6,16 @@ import { useParams, useRouter } from "next/navigation";
 import {
   flushWorkspace,
   isValidInvoiceQty,
-  lineNet,
   updateInvoice,
   useFlowhubData,
 } from "@/lib/store";
 import { billingTermLabel } from "@/lib/billing-terms";
+import {
+  billingTermChoices,
+  previewInvoiceLine,
+  previewInvoiceLines,
+  type StoredLineFigures,
+} from "@/lib/invoice-line-edit";
 import {
   GST_RATE,
   orderedBillingTermKeys,
@@ -37,6 +42,8 @@ type DraftLine = {
   boqItemId: string;
   termKey: string;
   billedQty: string;
+  /** Present on a line loaded from the invoice. A new line omits it. */
+  stored?: StoredLineFigures;
 };
 
 export default function EditInvoicePage() {
@@ -66,6 +73,11 @@ export default function EditInvoicePage() {
         boqItemId: l.boqItemId,
         termKey: l.termKey,
         billedQty: String(l.billedQty),
+        stored: {
+          rate: l.rate,
+          termPercent: l.termPercent,
+          itemName: l.itemName,
+        },
       }))
     );
     setCharges(
@@ -85,32 +97,29 @@ export default function EditInvoicePage() {
 
   const previewLines: InvoiceLine[] = useMemo(() => {
     if (!contract) return [];
-    return draftLines
-      .map((d) => {
-        const item = contract.boq.find((b) => b.id === d.boqItemId);
-        if (!item || !d.termKey) return null;
-        const qty = Number(d.billedQty) || 0;
-        const termPercent = contract.billingTerms[d.termKey] || 0;
-        return {
-          boqItemId: item.id,
-          itemName: item.name,
-          termKey: d.termKey,
-          billedQty: qty,
-          rate: item.rate,
-          termPercent,
-          lineNet: lineNet(item.rate, qty, termPercent),
-        } satisfies InvoiceLine;
-      })
-      .filter(Boolean) as InvoiceLine[];
+    return previewInvoiceLines(
+      draftLines.map((d) => ({
+        boqItemId: d.boqItemId,
+        termKey: d.termKey,
+        billedQty: Number(d.billedQty) || 0,
+        stored: d.stored,
+      })),
+      contract.boq,
+      contract.billingTerms
+    );
   }, [contract, draftLines]);
 
-  function draftLineNet(d: DraftLine): number {
-    const item = contract?.boq.find((b) => b.id === d.boqItemId);
-    if (!item || !contract) return 0;
-    return lineNet(
-      item.rate,
-      Number(d.billedQty) || 0,
-      contract.billingTerms[d.termKey] || 0
+  function draftPreview(d: DraftLine): InvoiceLine | null {
+    if (!contract) return null;
+    return previewInvoiceLine(
+      {
+        boqItemId: d.boqItemId,
+        termKey: d.termKey,
+        billedQty: Number(d.billedQty) || 0,
+        stored: d.stored,
+      },
+      contract.boq,
+      contract.billingTerms
     );
   }
 
@@ -264,68 +273,81 @@ export default function EditInvoicePage() {
                       + Term line
                     </Button>
                   </div>
-                  {lines.map((draft) => (
-                    <div key={draft.id} className="mt-2 grid gap-2 sm:grid-cols-3">
-                      <div className="space-y-1">
-                        <Label className="text-xs">Billing term</Label>
-                        <select
-                          className="flex h-8 w-full rounded-lg border border-input px-2 text-sm"
-                          value={draft.termKey}
-                          onChange={(e) =>
-                            setDraftLines((prev) =>
-                              prev.map((p) =>
-                                p.id === draft.id
-                                  ? { ...p, termKey: e.target.value }
-                                  : p
+                  {lines.map((draft) => {
+                    const preview = draftPreview(draft);
+                    return (
+                      <div key={draft.id} className="mt-2 grid gap-2 sm:grid-cols-3">
+                        <div className="space-y-1">
+                          <Label className="text-xs">Billing term</Label>
+                          <select
+                            className="flex h-8 w-full rounded-lg border border-input px-2 text-sm"
+                            value={draft.termKey}
+                            onChange={(e) =>
+                              setDraftLines((prev) =>
+                                prev.map((p) =>
+                                  p.id === draft.id
+                                    ? { ...p, termKey: e.target.value }
+                                    : p
+                                )
                               )
-                            )
-                          }
-                        >
-                          {termKeys.map((k) => (
-                            <option key={k} value={k}>
-                              {billingTermLabel(k)} ({contract.billingTerms[k]}%)
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">
-                          Billed qty{" "}
-                          <span className="text-[var(--fh-muted)]">
-                            · {formatMoney(draftLineNet(draft))}
-                          </span>
-                        </Label>
-                        <Input
-                          type="number"
-                          step="any"
-                          value={draft.billedQty}
-                          onChange={(e) =>
-                            setDraftLines((prev) =>
-                              prev.map((p) =>
-                                p.id === draft.id
-                                  ? { ...p, billedQty: e.target.value }
-                                  : p
+                            }
+                          >
+                            {billingTermChoices(
+                              contract.billingTerms,
+                              draft.termKey
+                            ).map((k) => (
+                              <option key={k} value={k}>
+                                {billingTermLabel(k)}
+                                {draft.stored
+                                  ? ""
+                                  : ` (${contract.billingTerms[k] ?? 0}%)`}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">
+                            Billed qty{" "}
+                            {preview ? (
+                              <span className="text-[var(--fh-muted)]">
+                                · {formatMoney(preview.lineNet)} (
+                                {formatMoney(preview.rate)} × {preview.termPercent}
+                                %)
+                              </span>
+                            ) : null}
+                          </Label>
+                          <Input
+                            type="number"
+                            step="any"
+                            value={draft.billedQty}
+                            onChange={(e) =>
+                              setDraftLines((prev) =>
+                                prev.map((p) =>
+                                  p.id === draft.id
+                                    ? { ...p, billedQty: e.target.value }
+                                    : p
+                                )
                               )
-                            )
-                          }
-                        />
+                            }
+                          />
+                        </div>
+                        <div className="flex items-end">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() =>
+                              setDraftLines((prev) =>
+                                prev.filter((p) => p.id !== draft.id)
+                              )
+                            }
+                          >
+                            Remove
+                          </Button>
+                        </div>
                       </div>
-                      <div className="flex items-end">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          onClick={() =>
-                            setDraftLines((prev) =>
-                              prev.filter((p) => p.id !== draft.id)
-                            )
-                          }
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </li>
               );
             })}
