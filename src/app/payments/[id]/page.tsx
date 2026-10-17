@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -42,6 +43,7 @@ export default function PaymentDetailPage() {
   const id = String(params.id);
   const router = useRouter();
   const data = useFlowhubData();
+  const [msg, setMsg] = useState<string | null>(null);
   const payment = data.payments.find((p) => p.id === id);
   const contract = data.contracts.find((c) => c.id === payment?.contractId);
   const invoice = payment?.invoiceId
@@ -91,7 +93,11 @@ export default function PaymentDetailPage() {
     ) {
       return;
     }
-    deletePayment(id);
+    const removed = deletePayment(id);
+    if (!removed) {
+      setMsg("This cash leaves less than what is already recovered.");
+      return;
+    }
     await flushWorkspace();
     router.push("/payments");
   }
@@ -111,6 +117,12 @@ export default function PaymentDetailPage() {
           <DeleteIconButton label="Delete payment" onClick={onDelete} />
         </div>
       </div>
+
+      {msg && (
+        <p className="rounded-md border border-[var(--fh-line)] bg-white px-3 py-2 text-sm">
+          {msg}
+        </p>
+      )}
 
       <article className="rounded-xl border border-[var(--fh-line)] bg-white p-6 sm:p-8 shadow-sm">
         <header className="border-b border-[var(--fh-line)] pb-6">
