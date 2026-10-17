@@ -141,8 +141,17 @@ export default function BillingHomePage() {
                           {inv.type} {inv.number}
                         </Link>
                       </td>
-                      <td className="px-3 py-2 text-[var(--fh-muted)]">
-                        {c?.projectNo ?? "—"}
+                      <td className="px-3 py-2">
+                        {c ? (
+                          <>
+                            <span className="font-medium">{c.projectName}</span>
+                            <p className="text-xs text-[var(--fh-muted)]">
+                              {c.projectNo}
+                            </p>
+                          </>
+                        ) : (
+                          <span className="text-[var(--fh-muted)]">—</span>
+                        )}
                       </td>
                       <td className="px-3 py-2 tabular-nums">
                         {formatDisplayDate(inv.date)}

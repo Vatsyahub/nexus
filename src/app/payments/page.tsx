@@ -136,8 +136,13 @@ export default function PaymentsPage() {
                           href={`/payments/${p.id}`}
                           className="text-[var(--fh-steel)] hover:underline"
                         >
-                          {c?.projectNo ?? "—"}
+                          {c?.projectName ?? "—"}
                         </Link>
+                        {c ? (
+                          <p className="text-xs font-normal text-[var(--fh-muted)]">
+                            {c.projectNo}
+                          </p>
+                        ) : null}
                         <span className="mt-0.5 block text-xs font-normal text-[var(--fh-muted)]">
                           cash {formatMoney(paymentCash(p))}
                           {p.retentionAmount
