@@ -5,7 +5,11 @@
 
 import type { Contract, FlowhubData, ScheduleLine } from "@/lib/types";
 import { isScheduleDateNa } from "@/lib/types";
-import { contractDisplayStatus, todayIso as coreTodayIso } from "@/lib/nexus-core";
+import {
+  contractDisplayStatus,
+  handoverDateForContract,
+  todayIso as coreTodayIso,
+} from "@/lib/nexus-core";
 import { installedQty, suppliedQty, taskIsOpen } from "@/lib/store";
 
 function todayIso(): string {
@@ -313,9 +317,9 @@ export type WorkorderRow = {
   woDate: string;
   woValue: number;
   status: WorkorderStatus;
-  /** Handover schedule date (end, else start) */
+  /** Contract handover date. A schedule handover line is not used. */
   handoverDate: string | null;
-  /** Handover + DLP months */
+  /** Contract handover date + DLP months */
   dlpEndDate: string | null;
   amendmentCount: number;
   latestAmendmentNo: string | null;
@@ -333,10 +337,7 @@ function contractWorkorderStatus(
 }
 
 function handoverDate(data: FlowhubData, contractId: string): string | null {
-  const line = data.schedules.find(
-    (s) => s.contractId === contractId && s.kind === "handover"
-  );
-  return realDate(line?.endDate) ?? realDate(line?.startDate);
+  return handoverDateForContract(data, contractId);
 }
 
 export function buildWorkorderRows(data: FlowhubData): WorkorderRow[] {

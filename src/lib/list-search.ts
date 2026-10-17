@@ -14,7 +14,7 @@ import {
   isScheduleDateNa,
 } from "@/lib/types";
 import { dateSearchForms } from "@/lib/dates";
-import { contractStatusLabel } from "@/lib/nexus-core";
+import { contractShownStatus, todayIso } from "@/lib/nexus-core";
 
 /** Split a list-search query into AND tokens (comma-separated chips). */
 export function parseSearchTokens(query: string): string[] {
@@ -114,6 +114,7 @@ function contractFieldList(
     | "state"
     | "country"
     | "contractorAssigned"
+    | "handoverDate"
     | "status"
     | "abgNumber"
     | "pbgNumber"
@@ -135,7 +136,14 @@ function contractFieldList(
     contract.state,
     contract.country,
     contract.contractorAssigned,
-    contractStatusLabel(contract.status),
+    contractShownStatus(
+      {
+        status: contract.status,
+        handoverDate: contract.handoverDate ?? null,
+      },
+      todayIso()
+    ),
+    ...dateSearchForms(contract.handoverDate),
     contract.abgNumber,
     contract.pbgNumber,
     ...dateSearchForms(contract.abgDate),

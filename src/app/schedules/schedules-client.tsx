@@ -44,7 +44,7 @@ import {
   formatScheduleDateRange,
 } from "@/lib/dates";
 import { HubDataScroll, HubPage } from "@/components/hub-scroll";
-import { contractStatusLabel } from "@/lib/nexus-core";
+import { contractShownStatus } from "@/lib/nexus-core";
 import { cn } from "@/lib/utils";
 
 type Tab = "all" | "near" | "overdue" | "view" | "changelog";
@@ -180,7 +180,7 @@ export default function SchedulesClient({
             c.city,
             c.state,
             c.orderNos,
-            contractStatusLabel(c.status),
+            contractShownStatus(c, today),
           ])) {
             return true;
           }

@@ -35,12 +35,14 @@ function contract(opts: {
   id: string;
   city?: string | null;
   status?: Contract["status"];
+  handoverDate?: string | null;
   boq?: BoqItem[];
 }): Contract {
   return {
     id: opts.id,
     city: opts.city ?? "",
     status: opts.status ?? "active",
+    handoverDate: opts.handoverDate ?? null,
     boq: opts.boq ?? [],
   } as Contract;
 }
@@ -125,6 +127,7 @@ test("a city cell is left for supply, and a missing city stays blank", () => {
         id: "done",
         city: "Chennai",
         status: "complete",
+        handoverDate: "2020-01-01",
         boq: [line("c-panel", "Panel", 50)],
       }),
       contract({
@@ -220,6 +223,7 @@ test("a handed-over contract stays out of the item list", () => {
         id: "handed",
         city: "Delhi",
         status: "active",
+        handoverDate: "2020-01-01",
         boq: [line("handed-item", "Switch", 20)],
       }),
     ],
@@ -229,9 +233,11 @@ test("a handed-over contract stays out of the item list", () => {
     schedules: [
       {
         id: "ho",
-        contractId: "handed",
+        contractId: "live",
         kind: "handover",
         done: true,
+        startDate: "2020-01-01",
+        endDate: "2020-01-01",
       } as ScheduleLine,
     ],
   });

@@ -45,9 +45,11 @@ import {
   type NexusCosts,
 } from "@/lib/types";
 import {
+  acceptedHandoverDate,
   contractDisplayStatus,
   contractIsHandedOver,
   contractStatusLabel,
+  handoverDateForContract,
   normalizeNexusCosts,
   todayIso as nexusTodayIso,
 } from "@/lib/nexus-core";
@@ -285,6 +287,9 @@ function normalizeContract(c: Contract & { orderEndDate?: string }): Contract {
     pbgRetrievedDate: c.pbgRetrieved ? (c.pbgRetrievedDate ?? null) : null,
     retentionRecoveredAt,
     contractorAssigned: c.contractorAssigned ?? "",
+    handoverDate: acceptedHandoverDate(
+      (c as Contract & { handoverDate?: unknown }).handoverDate
+    ),
     boq: c.boq ?? [],
     amendments: (Array.isArray(c.amendments) ? c.amendments : []).map(
       normalizeAmendment
@@ -802,10 +807,10 @@ export function scheduledSupplyQty(
 }
 
 /**
- * Closure date should show in red on the contracts list when:
- * - contract is not completed, and
- * - handover is after closure, or
- * - there is no real handover date and today is already past closure.
+ * Closure date should show in red on the contracts list when the contract
+ * is not completed and either its handover date is after closure, or that
+ * date is empty and today is already past closure.
+ * A schedule handover line is a target and does not turn this red.
  * Completed contracts always use normal (non-attention) styling.
  */
 export function closureDateNeedsAttention(
@@ -816,23 +821,9 @@ export function closureDateNeedsAttention(
   const d = data ?? read();
   const contract = d.contracts.find((c) => c.id === contractId);
   if (!contract?.closureDate) return false;
-  if (contractDisplayStatus(d, contract, today ?? nexusTodayIso()) === "Completed")
-    return false;
-  const todayIso =
-    today ??
-    (() => {
-      const t = new Date();
-      const m = String(t.getMonth() + 1).padStart(2, "0");
-      const day = String(t.getDate()).padStart(2, "0");
-      return `${t.getFullYear()}-${m}-${day}`;
-    })();
-  const handover = d.schedules.find(
-    (s) => s.contractId === contractId && s.kind === "handover"
-  );
-  const handoverDate =
-    handover && handover.startDate && !isScheduleDateNa(handover.startDate)
-      ? handover.startDate
-      : null;
+  const todayIso = (today ?? nexusTodayIso()).slice(0, 10);
+  if (contractDisplayStatus(d, contract, todayIso) === "Completed") return false;
+  const handoverDate = handoverDateForContract(d, contractId);
   if (handoverDate && handoverDate > contract.closureDate) return true;
   if (!handoverDate && todayIso > contract.closureDate) return true;
   return false;
@@ -2072,6 +2063,7 @@ export function addContract(
     | "pbgRetrieved"
     | "pbgRetrievedDate"
     | "retentionRecoveredAt"
+    | "handoverDate"
   >
 ): { contract: Contract; tasks: Task[] } {
   const data = read();
@@ -2113,6 +2105,7 @@ export function addContract(
     pbgRetrieved: false,
     pbgRetrievedDate: null,
     retentionRecoveredAt: null,
+    handoverDate: null,
     id: crypto.randomUUID(),
     status: "active",
     createdAt: new Date().toISOString(),
@@ -2150,8 +2143,19 @@ export function updateContract(
   if (!current) return null;
 
   const nextPatch = { ...patch };
+  if ("handoverDate" in nextPatch) {
+    const accepted = acceptedHandoverDate(nextPatch.handoverDate);
+    if (!accepted) delete nextPatch.handoverDate;
+    else nextPatch.handoverDate = accepted;
+  }
   if (nextPatch.status !== undefined) {
-    const handedOver = contractIsHandedOver(data, id, nexusTodayIso());
+    const preview: FlowhubData = {
+      ...data,
+      contracts: data.contracts.map((c) =>
+        c.id === id ? { ...c, ...nextPatch, id } : c
+      ),
+    };
+    const handedOver = contractIsHandedOver(preview, id, nexusTodayIso());
     if (handedOver) {
       nextPatch.status = "completed";
     } else if (contractStatusLabel(String(nextPatch.status)) === "Completed") {
@@ -4814,18 +4818,6 @@ export function afterGadCompleted(
     write(nextData);
   }
   return created;
-}
-
-function handoverDateForContract(
-  data: FlowhubData,
-  contractId: string
-): string | null {
-  const line = data.schedules.find(
-    (s) => s.contractId === contractId && s.kind === "handover"
-  );
-  const d = line?.endDate || line?.startDate || null;
-  if (!d || isScheduleDateNa(d)) return null;
-  return d;
 }
 
 /**
