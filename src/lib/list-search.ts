@@ -55,6 +55,39 @@ export function matchesToken(
 }
 
 /**
+ * Whole-word match for commitment status.
+ * "committed" does not match the letters inside "uncommitted".
+ * Any other token returns null and keeps ordinary substring search.
+ */
+function commitmentWordMatch(
+  token: string,
+  committed: boolean
+): boolean | null {
+  const word = token.trim().toLowerCase();
+  if (word !== "committed" && word !== "uncommitted") return null;
+  return (committed ? "committed" : "uncommitted") === word;
+}
+
+/**
+ * AND substring search, with committed / uncommitted matched as whole words.
+ * Used by the Operations Schedules report.
+ */
+export function matchesAnyRespectingCommitment(
+  query: string,
+  committed: boolean,
+  fields: Array<string | number | boolean | null | undefined>
+): boolean {
+  const tokens = normalizedTokens(query);
+  if (!tokens.length) return true;
+  const hay = fieldHaystack(fields);
+  return tokens.every((token) => {
+    const commitment = commitmentWordMatch(token, committed);
+    if (commitment !== null) return commitment;
+    return hay.some((f) => f.includes(token));
+  });
+}
+
+/**
  * True when query is empty or every token matches some field (AND).
  * Tokens are comma-separated (ListSearchBar chips); each may hit a different field.
  */
@@ -376,6 +409,8 @@ function scheduleMatchesToken(
   itemName: string | null | undefined,
   token: string
 ): boolean {
+  const commitment = commitmentWordMatch(token, !!line.committed);
+  if (commitment !== null) return commitment;
   const kind = line.kind as ScheduleKind;
   const kindLabel = SCHEDULE_KIND_LABELS[kind];
   const due = line.endDate || line.startDate;

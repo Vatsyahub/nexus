@@ -326,3 +326,60 @@ test("item list excel and pdf put pending for supply before cities", async () =>
     /Item name\s+Total BOQ qty\s+Total supplied\s+Pending for supply\s+Delhi\s+Pune/
   );
 });
+
+test("quantity keeps a third decimal on excel and pdf; money stays at two", async () => {
+  const headers = [
+    "BOQ qty",
+    "Pune",
+    "Supply qty",
+    "Change",
+    "Running total",
+    "Amount",
+    "Ret. exp.",
+    "WO value",
+    "Open",
+  ];
+  const rows = [
+    [1.125, 2.625, 1.125, 0.125, 1.125, 10.125, 3.875, 1000.5, 12],
+    [8, 4, 6, 1, 9, 6, 1, 800, 7],
+  ];
+  const props = {
+    filename: "qty-decimals",
+    title: "Quantity decimals",
+    filters: "Tab: Summary",
+    headers,
+    rows,
+  };
+
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(
+    Buffer.from(await buildReportExcelBuffer(props)) as unknown as ExcelJS.Buffer
+  );
+  const sheet = workbook.worksheets[0];
+  const dataRow = sheet.getRow(6);
+  const formats = headers.map((_, i) => dataRow.getCell(i + 1).numFmt);
+  assert.deepEqual(formats, [
+    "#,##0.###",
+    "#,##0.###",
+    "#,##0.###",
+    "#,##0.###",
+    "#,##0.###",
+    "#,##0.00",
+    "#,##0.00",
+    "#,##0.00",
+    "#,##0",
+  ]);
+  assert.equal(dataRow.getCell(1).value, 1.125);
+  assert.equal(dataRow.getCell(6).value, 10.125);
+
+  const text = pdfText(await buildReportPdfBytes(props));
+  assert.match(text, /1\.125/);
+  assert.match(text, /2\.625/);
+  assert.match(text, /0\.125/);
+  assert.match(text, /10\.13/);
+  assert.match(text, /3\.88/);
+  assert.equal(text.includes("1.13"), false);
+  assert.equal(text.includes("10.125"), false);
+  assert.equal(text.includes("3.875"), false);
+  assert.equal(text.includes("2.63"), false);
+});
