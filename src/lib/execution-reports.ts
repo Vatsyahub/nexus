@@ -385,7 +385,7 @@ export type ItemListRow = {
   byCity: Record<string, ItemListCityFigures>;
   /**
    * BOQ quantity of Active contracts only, including blank-city lines.
-   * Shown as Total BOQ qty, and used for overall left.
+   * Shown as Total / Boq Qty, and used for overall left.
    */
   totalQty: number;
   /**
@@ -411,14 +411,18 @@ export function formatItemListCityCell(
   return figures.leftForSupply;
 }
 
-/** Item name, overall BOQ, one column per city, then supplied and left. */
+/**
+ * Item name, overall BOQ, one column per city, then supplied and pending.
+ * The three quantity headings stack on screen and in Excel and PDF.
+ * On one line they read "Total Boq Qty", "Total Supplied", and "Pending Supply Qty".
+ */
 export function itemListHeaders(cities: string[]): string[] {
   return [
     "Item name",
-    "Total BOQ qty",
+    "Total\nBoq Qty",
     ...cities,
-    "Total supplied",
-    "Left for supply",
+    "Total\nSupplied",
+    "Pending\nSupply Qty",
   ];
 }
 

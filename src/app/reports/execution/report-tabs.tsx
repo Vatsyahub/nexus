@@ -370,6 +370,29 @@ export function SummaryTab({ data }: { data: FlowhubData }) {
   );
 }
 
+/** Quantity and city columns stay as narrow as their text. */
+const itemListMetricTh =
+  "whitespace-nowrap px-1 py-1 text-right align-bottom text-[10px] font-medium leading-tight sm:text-xs";
+const itemListNameTh =
+  "px-1 py-1 align-bottom text-[10px] font-medium leading-tight sm:text-xs";
+const itemListQty =
+  "whitespace-nowrap px-1 py-1 text-right align-top text-xs tabular-nums";
+const itemListNameTd = "px-1 py-1 align-top text-xs break-words sm:text-sm";
+
+function ItemListHeading({ text }: { text: string }) {
+  const lines = text.split("\n");
+  if (lines.length === 1) return text;
+  return (
+    <span className="inline-flex flex-col items-end normal-case tracking-normal">
+      {lines.map((line) => (
+        <span key={line} className="whitespace-nowrap">
+          {line}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export function ItemListTab({
   data,
   canRename = false,
@@ -481,35 +504,16 @@ export function ItemListTab({
         placeholder="Search item, city…"
       />
       <ReportsTableScroll className="mt-4">
-        <table className="w-full table-fixed text-left text-sm">
-          <colgroup>
-            <col
-              style={{
-                width:
-                  cities.length === 0
-                    ? canRename
-                      ? "46%"
-                      : "40%"
-                    : canRename
-                      ? "32%"
-                      : "18%",
-              }}
-            />
-            <col style={{ width: cities.length === 0 ? "20%" : "12%" }} />
-            {cities.map((city) => (
-              <col key={city} />
-            ))}
-            <col style={{ width: cities.length === 0 ? "20%" : "12%" }} />
-            <col style={{ width: cities.length === 0 ? "20%" : "13%" }} />
-          </colgroup>
+        <div className="overflow-x-auto">
+        <table className="w-max text-left text-sm">
           <thead className={theadClass}>
             <tr>
               {headers.map((header, i) => (
                 <th
                   key={`${i}-${header}`}
-                  className={cn(reportTh, i > 0 && "text-right")}
+                  className={i === 0 ? itemListNameTh : itemListMetricTh}
                 >
-                  {header}
+                  <ItemListHeading text={header} />
                 </th>
               ))}
             </tr>
@@ -529,7 +533,7 @@ export function ItemListTab({
                 const rowUnits = unitsByItem.get(r.key) ?? [];
                 return (
                 <tr key={r.key}>
-                  <td className={reportTd}>
+                  <td className={itemListNameTd}>
                     {canRename && editingKey === r.key ? (
                       <form
                         className="space-y-1"
@@ -621,23 +625,24 @@ export function ItemListTab({
                       r.itemName
                     )}
                   </td>
-                  <td className={qtyCell}>{formatQty(r.totalQty)}</td>
+                  <td className={itemListQty}>{formatQty(r.totalQty)}</td>
                   {cities.map((city) => {
                     const cell = r.byCity[city];
                     return (
-                      <td key={city} className={qtyCell}>
+                      <td key={city} className={itemListQty}>
                         {cell ? formatQty(cell.leftForSupply) : null}
                       </td>
                     );
                   })}
-                  <td className={qtyCell}>{formatQty(r.totalSupplied)}</td>
-                  <td className={qtyCell}>{formatQty(r.leftForSupply)}</td>
+                  <td className={itemListQty}>{formatQty(r.totalSupplied)}</td>
+                  <td className={itemListQty}>{formatQty(r.leftForSupply)}</td>
                 </tr>
                 );
               })
             )}
           </tbody>
         </table>
+        </div>
       </ReportsTableScroll>
       <ReportExportIcons
         filename="execution-item-list"
