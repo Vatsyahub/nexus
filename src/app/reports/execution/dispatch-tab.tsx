@@ -69,6 +69,12 @@ export function DispatchTab({
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
       <FormMessage msg={msg} />
 
+      {!contract && (
+        <p className="rounded-lg border border-[var(--fh-line)] px-4 py-3 text-sm text-[var(--fh-muted)]">
+          Select a contract to provide Delivery Challan details.
+        </p>
+      )}
+
       {canEdit && contract && hasLeftToSupply && (
         <AddDcForm
           key={contract.id}
