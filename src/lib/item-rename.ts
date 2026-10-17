@@ -275,9 +275,11 @@ function retargetCosts(
  * new name. The catalog row is updated, not copied. A new name only
  * renames. An existing name keeps that item: same-rate lines on a contract
  * fold together, and different rates stay separate under its name and unit.
- * Pass `unit` when Master edited the unit. A new name leaves each line's
- * unit as it was until that unit changes. Amendment snapshots and line
- * diffs keep the name and unit they were saved with.
+ * Pass `unit` to put that one unit on every current line. Omit it and a
+ * new name leaves each line's unit as it was. Combining into an existing
+ * name keeps that item's unit unless the submitted unit differs from the
+ * item being renamed. Amendment snapshots and line diffs keep the name
+ * and unit they were saved with.
  */
 export function renameItemRecords(
   data: FlowhubData,
@@ -301,6 +303,16 @@ export function renameItemRecords(
   const target = toKey === fromKey ? null : factsFor(data, toKey);
   const merging = target != null;
   const unitEdited = submittedUnit != null && submittedUnit !== source.unit;
+  let lineUnitDiffers = false;
+  if (submittedUnit != null) {
+    for (const contract of contracts) {
+      for (const line of contract.boq ?? []) {
+        if (!lineIsThisItem(line.name, fromKey)) continue;
+        if (String(line.unit ?? "").trim() !== submittedUnit) lineUnitDiffers = true;
+      }
+    }
+  }
+  const unifyLines = submittedUnit != null && (unitEdited || lineUnitDiffers);
   const finalName = merging ? target.name : to;
   const finalKey = itemNameKey(finalName);
   const finalUnit = merging
@@ -330,7 +342,7 @@ export function renameItemRecords(
         let lineChanged = false;
         const boq = (contract.boq ?? []).map((line) => {
           if (!lineIsThisItem(line.name, fromKey)) return line;
-          const nextUnit = unitEdited ? finalUnit : line.unit;
+          const nextUnit = unifyLines ? finalUnit : line.unit;
           if (
             line.name === finalName &&
             line.catalogKey === finalKey &&
@@ -438,6 +450,30 @@ export function renameItemRecords(
     from,
     to,
   };
+}
+
+/**
+ * Distinct units on current BOQ lines, keyed by the item's lowercase name,
+ * in the order they first appear. Repeated units are listed once. A blank
+ * unit is skipped. Amendment history is not included.
+ */
+export function currentItemUnits(data: FlowhubData): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  for (const contract of data.contracts ?? []) {
+    for (const line of contract.boq ?? []) {
+      const name = String(line?.name ?? "").trim();
+      const unit = String(line?.unit ?? "").trim();
+      if (!name || !unit) continue;
+      const key = itemNameKey(name);
+      const list = map.get(key);
+      if (!list) {
+        map.set(key, [unit]);
+        continue;
+      }
+      if (!list.includes(unit)) list.push(unit);
+    }
+  }
+  return map;
 }
 
 /**

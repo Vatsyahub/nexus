@@ -25,7 +25,7 @@ import {
 import { matchesAny } from "@/lib/list-search";
 import { confirmAction } from "@/components/confirm-panel";
 import { EditIconButton } from "@/components/icon-actions";
-import { itemNameChoices } from "@/lib/item-rename";
+import { currentItemUnits } from "@/lib/item-rename";
 import { confirmWorkspaceSave } from "@/lib/save-notice";
 import { deleteDeliveryChallan, flushWorkspace, renameItem } from "@/lib/store";
 import { Button } from "@/components/ui/button";
@@ -383,13 +383,7 @@ export function ItemListTab({
   const [unitDraft, setUnitDraft] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
   const [savingRename, setSavingRename] = useState(false);
-  const units = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const choice of itemNameChoices(data)) {
-      map.set(choice.name.trim().toLowerCase(), choice.unit.trim() || "Nos");
-    }
-    return map;
-  }, [data]);
+  const unitsByItem = useMemo(() => currentItemUnits(data), [data]);
   const cities = useMemo(() => itemListCities(data), [data]);
   const headers = useMemo(() => itemListHeaders(cities), [cities]);
   const all = useMemo(() => buildItemListRows(data), [data]);
@@ -416,9 +410,10 @@ export function ItemListTab({
   const colCount = headers.length;
 
   function startRename(key: string, itemName: string) {
+    const current = unitsByItem.get(key) ?? [];
     setEditingKey(key);
     setDraft(itemName);
-    setUnitDraft(units.get(key) || "Nos");
+    setUnitDraft(current.length === 1 ? current[0]! : "");
     setRenameError(null);
   }
 
@@ -429,7 +424,7 @@ export function ItemListTab({
     setRenameError(null);
   }
 
-  async function saveRename(event: FormEvent, itemName: string, unit: string) {
+  async function saveRename(event: FormEvent, itemName: string, currentUnits: string[]) {
     event.preventDefault();
     const next = draft.trim();
     const nextUnit = unitDraft.trim();
@@ -437,11 +432,30 @@ export function ItemListTab({
       setRenameError("Enter a new item name.");
       return;
     }
+    const onlyUnit = currentUnits.length === 1 ? currentUnits[0] : null;
     if (!nextUnit) {
+      if (currentUnits.length > 1 && next !== itemName) {
+        setSavingRename(true);
+        const result = renameItem(itemName, next);
+        if (!result.ok) {
+          setSavingRename(false);
+          setRenameError(result.error);
+          return;
+        }
+        const saved = await confirmWorkspaceSave();
+        setSavingRename(false);
+        if (!saved) return;
+        cancelRename();
+        return;
+      }
+      if (currentUnits.length > 1) {
+        cancelRename();
+        return;
+      }
       setRenameError("Enter a unit.");
       return;
     }
-    if (next === itemName && nextUnit === unit) {
+    if (onlyUnit && next === itemName && nextUnit === onlyUnit) {
       cancelRename();
       return;
     }
@@ -471,7 +485,14 @@ export function ItemListTab({
           <colgroup>
             <col
               style={{
-                width: cities.length === 0 ? "40%" : canRename ? "24%" : "18%",
+                width:
+                  cities.length === 0
+                    ? canRename
+                      ? "46%"
+                      : "40%"
+                    : canRename
+                      ? "32%"
+                      : "18%",
               }}
             />
             <col style={{ width: cities.length === 0 ? "20%" : "12%" }} />
@@ -504,16 +525,25 @@ export function ItemListTab({
                 }
               />
             ) : (
-              rows.map((r) => (
+              rows.map((r) => {
+                const rowUnits = unitsByItem.get(r.key) ?? [];
+                return (
                 <tr key={r.key}>
                   <td className={reportTd}>
                     {canRename && editingKey === r.key ? (
                       <form
                         className="space-y-1"
                         onSubmit={(event) =>
-                          void saveRename(event, r.itemName, units.get(r.key) || "Nos")
+                          void saveRename(event, r.itemName, rowUnits)
                         }
                       >
+                        {rowUnits.length > 1 ? (
+                          <div className="flex flex-wrap gap-x-2 text-[var(--fh-muted)]">
+                            {rowUnits.map((unit) => (
+                              <span key={unit}>{unit}</span>
+                            ))}
+                          </div>
+                        ) : null}
                         <div className="flex gap-1">
                           <Input
                             value={draft}
@@ -538,7 +568,8 @@ export function ItemListTab({
                               }
                             }}
                             aria-label={`Unit for ${r.itemName}`}
-                            className="h-8 w-16 shrink-0"
+                            placeholder={rowUnits.length > 1 ? "One unit" : undefined}
+                            className="h-8 w-20 shrink-0"
                           />
                         </div>
                         <div className="flex flex-wrap gap-1">
@@ -566,13 +597,22 @@ export function ItemListTab({
                         )}
                       </form>
                     ) : canRename ? (
-                      <div className="flex items-start gap-1">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span className="min-w-0 break-words">{r.itemName}</span>
-                        <span className="shrink-0 text-[var(--fh-muted)]">
-                          {units.get(r.key) || "Nos"}
-                        </span>
+                        {rowUnits.map((unit) => (
+                          <span
+                            key={unit}
+                            className="shrink-0 text-[var(--fh-muted)]"
+                          >
+                            {unit}
+                          </span>
+                        ))}
                         <EditIconButton
-                          label={`Edit name and unit for ${r.itemName}`}
+                          label={
+                            rowUnits.length > 1
+                              ? `Edit name and units for ${r.itemName}`
+                              : `Edit name and unit for ${r.itemName}`
+                          }
                           onClick={() => startRename(r.key, r.itemName)}
                           className="shrink-0"
                         />
@@ -593,7 +633,8 @@ export function ItemListTab({
                   <td className={qtyCell}>{formatQty(r.totalSupplied)}</td>
                   <td className={qtyCell}>{formatQty(r.leftForSupply)}</td>
                 </tr>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>

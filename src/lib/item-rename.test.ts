@@ -5,6 +5,7 @@ import {
   buildItemListRows,
 } from "@/lib/execution-reports";
 import {
+  currentItemUnits,
   itemNameChoices,
   keepInUseItemNames,
   renameItemRecords,
@@ -574,6 +575,70 @@ test("a rename to a new name leaves each line's unit until Master changes it", (
   assert.equal(edited.data.contracts[0]?.boq[1]?.quantity, 1);
   assert.equal(edited.data.itemCatalog[0]?.name, "Control panel");
   assert.equal(edited.data.itemCatalog[0]?.unit, "Lot");
+});
+
+test("the item list units are the distinct units on current lines", () => {
+  const data = workspace({
+    contracts: [
+      contract({
+        id: "c1",
+        boq: [
+          line("a", "Panel", 2, 10, "Nos"),
+          line("b", "Panel", 1, 12, "Nos"),
+        ],
+      }),
+      contract({
+        id: "c2",
+        boq: [line("c", "Panel", 4, 10, "Set")],
+      }),
+      contract({
+        id: "c3",
+        boq: [
+          line("d", "Cable", 1, 3, "m"),
+          line("e", "Cable", 1, 8, "Roll"),
+          line("f", "Cable", 1, 9, "Lot"),
+        ],
+      }),
+    ],
+  });
+  const units = currentItemUnits(data);
+  assert.deepEqual(units.get("panel"), ["Nos", "Set"]);
+  assert.deepEqual(units.get("cable"), ["m", "Roll", "Lot"]);
+});
+
+test("saving one unit replaces every current unit of that item", () => {
+  const data = workspace({
+    contracts: [
+      contract({
+        id: "c1",
+        boq: [
+          line("a", "Panel", 2, 10, "Nos"),
+          line("b", "Panel", 3, 25, "Set"),
+        ],
+      }),
+      contract({
+        id: "c2",
+        boq: [line("c", "Panel", 4, 10, "Lot")],
+      }),
+    ],
+    itemCatalog: [{ key: "panel", name: "Panel", unit: "Nos", lastRate: 10 }],
+  });
+  const result = renameItemRecords(data, "Panel", "Panel", "Nos");
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.data.contracts[0]?.boq.length, 2);
+  assert.equal(result.data.contracts[0]?.boq[0]?.quantity, 2);
+  assert.equal(result.data.contracts[0]?.boq[1]?.quantity, 3);
+  assert.equal(result.data.contracts[0]?.boq[1]?.rate, 25);
+  assert.deepEqual(
+    result.data.contracts.flatMap((contract) => contract.boq.map((row) => row.unit)),
+    ["Nos", "Nos", "Nos"]
+  );
+  assert.deepEqual(currentItemUnits(result.data).get("panel"), ["Nos"]);
+  assert.equal(result.data.itemCatalog[0]?.unit, "Nos");
+  const rows = buildItemListRows(result.data);
+  assert.equal(rows.filter((row) => row.key === "panel").length, 1);
+  assert.equal(rows.find((row) => row.key === "panel")?.totalQty, 9);
 });
 
 test("a case change keeps the same catalog key and updates the spelling", () => {
