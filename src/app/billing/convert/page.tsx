@@ -1,19 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   convertPiToTi,
   flushWorkspace,
   isValidInvoiceQty,
-  lineNet,
   useFlowhubData,
 } from "@/lib/store";
 import { billingTermLabel } from "@/lib/billing-terms";
 import {
+  billingTermChoices,
+  recalcTouchedInvoiceLine,
+} from "@/lib/invoice-line-edit";
+import {
   GST_RATE,
-  orderedBillingTermKeys,
   type InvoiceExtraCharge,
   type InvoiceLine,
 } from "@/lib/types";
@@ -64,18 +66,8 @@ export default function ConvertPiPage() {
   const gst = contract?.gstApplicable ? net * GST_RATE : 0;
   const extraTotal = charges.reduce((s, c) => s + c.amount, 0);
 
-  const termKeys = useMemo(() => {
-    if (!contract) return [];
-    return orderedBillingTermKeys(contract.billingTerms, { onlyPositive: true });
-  }, [contract]);
-
   function recalcLine(line: InvoiceLine, patch: Partial<InvoiceLine>): InvoiceLine {
-    const next = { ...line, ...patch };
-    const termPercent =
-      contract?.billingTerms[next.termKey] ?? next.termPercent;
-    next.termPercent = termPercent;
-    next.lineNet = lineNet(next.rate, next.billedQty, termPercent);
-    return next;
+    return recalcTouchedInvoiceLine(line, patch);
   }
 
   async function submit(e: React.FormEvent) {
@@ -201,18 +193,21 @@ export default function ConvertPiPage() {
                       )
                     }
                   >
-                    {termKeys.map((k) => (
-                      <option key={k} value={k}>
-                        {billingTermLabel(k)}
-                      </option>
-                    ))}
+                    {billingTermChoices(contract.billingTerms, line.termKey).map(
+                      (k) => (
+                        <option key={k} value={k}>
+                          {billingTermLabel(k)}
+                        </option>
+                      )
+                    )}
                   </select>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">
                     Qty{" "}
                     <span className="text-[var(--fh-muted)]">
-                      · {formatMoney(line.lineNet)}
+                      · {formatMoney(line.lineNet)} ({formatMoney(line.rate)} ×{" "}
+                      {line.termPercent}%)
                     </span>
                   </Label>
                   <Input
