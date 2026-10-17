@@ -3,13 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  applyPaymentEntry,
   invoiceBalanceLabel,
   invoiceExtraTotal,
   invoiceOutstanding,
   invoiceRetentionHold,
   invoiceTdsHold,
-  recoverablePoolHolds,
+  recoverablePoolViolation,
   recoverableRunningLineFigures,
   useFlowhubData,
 } from "@/lib/store";
@@ -164,23 +163,27 @@ export function PaymentForm({
       setMsg("Recovered cannot be more than what is left.");
       return;
     }
-    const nextPayments = applyPaymentEntry(data.payments, {
-      id: initial?.id,
-      contractId,
-      invoiceId: needsInvoice ? invoiceId : null,
-      link,
-      date,
-      netAmount: Number(netAmount) || 0,
-      gstAmount: Number(gstAmount) || 0,
-      retentionAmount: Number(retention) || 0,
-      tdsAmount: Number(tds) || 0,
-      otherDeductions: Number(other) || 0,
-      otherDeductionReason: otherReason.trim(),
-      recovered: recoveredAmount,
-    });
-    if (!recoverablePoolHolds(nextPayments, contractId)) {
+    const violation = recoverablePoolViolation(
+      data.payments,
+      {
+        id: initial?.id,
+        contractId,
+        invoiceId: needsInvoice ? invoiceId : null,
+        link,
+        date,
+        netAmount: Number(netAmount) || 0,
+        gstAmount: Number(gstAmount) || 0,
+        retentionAmount: Number(retention) || 0,
+        tdsAmount: Number(tds) || 0,
+        otherDeductions: Number(other) || 0,
+        otherDeductionReason: otherReason.trim(),
+        recovered: recoveredAmount,
+      },
+      initial?.contractId
+    );
+    if (violation) {
       setMsg(
-        link === "recoverable"
+        violation === "left" || link === "recoverable"
           ? "This cash leaves less than what is already recovered."
           : "Recovered cannot be more than what is left."
       );

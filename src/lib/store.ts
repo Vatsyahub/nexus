@@ -3728,6 +3728,28 @@ export function applyPaymentEntry(
   );
 }
 
+/**
+ * Which side of a save would put recovered cash above the recoverable pool.
+ * `previousContractId` is the contract this payment is on now. A move is
+ * checked there too, because the pool it leaves can shrink.
+ */
+export function recoverablePoolViolation(
+  payments: readonly Payment[],
+  entry: Omit<Payment, "id" | "createdAt"> & { id?: string },
+  previousContractId?: string | null
+): "entry" | "left" | null {
+  const next = applyPaymentEntry(payments, entry);
+  if (!recoverablePoolHolds(next, entry.contractId)) return "entry";
+  if (
+    previousContractId &&
+    previousContractId !== entry.contractId &&
+    !recoverablePoolHolds(next, previousContractId)
+  ) {
+    return "left";
+  }
+  return null;
+}
+
 export function addPayment(
   payment: Omit<Payment, "id" | "createdAt">
 ): Payment | null {
@@ -3739,7 +3761,7 @@ export function addPayment(
     if (payment.link === "TI" && invoice.type !== "TI") return null;
     if (payment.link === "PI" && invoice.type !== "PI") return null;
   }
-  if (!recoverablePoolHolds(applyPaymentEntry(data.payments, payment), payment.contractId)) {
+  if (recoverablePoolViolation(data.payments, payment)) {
     return null;
   }
 
@@ -3769,9 +3791,10 @@ export function updatePayment(
     if (patch.link === "PI" && invoice.type !== "PI") return null;
   }
   if (
-    !recoverablePoolHolds(
-      applyPaymentEntry(data.payments, { ...patch, id }),
-      patch.contractId
+    recoverablePoolViolation(
+      data.payments,
+      { ...patch, id },
+      current.contractId
     )
   ) {
     return null;
@@ -3808,10 +3831,13 @@ export function deleteInvoice(id: string): boolean {
 
 export function deletePayment(id: string): boolean {
   const data = read();
-  if (!data.payments.some((p) => p.id === id)) return false;
+  const current = data.payments.find((p) => p.id === id);
+  if (!current) return false;
+  const remaining = data.payments.filter((p) => p.id !== id);
+  if (!recoverablePoolHolds(remaining, current.contractId)) return false;
   write({
     ...data,
-    payments: data.payments.filter((p) => p.id !== id),
+    payments: remaining,
   });
   return true;
 }
@@ -4647,7 +4673,13 @@ function addMonthsToIso(iso: string, months: number) {
   return `${d.getFullYear()}-${m}-${day}`;
 }
 
+function isIsoDate(iso: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
+  return !Number.isNaN(new Date(iso + "T12:00:00").getTime());
+}
+
 function addDaysToIso(iso: string, days: number) {
+  if (!iso || isScheduleDateNa(iso) || !isIsoDate(iso)) return iso;
   const d = new Date(iso + "T12:00:00");
   d.setDate(d.getDate() + days);
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -5113,6 +5145,28 @@ export function updateSchedule(
     ...patch,
     updatedAt: new Date().toISOString(),
   });
+  // The planner leaves an NA supply or installation out of the schedule.
+  // Start set to NA removes this line. Quantity is not required.
+  if (
+    (next.kind === "supply" || next.kind === "installation") &&
+    isScheduleDateNa(next.startDate)
+  ) {
+    const label = SCHEDULE_KIND_LABELS[next.kind];
+    const nextData = appendScheduleLog(
+      {
+        ...data,
+        schedules: data.schedules.filter((s) => s.id !== id),
+      },
+      {
+        by,
+        contractId: current.contractId,
+        scheduleId: current.id,
+        summary: `Deleted ${label} ${formatScheduleDateRange(current.startDate, current.endDate)}`,
+      }
+    );
+    write(nextData);
+    return { ok: true, line: current };
+  }
   if (next.endDate < next.startDate)
     return { ok: false, error: "End date cannot be before start date." };
 
@@ -5234,13 +5288,18 @@ function proposeCascadeAfterSlip(
   const push = (s: ScheduleLine, label: string) => {
     if (s.done || s.id === source.id) return;
     if (proposals.some((p) => p.scheduleId === s.id)) return;
+    // NA testing and handover stay NA. Adding days to NA writes NaN-NaN-NaN.
+    if (isScheduleDateNa(s.startDate) || isScheduleDateNa(s.endDate)) return;
+    const startDate = addDaysToIso(s.startDate, slipDays);
+    const endDate = addDaysToIso(s.endDate, slipDays);
+    if (!isIsoDate(startDate) || !isIsoDate(endDate)) return;
     proposals.push({
       scheduleId: s.id,
       label,
       fromStartDate: s.startDate,
       fromEndDate: s.endDate,
-      startDate: addDaysToIso(s.startDate, slipDays),
-      endDate: addDaysToIso(s.endDate, slipDays),
+      startDate,
+      endDate,
     });
   };
 
@@ -5305,9 +5364,13 @@ export function applyCascadeProposals(
   const data = read();
   const by = opts?.by ?? "User";
   const map = new Map(proposals.map((p) => [p.scheduleId, p]));
+  const applied: CascadeProposal[] = [];
   const schedules = data.schedules.map((s) => {
     const p = map.get(s.id);
     if (!p) return s;
+    if (isScheduleDateNa(s.startDate) || isScheduleDateNa(s.endDate)) return s;
+    if (!isIsoDate(p.startDate) || !isIsoDate(p.endDate)) return s;
+    applied.push(p);
     return normalizeSchedule({
       ...s,
       startDate: p.startDate,
@@ -5315,7 +5378,8 @@ export function applyCascadeProposals(
       updatedAt: new Date().toISOString(),
     });
   });
-  const summary = `Cascade confirmed (+dates): ${proposals
+  if (!applied.length) return { ok: true };
+  const summary = `Cascade confirmed (+dates): ${applied
     .map(
       (p) =>
         `${p.label} ${formatScheduleDateRange(p.fromStartDate, p.fromEndDate)} to ${formatScheduleDateRange(p.startDate, p.endDate)}`
