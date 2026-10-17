@@ -532,7 +532,7 @@ export async function buildReportPdfBytes(props: Props): Promise<Uint8Array> {
 
     autoTable(doc, {
       startY: y,
-      head: [headers.map(pdfText)],
+      head: [headers.map((header) => pdfText(header))],
       body,
       theme: "grid",
       horizontalPageBreak,

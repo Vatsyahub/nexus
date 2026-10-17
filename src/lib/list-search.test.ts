@@ -37,14 +37,24 @@ const namedCommitted = {
   state: "",
   country: "",
   contractorAssigned: "",
-  status: "active",
+  handoverDate: null,
+  status: "active" as const,
   abgNumber: "",
   pbgNumber: "",
   abgDate: "",
   pbgDate: "",
   abgExpiry: "",
   pbgExpiry: "",
-  boq: [{ name: "Panel" }],
+  boq: [
+    {
+      id: "b1",
+      catalogKey: "panel",
+      name: "Panel",
+      unit: "nos",
+      rate: 1,
+      quantity: 1,
+    },
+  ],
 };
 
 test("committed search matches committed schedule lines only", () => {
