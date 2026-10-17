@@ -62,7 +62,13 @@ const SCHEDULE_REPORTS = [
 
 const EXPENSE_REPORTS = ["reports_accounts"] as const satisfies readonly DoorId[];
 
-export type WorkspaceSkip = "refuse-wholesale-replace";
+export type WorkspaceSkip =
+  | "refuse-wholesale-replace"
+  | "refuse-stale-revision";
+
+/** Shown when a save is dropped because the hub moved on. */
+export const STALE_WORKSPACE_SAVE_MESSAGE =
+  "The hub changed. This save was not kept.";
 
 export type WorkspaceWrite =
   | { action: "save"; data: FlowhubData }
@@ -456,7 +462,11 @@ export function mergeWorkspaceSave(
 /**
  * Apply this browser's changes onto the hub stored now.
  * A full snapshot is not a change list and is not stored.
- * The page address is ignored; each slice follows the account's door.
+ * A change list from an older revision is not stored either, so a tab that
+ * still has the previous copy cannot write that copy back. A save at the
+ * stored revision still applies, one door at a time. The page address is ignored.
+ * The stored revision becomes the hub's current revision plus one, taken from
+ * the hub, not from the number on the request.
  */
 export function resolveWorkspaceWrite(
   current: FlowhubData,
@@ -465,12 +475,22 @@ export function resolveWorkspaceWrite(
   clearance: ClearanceRole,
   taskEdit?: TaskEditContext
 ): WorkspaceWrite {
+  const currentRevision = current.workspaceRevision ?? 0;
   if (!isWorkspaceChangeRequest(incoming)) {
     return {
       action: "skip",
       skipped: "refuse-wholesale-replace",
-      currentRevision: current.workspaceRevision ?? 0,
+      currentRevision,
       incomingRevision: incoming.workspaceRevision ?? 0,
+    };
+  }
+
+  if (incoming.baseRevision < currentRevision) {
+    return {
+      action: "skip",
+      skipped: "refuse-stale-revision",
+      currentRevision,
+      incomingRevision: incoming.baseRevision,
     };
   }
 
@@ -486,7 +506,7 @@ export function resolveWorkspaceWrite(
     action: "save",
     data: {
       ...merged,
-      workspaceRevision: (current.workspaceRevision ?? 0) + 1,
+      workspaceRevision: currentRevision + 1,
     },
   };
 }

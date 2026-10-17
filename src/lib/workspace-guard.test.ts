@@ -492,21 +492,20 @@ test("nexus core follows its own door", () => {
   assert.equal(cleared.contracts.length, 0);
 });
 
-test("several concurrent new invoices are all present", () => {
-  const loaded = file({
+test("invoices saved one after another on the current revision all stay", () => {
+  let stored = file({
     invoices: [invoice({ id: "existing", number: "TI-0" })],
     workspaceRevision: 4,
   });
-  const editors = ["a", "b", "c"].map((id) => ({
-    ...loaded,
-    invoices: [
-      ...loaded.invoices,
-      invoice({ id: `inv-${id}`, number: `TI-${id}` }),
-    ],
-  }));
-  let stored = loaded;
-  for (const edited of editors) {
-    stored = applyEdited(stored, loaded, edited);
+  for (const id of ["a", "b", "c"]) {
+    const edited = {
+      ...stored,
+      invoices: [
+        ...stored.invoices,
+        invoice({ id: `inv-${id}`, number: `TI-${id}` }),
+      ],
+    };
+    stored = applyEdited(stored, stored, edited);
   }
   assert.deepEqual(
     stored.invoices.map((row) => row.id).sort(),
@@ -515,21 +514,20 @@ test("several concurrent new invoices are all present", () => {
   assert.equal(stored.workspaceRevision, 7);
 });
 
-test("several concurrent new payments are all present", () => {
-  const loaded = file({
+test("payments saved one after another on the current revision all stay", () => {
+  let stored = file({
     payments: [payment({ id: "existing", netAmount: 10 })],
     workspaceRevision: 4,
   });
-  const editors = ["a", "b", "c"].map((id) => ({
-    ...loaded,
-    payments: [
-      ...loaded.payments,
-      payment({ id: `pay-${id}`, netAmount: 20 }),
-    ],
-  }));
-  let stored = loaded;
-  for (const edited of editors) {
-    stored = applyEdited(stored, loaded, edited);
+  for (const id of ["a", "b", "c"]) {
+    const edited = {
+      ...stored,
+      payments: [
+        ...stored.payments,
+        payment({ id: `pay-${id}`, netAmount: 20 }),
+      ],
+    };
+    stored = applyEdited(stored, stored, edited);
   }
   assert.deepEqual(
     stored.payments.map((row) => row.id).sort(),
@@ -562,23 +560,27 @@ test("an ABG change and a payment add in the same moment are both present", () =
   assert.equal(abgChanges.payments, undefined);
   assert.equal(abgChanges.contracts?.upsert?.[0]?.abgNumber, "ABG/NEW/1");
 
-  const abgThenPayment = applyEdited(
-    applyEdited(loaded, loaded, abgEdit),
-    loaded,
-    paymentEdit
-  );
+  let abgThenPayment = applyEdited(loaded, loaded, abgEdit);
+  abgThenPayment = applyEdited(abgThenPayment, abgThenPayment, {
+    ...abgThenPayment,
+    payments: [payment({ id: "pay-new", netAmount: 80 })],
+  });
   assert.equal(abgThenPayment.contracts[0]?.abgNumber, "ABG/NEW/1");
   assert.equal(abgThenPayment.contracts[0]?.pbgNumber, "PBG/OLD/1");
   assert.equal(abgThenPayment.payments[0]?.id, "pay-new");
+  assert.equal(abgThenPayment.workspaceRevision, 6);
 
-  const paymentThenAbg = applyEdited(
-    applyEdited(loaded, loaded, paymentEdit),
-    loaded,
-    abgEdit
-  );
+  let paymentThenAbg = applyEdited(loaded, loaded, paymentEdit);
+  paymentThenAbg = applyEdited(paymentThenAbg, paymentThenAbg, {
+    ...paymentThenAbg,
+    contracts: [
+      contract({ abgNumber: "ABG/NEW/1", pbgNumber: "PBG/OLD/1" }),
+    ],
+  });
   assert.equal(paymentThenAbg.contracts[0]?.abgNumber, "ABG/NEW/1");
   assert.equal(paymentThenAbg.payments[0]?.id, "pay-new");
   assert.equal(paymentThenAbg.payments[0]?.netAmount, 80);
+  assert.equal(paymentThenAbg.workspaceRevision, 6);
 });
 
 test("the later edit wins on one task and a different new payment stays", () => {
@@ -591,20 +593,18 @@ test("the later edit wins on one task and a different new payment stays", () => 
     ...loaded,
     tasks: [task({ title: "First edit" })],
   };
-  const laterTask = {
-    ...loaded,
-    tasks: [task({ title: "Later edit" })],
-  };
-  const addedPayment = {
-    ...loaded,
+  let stored = applyEdited(loaded, loaded, firstTask);
+  stored = applyEdited(stored, stored, {
+    ...stored,
     payments: [
-      ...loaded.payments,
+      ...stored.payments,
       payment({ id: "pay-new", netAmount: 40 }),
     ],
-  };
-  let stored = applyEdited(loaded, loaded, firstTask);
-  stored = applyEdited(stored, loaded, addedPayment);
-  stored = applyEdited(stored, loaded, laterTask);
+  });
+  stored = applyEdited(stored, stored, {
+    ...stored,
+    tasks: [task({ title: "Later edit" })],
+  });
   assert.equal(stored.tasks.find((row) => row.id === "task-1")?.title, "Later edit");
   assert.deepEqual(
     stored.payments.map((row) => row.id).sort(),
@@ -612,6 +612,22 @@ test("the later edit wins on one task and a different new payment stays", () => 
   );
   assert.equal(stored.payments.find((row) => row.id === "pay-old")?.netAmount, 5);
   assert.equal(stored.payments.find((row) => row.id === "pay-new")?.netAmount, 40);
+  assert.equal(stored.workspaceRevision, 7);
+
+  const stale = resolveWorkspaceWrite(
+    stored,
+    {
+      baseRevision: loaded.workspaceRevision ?? 0,
+      changes: diffWorkspace(loaded, firstTask),
+    },
+    access(),
+    "user"
+  );
+  assert.equal(stale.action, "skip");
+  if (stale.action === "skip") {
+    assert.equal(stale.skipped, "refuse-stale-revision");
+  }
+  assert.equal(stored.tasks.find((row) => row.id === "task-1")?.title, "Later edit");
 });
 
 test("concurrent new expenses stay with an ABG change on the same contract", () => {
@@ -655,11 +671,16 @@ test("concurrent new expenses stay with an ABG change on the same contract", () 
       }),
     ],
   };
-  const stored = applyEdited(
-    applyEdited(loaded, loaded, abgEdit),
-    loaded,
-    expenseEdit
-  );
+  let stored = applyEdited(loaded, loaded, abgEdit);
+  stored = applyEdited(stored, stored, {
+    ...stored,
+    contracts: [
+      contract({
+        abgNumber: "ABG/NEW/1",
+        expenses: [expense("e-old", 10), expense("e-new", 25)],
+      }),
+    ],
+  });
   assert.equal(stored.contracts[0]?.abgNumber, "ABG/NEW/1");
   assert.deepEqual(
     stored.contracts[0]?.expenses.map((row) => row.id).sort(),
@@ -669,6 +690,22 @@ test("concurrent new expenses stay with an ABG change on the same contract", () 
     stored.contracts[0]?.expenses.find((row) => row.id === "e-new")?.amount,
     25
   );
+  assert.equal(stored.workspaceRevision, 6);
+
+  const staleExpense = resolveWorkspaceWrite(
+    stored,
+    {
+      baseRevision: loaded.workspaceRevision ?? 0,
+      changes: diffWorkspace(loaded, expenseEdit),
+    },
+    access(),
+    "user"
+  );
+  assert.equal(staleExpense.action, "skip");
+  if (staleExpense.action === "skip") {
+    assert.equal(staleExpense.skipped, "refuse-stale-revision");
+  }
+  assert.equal(stored.contracts[0]?.abgNumber, "ABG/NEW/1");
 });
 
 test("a stale full snapshot is not stored as a wholesale replace", () => {
@@ -724,6 +761,131 @@ test("a stale full snapshot is not stored as a wholesale replace", () => {
   assert.equal(cleared.contracts.length, 0);
   assert.equal(cleared.invoices.length, 0);
   assert.equal(cleared.payments.length, 0);
+  assert.equal(cleared.workspaceRevision, 9);
+});
+
+test("an older copy cannot write a project name back over a newer save", () => {
+  const loaded = file({
+    contracts: [contract({ projectName: "Old name" })],
+    workspaceRevision: 4,
+  });
+  const renamed = {
+    ...loaded,
+    contracts: [contract({ projectName: "New name" })],
+  };
+  const stored = applyEdited(loaded, loaded, renamed, access(), "master");
+  assert.equal(stored.contracts[0]?.projectName, "New name");
+  assert.equal(stored.workspaceRevision, 5);
+
+  const staleEdit = {
+    ...loaded,
+    contracts: [contract({ projectName: "Old name", city: "Mumbai" })],
+  };
+  const refused = resolveWorkspaceWrite(
+    stored,
+    {
+      baseRevision: loaded.workspaceRevision ?? 0,
+      changes: diffWorkspace(loaded, staleEdit),
+    },
+    access(),
+    "master"
+  );
+  assert.equal(refused.action, "skip");
+  if (refused.action !== "skip") throw new Error("expected skip");
+  assert.equal(refused.skipped, "refuse-stale-revision");
+  assert.equal(refused.currentRevision, 5);
+  assert.equal(refused.incomingRevision, 4);
+  assert.equal(stored.contracts[0]?.projectName, "New name");
+  assert.equal(stored.contracts[0]?.city, "Delhi");
+
+  const kept = applyEdited(
+    stored,
+    stored,
+    {
+      ...stored,
+      contracts: [contract({ projectName: "New name", city: "Mumbai" })],
+    },
+    access(),
+    "master"
+  );
+  assert.equal(kept.contracts[0]?.projectName, "New name");
+  assert.equal(kept.contracts[0]?.city, "Mumbai");
+  assert.equal(kept.workspaceRevision, 6);
+});
+
+test("an accepted save stores the hub revision plus one, not the client's number", () => {
+  const current = file({
+    contracts: [contract({ projectName: "Old name" })],
+    workspaceRevision: 4,
+  });
+  const saved = save(
+    current,
+    {
+      ...current,
+      workspaceRevision: 100,
+      contracts: [contract({ projectName: "New name" })],
+    },
+    access(),
+    "master"
+  );
+  assert.equal(saved.contracts[0]?.projectName, "New name");
+  assert.equal(saved.workspaceRevision, 5);
+});
+
+test("deleting the last contract on the current revision bumps the hub revision once", () => {
+  const current = file({
+    contracts: [contract()],
+    invoices: [invoice()],
+    payments: [payment()],
+    tasks: [task()],
+    schedules: [schedule()],
+    workspaceRevision: 4,
+  });
+  const cleared = save(
+    current,
+    file({
+      workspaceRevision: 100,
+      contracts: [],
+      invoices: [],
+      payments: [],
+      tasks: [],
+      schedules: [],
+      itemCatalog: [],
+    }),
+    access(),
+    "master"
+  );
+  assert.equal(cleared.contracts.length, 0);
+  assert.equal(cleared.invoices.length, 0);
+  assert.equal(cleared.payments.length, 0);
+  assert.equal(cleared.tasks.length, 0);
+  assert.equal(cleared.schedules.length, 0);
+  assert.equal(cleared.workspaceRevision, 5);
+
+  const stale = resolveWorkspaceWrite(
+    current,
+    {
+      baseRevision: 1,
+      changes: diffWorkspace(
+        current,
+        file({
+          contracts: [],
+          invoices: [],
+          payments: [],
+          tasks: [],
+          schedules: [],
+        })
+      ),
+    },
+    access(),
+    "master"
+  );
+  assert.equal(stale.action, "skip");
+  if (stale.action === "skip") {
+    assert.equal(stale.skipped, "refuse-stale-revision");
+  }
+  assert.equal(current.contracts.length, 1);
+  assert.equal(current.workspaceRevision, 4);
 });
 
 test("a blocked door is omitted unless its report is open", () => {
