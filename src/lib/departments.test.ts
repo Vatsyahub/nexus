@@ -404,8 +404,22 @@ describe("department rename and delete", { concurrency: false }, () => {
     });
     const access = { ...defaultAccess("user"), tasks: "view" as const };
     const saved = mergeWorkspaceSave(current, incoming, access, "user");
-    assert.equal(saved.tasks[0]?.department, null);
-    assert.ok(saved.deletedDepartments?.includes("Accounts Department"));
+    assert.equal(saved.tasks[0]?.department, "Accounts Department");
+    assert.equal(
+      saved.deletedDepartments?.includes("Accounts Department"),
+      false
+    );
+    const wiped = mergeWorkspaceSave(
+      current,
+      blob({
+        tasks: [{ ...task, department: null }],
+        deletedDepartments: ["Accounts Department"],
+      }),
+      defaultAccess("user"),
+      "user"
+    );
+    assert.equal(wiped.tasks[0]?.department, "Accounts Department");
+    assert.equal(wiped.deletedDepartments?.includes("Accounts Department"), false);
 
     const contractsTask = {
       id: "t-contracts",
@@ -442,6 +456,7 @@ describe("department rename and delete", { concurrency: false }, () => {
       { ...defaultAccess("manager"), tasks: "block" as const },
       "manager"
     );
-    assert.equal(customRename.tasks[0]?.department, "QA Department");
+    assert.equal(customRename.tasks[0]?.department, "Quality Department");
+    assert.deepEqual(customRename.customDepartments, ["Quality Department"]);
   });
 });

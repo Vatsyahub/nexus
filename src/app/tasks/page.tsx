@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { defaultAccess } from "@/lib/access";
 import type { ClearanceRole } from "@/lib/clearance";
 import TasksClient, { type AssignablePerson } from "./tasks-client";
 
@@ -27,6 +28,8 @@ export default async function TasksPage() {
   }));
 
   const role = (session.user.clearance ?? "user") as ClearanceRole;
+  const access = session.user.access ?? defaultAccess(role);
+  const canEditTasks = access.tasks === "edit";
   const currentUserName = session.user.name?.trim() || "";
   const me = await prisma.user.findUnique({
     where: { id: session.user.id },
@@ -40,6 +43,7 @@ export default async function TasksPage() {
       currentUserName={currentUserName}
       currentUserDepartment={me?.department ?? null}
       canDeleteTasks={role === "master" && session.user.impersonating !== true}
+      canEditTasks={canEditTasks}
     />
   );
 }

@@ -1,4 +1,4 @@
-import type { Task } from "@/lib/types";
+import { TASK_CATALOG, type Task } from "@/lib/types";
 import {
   canConfirmTaskVerification,
   clearanceKey,
@@ -25,6 +25,13 @@ export const TASK_SAVE_DENIED = "You cannot save changes to this task.";
 export const TASK_DEPARTMENT_LOCKED =
   "Department cannot be changed once it is saved.";
 
+export const TASK_DEPARTMENT_SET_DENIED = "You cannot set this department.";
+
+export const TASK_DEPARTMENT_CLEAR_DENIED = "You cannot clear this department.";
+
+export const TASK_DEPARTMENT_SWITCH_DENIED =
+  "Clear this department before choosing another.";
+
 export const TASK_PEOPLE_DENIED = "Choose people from this department only.";
 
 export const TASK_DEPARTMENT_BEFORE_PEOPLE =
@@ -43,13 +50,156 @@ export function departmentIsSet(
   return (department || "").trim().length > 0;
 }
 
-/** A saved department stays. An empty one can be chosen once. */
-export function departmentChangeAllowed(
-  current: string | null | undefined,
-  next: string | null | undefined
+function cleanDepartment(value: string | null | undefined): string | null {
+  const text = (value || "").trim();
+  return text || null;
+}
+
+function isSubtask(parentId: string | null | undefined): boolean {
+  return (parentId || "").trim().length > 0;
+}
+
+function managesDepartment(
+  actor: TaskActor,
+  department: string | null | undefined
 ): boolean {
-  if (!departmentIsSet(current)) return true;
-  return sameDepartment(current, next);
+  return (
+    clearanceKey(actor.clearance) === "manager" &&
+    sameDepartment(actor.department, department)
+  );
+}
+
+/** Master, Director, or any login with manager clearance. */
+export function canSetEmptyParentDepartment(actor: TaskActor): boolean {
+  const role = clearanceKey(actor.clearance);
+  return role === "master" || role === "director" || role === "manager";
+}
+
+/**
+ * Master, someone named on the subtask, or a manager — and a manager only
+ * receives the department they manage.
+ */
+export function departmentsASubtaskMayTake(
+  actor: TaskActor,
+  assignees: string[] | null | undefined,
+  departments: string[]
+): string[] {
+  if (clearanceKey(actor.clearance) === "master") return departments;
+  if (namedOnTask(actor, { assignees })) return departments;
+  if (clearanceKey(actor.clearance) !== "manager") return [];
+  return departments.filter((name) => sameDepartment(actor.department, name));
+}
+
+function canClearSubtaskDepartment(
+  actor: TaskActor,
+  task: { department?: string | null; assignees?: string[] | null }
+): boolean {
+  if (clearanceKey(actor.clearance) === "master") return true;
+  if (managesDepartment(actor, task.department)) return true;
+  return namedOnTask(actor, task);
+}
+
+export type TaskDepartmentDecision =
+  | { ok: true; department: string | null }
+  | { ok: false; error: string };
+
+/**
+ * Parent (no parent id): an empty department can be set by Master, Director,
+ * or a manager. After it is saved, every login is locked, including Master.
+ * Subtask: empty can be set by Master, a manager of the department being
+ * chosen, or someone named on that subtask. Director is not enough unless
+ * they are that manager or named there. A set department can be cleared by
+ * Master, that department’s manager, or someone named on the subtask.
+ * It cannot move from one department to another in the same save.
+ * Assignees are this task’s own names, not a parent’s.
+ */
+export function resolveTaskDepartment(input: {
+  parentId?: string | null;
+  currentDepartment: string | null | undefined;
+  nextDepartment: string | null | undefined;
+  assignees?: string[] | null;
+  actor: TaskActor;
+}): TaskDepartmentDecision {
+  const current = cleanDepartment(input.currentDepartment);
+  const next = cleanDepartment(input.nextDepartment);
+  if (!current && !next) return { ok: true, department: null };
+  if (current && next && sameDepartment(current, next)) {
+    return { ok: true, department: current };
+  }
+
+  if (!isSubtask(input.parentId)) {
+    if (current) return { ok: false, error: TASK_DEPARTMENT_LOCKED };
+    if (!canSetEmptyParentDepartment(input.actor)) {
+      return { ok: false, error: TASK_DEPARTMENT_SET_DENIED };
+    }
+    return { ok: true, department: next };
+  }
+
+  if (current && next) {
+    return { ok: false, error: TASK_DEPARTMENT_SWITCH_DENIED };
+  }
+  if (current && !next) {
+    if (
+      !canClearSubtaskDepartment(input.actor, {
+        department: current,
+        assignees: input.assignees,
+      })
+    ) {
+      return { ok: false, error: TASK_DEPARTMENT_CLEAR_DENIED };
+    }
+    return { ok: true, department: null };
+  }
+  if (clearanceKey(input.actor.clearance) === "master") {
+    return { ok: true, department: next };
+  }
+  if (managesDepartment(input.actor, next)) {
+    return { ok: true, department: next };
+  }
+  if (namedOnTask(input.actor, { assignees: input.assignees })) {
+    return { ok: true, department: next };
+  }
+  return { ok: false, error: TASK_DEPARTMENT_SET_DENIED };
+}
+
+export type TaskDepartmentControl =
+  | { kind: "fixed"; department: string | null }
+  | { kind: "choose"; options: string[] }
+  | { kind: "clear"; department: string };
+
+/** What the task screen may offer. View-only is fixed. */
+export function taskDepartmentControl(
+  actor: TaskActor,
+  task: {
+    parentId?: string | null;
+    department?: string | null;
+    assignees?: string[] | null;
+  },
+  departments: string[],
+  canEdit = true
+): TaskDepartmentControl {
+  const current = cleanDepartment(task.department);
+  if (!canEdit) return { kind: "fixed", department: current };
+  if (!isSubtask(task.parentId)) {
+    if (current) return { kind: "fixed", department: current };
+    if (!canSetEmptyParentDepartment(actor)) {
+      return { kind: "fixed", department: null };
+    }
+    return { kind: "choose", options: departments };
+  }
+  if (current) {
+    if (
+      canClearSubtaskDepartment(actor, {
+        department: current,
+        assignees: task.assignees,
+      })
+    ) {
+      return { kind: "clear", department: current };
+    }
+    return { kind: "fixed", department: current };
+  }
+  const options = departmentsASubtaskMayTake(actor, task.assignees, departments);
+  if (options.length === 0) return { kind: "fixed", department: null };
+  return { kind: "choose", options };
 }
 
 export function namedOnTask(
@@ -88,7 +238,7 @@ export function peopleNamedInDepartment<T extends TaskDirectoryPerson>(
  * A task with a department can also be updated by that department’s manager
  * and by a person named on that same task. The parent’s department is not used.
  * While the department is empty, anyone who can open the task can still edit
- * it, including setting the department once.
+ * other fields. Setting the department follows resolveTaskDepartment.
  */
 export function canUpdateTask(
   actor: TaskActor,
@@ -225,14 +375,32 @@ function restoreEditableFields(prev: Task, next: Task): Task {
   };
 }
 
-function savedDepartment(prev: Task, next: Task): string | null {
-  if (departmentIsSet(prev.department)) return prev.department;
-  const chosen = (next.department || "").trim();
-  return chosen || null;
+function acceptedDepartment(prev: Task, next: Task, actor: TaskActor): string | null {
+  const decision = resolveTaskDepartment({
+    parentId: prev.parentId,
+    currentDepartment: prev.department,
+    nextDepartment: next.department,
+    assignees: prev.assignees,
+    actor,
+  });
+  if (!decision.ok) {
+    return departmentIsSet(prev.department) ? prev.department : null;
+  }
+  return decision.department;
 }
 
-function withAllowedEdits(prev: Task, next: Task, people: TaskDirectoryPerson[]): Task {
-  const department = savedDepartment(prev, next);
+function isAppSystemTask(task: Pick<Task, "source" | "catalogKey" | "parentId">): boolean {
+  if (task.source !== "system" || isSubtask(task.parentId)) return false;
+  return TASK_CATALOG.some((item) => item.system && item.key === task.catalogKey);
+}
+
+function withAllowedEdits(
+  prev: Task,
+  next: Task,
+  actor: TaskActor,
+  people: TaskDirectoryPerson[]
+): Task {
+  const department = acceptedDepartment(prev, next, actor);
   const assignees = coerceTaskAssignees({
     currentDepartment: prev.department,
     nextDepartment: department,
@@ -243,8 +411,24 @@ function withAllowedEdits(prev: Task, next: Task, people: TaskDirectoryPerson[])
   return { ...next, department, assignees };
 }
 
-function sanitizeNewTask(next: Task, people: TaskDirectoryPerson[]): Task {
-  const department = (next.department || "").trim() || null;
+function sanitizeNewTask(
+  next: Task,
+  actor: TaskActor,
+  people: TaskDirectoryPerson[]
+): Task {
+  let department: string | null;
+  if (isAppSystemTask(next)) {
+    department = cleanDepartment(next.department);
+  } else {
+    const decision = resolveTaskDepartment({
+      parentId: next.parentId,
+      currentDepartment: null,
+      nextDepartment: next.department,
+      assignees: [],
+      actor,
+    });
+    department = decision.ok ? decision.department : null;
+  }
   const assignees = coerceTaskAssignees({
     currentDepartment: null,
     nextDepartment: department,
@@ -272,7 +456,9 @@ function acceptVerificationConfirm(prev: Task, next: Task): Task {
 
 /**
  * Keep task edits the signed-in person is allowed to store.
- * Each row uses its own department. A saved department is not replaced.
+ * Each row uses its own department and its own assignees.
+ * A parent department, once saved, is not replaced. A subtask department
+ * follows resolveTaskDepartment, so a crafted save cannot switch it.
  * Due-notice markers can still move on a row the person cannot edit.
  */
 export function applyTaskEditPolicy(
@@ -284,7 +470,7 @@ export function applyTaskEditPolicy(
   const currentById = new Map(current.map((task) => [task.id, task]));
   return incoming.map((next) => {
     const prev = currentById.get(next.id);
-    if (!prev) return sanitizeNewTask(next, people);
+    if (!prev) return sanitizeNewTask(next, actor, people);
     if (!canUpdateTask(actor, prev)) {
       if (
         next.status === "completed" &&
@@ -294,6 +480,6 @@ export function applyTaskEditPolicy(
       }
       return restoreEditableFields(prev, next);
     }
-    return withAllowedEdits(prev, next, people);
+    return withAllowedEdits(prev, next, actor, people);
   });
 }

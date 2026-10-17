@@ -72,9 +72,12 @@ import {
   departmentIsSet,
   namedOnTask,
   peopleNamedInDepartment,
+  taskDepartmentControl,
   TASK_READ_ONLY,
   TASK_SAVE_DENIED,
+  type TaskDepartmentControl,
 } from "@/lib/task-permissions";
+import { assembleSubtaskView, type SubtaskListView } from "@/lib/task-list";
 import { HubDataScroll, HubPage } from "@/components/hub-scroll";
 import { cn } from "@/lib/utils";
 
@@ -123,8 +126,67 @@ function canNamePeople(
   return canUpdateTask(actor, task) && (roleCanAssign || namedOnTask(actor, task));
 }
 
-function isUnassigned(t: Task) {
-  return !t.department && t.assignees.length === 0;
+function chosenDepartment(
+  control: TaskDepartmentControl,
+  value: string
+): string | null {
+  if (control.kind === "fixed") return control.department;
+  if (control.kind === "clear") {
+    return value === "none" ? null : control.department;
+  }
+  if (value === "none" || !control.options.includes(value)) return null;
+  return value;
+}
+
+function DepartmentField({
+  control,
+  value,
+  onChange,
+  emptyLabel,
+}: {
+  control: TaskDepartmentControl;
+  value: string;
+  onChange: (next: string) => void;
+  emptyLabel: string;
+}) {
+  if (control.kind === "fixed") {
+    return (
+      <p
+        data-department-locked="true"
+        className="flex h-9 items-center text-sm text-[var(--fh-ink)]"
+      >
+        {control.department ? departmentDisplayName(control.department) : "—"}
+      </p>
+    );
+  }
+  if (control.kind === "clear") {
+    return (
+      <select
+        className="flex h-9 w-full rounded-lg border border-input bg-white px-2 text-sm"
+        value={value === "none" ? "none" : control.department}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value={control.department}>
+          {departmentDisplayName(control.department)}
+        </option>
+        <option value="none">No department</option>
+      </select>
+    );
+  }
+  return (
+    <select
+      className="flex h-9 w-full rounded-lg border border-input bg-white px-2 text-sm"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      <option value="none">{emptyLabel}</option>
+      {control.options.map((d) => (
+        <option key={d} value={d}>
+          {departmentDisplayName(d)}
+        </option>
+      ))}
+    </select>
+  );
 }
 
 function isAssignedTo(t: Task, userName: string) {
@@ -134,10 +196,6 @@ function isAssignedTo(t: Task, userName: string) {
 
 function isOverdue(t: Task, today: string) {
   return taskIsOpen(t) && !!t.dueDate && t.dueDate < today;
-}
-
-function needsDeadline(t: Task) {
-  return taskIsOpen(t) && !t.dueDate;
 }
 
 function priorityRank(p: TaskPriority) {
@@ -210,12 +268,14 @@ export default function TasksClient({
   currentUserName,
   currentUserDepartment,
   canDeleteTasks,
+  canEditTasks,
 }: {
   people: AssignablePerson[];
   role: ClearanceRole;
   currentUserName: string;
   currentUserDepartment: string | null;
   canDeleteTasks: boolean;
+  canEditTasks: boolean;
 }) {
   return (
     <Suspense
@@ -229,6 +289,7 @@ export default function TasksClient({
         currentUserName={currentUserName}
         currentUserDepartment={currentUserDepartment}
         canDeleteTasks={canDeleteTasks}
+        canEditTasks={canEditTasks}
       />
     </Suspense>
   );
@@ -240,12 +301,14 @@ function TasksPageInner({
   currentUserName,
   currentUserDepartment,
   canDeleteTasks,
+  canEditTasks,
 }: {
   people: AssignablePerson[];
   role: ClearanceRole;
   currentUserName: string;
   currentUserDepartment: string | null;
   canDeleteTasks: boolean;
+  canEditTasks: boolean;
 }) {
   const data = useFlowhubData();
   const search = useSearchParams();
@@ -364,37 +427,90 @@ function TasksPageInner({
     };
   }, [currentUserName, scoped]);
 
+  const matchesHubRow = useMemo(() => {
+    const needle = q.trim();
+    return (t: Task) => {
+      if (!taskVisibleInLists(t)) return false;
+      if (contractId && t.contractId !== contractId) return false;
+      if (priorityFilter !== "all" && t.priority !== priorityFilter) return false;
+      if (!needle) return true;
+      const c = t.contractId ? contractById.get(t.contractId) ?? null : null;
+      if (taskMatchesQuery(t, c, q)) return true;
+      if (!t.parentId) return false;
+      const parent = data.tasks.find((p) => p.id === t.parentId);
+      if (!parent) return false;
+      const pc = parent.contractId
+        ? contractById.get(parent.contractId) ?? null
+        : null;
+      return taskMatchesQuery(parent, pc, q);
+    };
+  }, [q, contractId, priorityFilter, contractById, data.tasks]);
+
+  const subtaskViews = useMemo(() => {
+    const ids = [
+      "unassigned",
+      "open",
+      "overdue",
+      "no_deadline",
+      "completed",
+    ] as const;
+    const compare = (a: Task, b: Task) => sortTasks(a, b, today);
+    const tasks = data.tasks.filter(
+      (t) => !t.deletedAt && (!contractId || t.contractId === contractId)
+    );
+    return Object.fromEntries(
+      ids.map((id) => [
+        id,
+        assembleSubtaskView({
+          tasks,
+          view: id,
+          today,
+          matchesRow: matchesHubRow,
+          compare,
+        }),
+      ])
+    ) as Record<SubtaskListView, ReturnType<typeof assembleSubtaskView>>;
+  }, [data.tasks, today, contractId, matchesHubRow]);
+
   const counts = useMemo(() => {
-    const open = roots.filter(taskIsOpen);
     return {
       my: roots.filter(isMyTask).length,
       all: roots.length,
-      unassigned: open.filter(isUnassigned).length,
-      open: open.length,
-      overdue: open.filter((t) => isOverdue(t, today)).length,
-      no_deadline: open.filter(needsDeadline).length,
-      completed: roots.filter(
-        (t) => t.status === "completed" || t.status === "not_required"
-      ).length,
+      unassigned: subtaskViews.unassigned.counted.length,
+      open: subtaskViews.open.counted.length,
+      overdue: subtaskViews.overdue.counted.length,
+      no_deadline: subtaskViews.no_deadline.counted.length,
+      completed: subtaskViews.completed.counted.length,
     };
-  }, [roots, today, isMyTask]);
+  }, [roots, isMyTask, subtaskViews]);
 
   const visibleRoots = useMemo(() => {
     return roots
       .filter((t) => {
         if (view === "my") return isMyTask(t);
-        if (view === "all") return true;
-        if (view === "unassigned") return taskIsOpen(t) && isUnassigned(t);
-        if (view === "open") return taskIsOpen(t);
-        if (view === "overdue") return isOverdue(t, today);
-        if (view === "no_deadline") return needsDeadline(t);
-        if (view === "completed")
-          return t.status === "completed" || t.status === "not_required";
         return true;
       })
       .slice()
       .sort((a, b) => sortTasks(a, b, today));
   }, [roots, view, today, isMyTask]);
+
+  const activeSubtaskView: SubtaskListView | null =
+    view === "unassigned" ||
+    view === "open" ||
+    view === "overdue" ||
+    view === "no_deadline" ||
+    view === "completed"
+      ? view
+      : null;
+  const visibleRows = activeSubtaskView
+    ? subtaskViews[activeSubtaskView].rows
+    : visibleRoots.map((parent) => ({
+        parent,
+        subtasks: childrenOf(parent.id),
+      }));
+  const exportTasks = activeSubtaskView
+    ? subtaskViews[activeSubtaskView].counted
+    : visibleRoots;
 
   const deadlineLog = useMemo(() => {
     const tokens = parseSearchTokens(q);
@@ -583,16 +699,15 @@ function TasksPageInner({
           <span className="sr-only">Expand</span>
         </div>
 
-        {visibleRoots.length === 0 ? (
+        {visibleRows.length === 0 ? (
           <div className="border border-dashed border-[var(--fh-line)] bg-white px-4 py-12 text-center text-sm text-[var(--fh-muted)]">
             No tasks in this view.
           </div>
         ) : (
-          visibleRoots.map((t) => {
+          visibleRows.map(({ parent: t, subtasks: kids }) => {
             const contract = t.contractId
               ? contractById.get(t.contractId)
               : null;
-            const kids = childrenOf(t.id);
             const overdue = isOverdue(t, today);
             const expanded = expandedId === t.id;
             return (
@@ -609,11 +724,13 @@ function TasksPageInner({
                     : null
                 }
                 subtasks={kids}
+                showMatchingSubtasks={activeSubtaskView != null}
                 overdue={overdue}
                 people={people}
                 departments={departments}
                 canAssignPeople={assignPeople}
                 canDeleteTasks={canDeleteTasks}
+                canEditTasks={canEditTasks}
                 actor={actor}
                 expanded={expanded}
                 dimmed={expandedId != null && !expanded}
@@ -656,14 +773,23 @@ function TasksPageInner({
           "Updated",
           "Status",
         ]}
-        rows={visibleRoots.map((t) => {
+        rows={exportTasks.map((t) => {
           const contract = t.contractId ? contractById.get(t.contractId) : null;
-          const kids = childrenOf(t.id);
+          const parent = t.parentId
+            ? data.tasks.find((row) => row.id === t.parentId)
+            : null;
+          const kids = t.parentId
+            ? []
+            : activeSubtaskView
+              ? (subtaskViews[activeSubtaskView].rows.find(
+                  (row) => row.parent.id === t.id
+                )?.subtasks ?? [])
+              : childrenOf(t.id);
           const done = kids.filter((k) => !taskIsOpen(k)).length;
           return [
             contract?.projectName ?? "",
             contract?.projectNo ?? "",
-            t.title,
+            parent ? `${parent.title} — ${t.title}` : t.title,
             t.dueDate ? formatDisplayDate(t.dueDate) : "No deadline",
             isOverdue(t, today) ? "Yes" : "",
             t.department ? departmentDisplayName(t.department) : "",
@@ -800,6 +926,8 @@ function TaskBlock({
   departments,
   canAssignPeople,
   canDeleteTasks,
+  canEditTasks,
+  showMatchingSubtasks = false,
   actor,
   expanded,
   dimmed,
@@ -815,6 +943,8 @@ function TaskBlock({
   departments: string[];
   canAssignPeople: boolean;
   canDeleteTasks: boolean;
+  canEditTasks: boolean;
+  showMatchingSubtasks?: boolean;
   actor: TaskActor;
   expanded: boolean;
   dimmed: boolean;
@@ -892,6 +1022,16 @@ function TaskBlock({
           <p className={cn("font-medium", !expanded && "text-[var(--fh-steel)]")}>
             {task.title}
           </p>
+          {showMatchingSubtasks && subtasks.length > 0 && (
+            <p
+              className={cn(
+                "truncate text-xs",
+                expanded ? "text-white/75" : "text-[var(--fh-muted)]"
+              )}
+            >
+              {subtasks.map((s) => s.title).join(", ")}
+            </p>
+          )}
           {task.catalogKey && task.catalogKey !== "custom" && (
             <span
               className={cn(
@@ -1019,6 +1159,7 @@ function TaskBlock({
             departments={departments}
             canAssignPeople={canAssignPeople}
             canDeleteTasks={canDeleteTasks}
+            canEditTasks={canEditTasks}
             actor={actor}
             expandedSubId={expandedSubId}
             setExpandedSubId={setExpandedSubId}
@@ -1112,6 +1253,7 @@ function TaskEditor({
   departments,
   canAssignPeople,
   canDeleteTasks,
+  canEditTasks,
   actor,
   expandedSubId,
   setExpandedSubId,
@@ -1123,6 +1265,7 @@ function TaskEditor({
   departments: string[];
   canAssignPeople: boolean;
   canDeleteTasks: boolean;
+  canEditTasks: boolean;
   actor: TaskActor;
   expandedSubId: string | null;
   setExpandedSubId: (id: string | null) => void;
@@ -1156,7 +1299,21 @@ function TaskEditor({
   const [followUpMsg, setFollowUpMsg] = useState<string | null>(null);
 
   const canUpdate = canUpdateTask(actor, task);
-  const departmentLocked = departmentIsSet(task.department);
+  const departmentControl = taskDepartmentControl(
+    actor,
+    task,
+    departments,
+    canEditTasks
+  );
+  const keepingSavedDepartment =
+    departmentControl.kind === "fixed" ||
+    (departmentControl.kind === "clear" && department !== "none");
+  const newSubControl = taskDepartmentControl(
+    actor,
+    { parentId: task.id, department: null, assignees: [] },
+    departments,
+    canEditTasks
+  );
   const mayMoveDeadline = canMoveTaskDeadline(actor, task);
   const deadlineLocked = !!task.dueDate && !mayMoveDeadline;
   const canName = canNamePeople(actor, task, canAssignPeople);
@@ -1196,11 +1353,7 @@ function TaskEditor({
       setErr(TASK_SAVE_DENIED);
       return;
     }
-    const nextDepartment = departmentLocked
-      ? task.department
-      : department === "none"
-        ? null
-        : department;
+    const nextDepartment = chosenDepartment(departmentControl, department);
     const pool = peopleForDepartment(people, nextDepartment || "none");
     const nextAssignees =
       !canName || !departmentIsSet(nextDepartment)
@@ -1211,7 +1364,7 @@ function TaskEditor({
               (person) => person.name.trim().toLowerCase() === key
             );
             const alreadyNamed =
-              departmentLocked &&
+              keepingSavedDepartment &&
               task.assignees.some((item) => item.trim().toLowerCase() === key);
             return inDepartment || alreadyNamed;
           });
@@ -1598,27 +1751,12 @@ function TaskEditor({
         <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 lg:grid-cols-12">
           <div className="min-w-0 space-y-1 lg:col-span-3">
             <Label className="text-xs">Department</Label>
-            {departmentLocked ? (
-              <p
-                data-department-locked="true"
-                className="flex h-9 items-center text-sm text-[var(--fh-ink)]"
-              >
-                {departmentDisplayName(task.department)}
-              </p>
-            ) : (
-              <select
-                className="flex h-9 w-full rounded-lg border border-input bg-white px-2 text-sm"
-                value={department}
-                onChange={(e) => onDepartmentChange(e.target.value)}
-              >
-                <option value="none">Select…</option>
-                {departments.map((d) => (
-                  <option key={d} value={d}>
-                    {departmentDisplayName(d)}
-                  </option>
-                ))}
-              </select>
-            )}
+            <DepartmentField
+              control={departmentControl}
+              value={department}
+              onChange={onDepartmentChange}
+              emptyLabel="Select…"
+            />
           </div>
           <div className="min-w-0 space-y-1 lg:col-span-3">
             <Label className="text-xs">Deadline</Label>
@@ -1909,6 +2047,7 @@ function TaskEditor({
                       people={people}
                       departments={departments}
                       canAssignPeople={canAssignPeople}
+                      canEditTasks={canEditTasks}
                       actor={actor}
                       onDone={() => setExpandedSubId(null)}
                     />
@@ -1929,21 +2068,17 @@ function TaskEditor({
               placeholder="Checklist item"
             />
           </div>
+          {newSubControl.kind === "choose" && (
           <div className="space-y-1">
             <Label className="text-xs">Department</Label>
-            <select
-              className="flex h-9 rounded-lg border border-input bg-white px-2 text-sm"
+            <DepartmentField
+              control={newSubControl}
               value={subDept}
-              onChange={(e) => setSubDept(e.target.value)}
-            >
-              <option value="none">Later…</option>
-              {departments.map((d) => (
-                <option key={d} value={d}>
-                  {departmentDisplayName(d)}
-                </option>
-              ))}
-            </select>
+              onChange={setSubDept}
+              emptyLabel="Later…"
+            />
           </div>
+          )}
           <div className="space-y-1">
             <Label className="text-xs">Deadline</Label>
             <Input
@@ -1964,7 +2099,7 @@ function TaskEditor({
                 task.id,
                 {
                   title: subTitle,
-                  department: subDept === "none" ? null : subDept,
+                  department: chosenDepartment(newSubControl, subDept),
                   dueDate: subDue || null,
                 },
                 { actor }
@@ -1993,6 +2128,7 @@ function SubtaskEditor({
   people,
   departments,
   canAssignPeople,
+  canEditTasks,
   actor,
   onDone,
 }: {
@@ -2000,6 +2136,7 @@ function SubtaskEditor({
   people: AssignablePerson[];
   departments: string[];
   canAssignPeople: boolean;
+  canEditTasks: boolean;
   actor: TaskActor;
   onDone: () => void;
 }) {
@@ -2013,13 +2150,23 @@ function SubtaskEditor({
   const [err, setErr] = useState<string | null>(null);
 
   const canUpdate = canUpdateTask(actor, task);
-  const departmentLocked = departmentIsSet(task.department);
+  const departmentControl = taskDepartmentControl(
+    actor,
+    task,
+    departments,
+    canEditTasks
+  );
+  const keepingSavedDepartment =
+    departmentControl.kind === "fixed" ||
+    (departmentControl.kind === "clear" && department !== "none");
   const mayMoveDeadline = canMoveTaskDeadline(actor, task);
   const deadlineLocked = !!task.dueDate && !mayMoveDeadline;
   const canName = canNamePeople(actor, task, canAssignPeople);
   const selectable = peopleForDepartment(
     people,
-    departmentLocked ? task.department || "none" : department
+    departmentControl.kind === "fixed"
+      ? departmentControl.department || "none"
+      : department
   );
 
   if (!canUpdate) {
@@ -2055,30 +2202,15 @@ function SubtaskEditor({
       data-task-access="edit"
     >
       <div className="grid gap-1.5 sm:grid-cols-3">
-        {departmentLocked ? (
-          <p
-            data-department-locked="true"
-            className="flex h-9 items-center text-sm text-[var(--fh-ink)]"
-          >
-            {departmentDisplayName(task.department)}
-          </p>
-        ) : (
-          <select
-            className="flex h-9 rounded-lg border border-input bg-white px-2 text-sm"
-            value={department}
-            onChange={(e) => {
-              setDepartment(e.target.value);
-              setAssignees([]);
-            }}
-          >
-            <option value="none">Department…</option>
-            {departments.map((d) => (
-              <option key={d} value={d}>
-                {departmentDisplayName(d)}
-              </option>
-            ))}
-          </select>
-        )}
+        <DepartmentField
+          control={departmentControl}
+          value={department}
+          onChange={(next) => {
+            setDepartment(next);
+            setAssignees([]);
+          }}
+          emptyLabel="Department…"
+        />
         {deadlineLocked ? (
           <p className="flex h-9 items-center text-sm text-[var(--fh-ink)]">
             {formatDisplayDate(task.dueDate)}
@@ -2120,7 +2252,7 @@ function SubtaskEditor({
           onChange={(e) => setReason(e.target.value)}
         />
       )}
-      {canName && (departmentLocked || department !== "none") && (
+      {canName && (keepingSavedDepartment || department !== "none") && (
         <div className="flex flex-wrap gap-2">
           {selectable.map((p) => (
             <label key={p.id} className="flex items-center gap-1 text-xs">
@@ -2160,11 +2292,7 @@ function SubtaskEditor({
               setErr("Reason is required for not required.");
               return;
             }
-            const nextDepartment = departmentLocked
-              ? task.department
-              : department === "none"
-                ? null
-                : department;
+            const nextDepartment = chosenDepartment(departmentControl, department);
             const pool = peopleForDepartment(people, nextDepartment || "none");
             const nextAssignees =
               !canName || !departmentIsSet(nextDepartment)
@@ -2175,7 +2303,7 @@ function SubtaskEditor({
                       (person) => person.name.trim().toLowerCase() === key
                     );
                     const alreadyNamed =
-                      departmentLocked &&
+                      keepingSavedDepartment &&
                       task.assignees.some(
                         (item) => item.trim().toLowerCase() === key
                       );

@@ -274,8 +274,9 @@ export type Task = {
   /** Required for new tasks; legacy rows may still be null until edited. */
   contractId: string | null;
   /**
-   * Chosen once. After it is saved, nobody can change it.
-   * Empty means whoever can edit the task can still set it.
+   * Parent: set once by Master, Director, or a manager, then locked for
+   * every login. Subtask: its own department, set and cleared under the
+   * subtask rules, never switched to another department in one save.
    */
   department: string | null;
   /** Equal owners from the department; empty = department-only / unassigned people. */

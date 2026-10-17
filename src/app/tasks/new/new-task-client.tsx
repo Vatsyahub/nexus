@@ -12,7 +12,7 @@ import {
   type TaskPriority,
 } from "@/lib/types";
 import type { ClearanceRole } from "@/lib/clearance";
-import { peopleNamedInDepartment } from "@/lib/task-permissions";
+import { peopleNamedInDepartment, taskDepartmentControl } from "@/lib/task-permissions";
 import type { AssignablePerson } from "../tasks-client";
 import { ContractTypeahead } from "@/components/contract-typeahead";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
@@ -39,15 +39,23 @@ export function NewTaskClient({
   people,
   role,
   defaultContractId,
+  canEditTasks,
 }: {
   people: AssignablePerson[];
   role: ClearanceRole;
   defaultContractId: string;
+  canEditTasks: boolean;
 }) {
   const data = useFlowhubData();
   const router = useRouter();
   const departments = useMemo(() => listDepartments(data), [data]);
   const assignPeople = canAssignPeople(role);
+  const departmentControl = taskDepartmentControl(
+    { name: "", clearance: role, department: null },
+    { parentId: null, department: null, assignees: [] },
+    departments,
+    canEditTasks
+  );
   const contracts = useMemo(
     () =>
       [...data.contracts].sort((a, b) =>
@@ -108,10 +116,16 @@ export function NewTaskClient({
       setError("Enter a task title.");
       return;
     }
+    const chosen =
+      departmentControl.kind === "choose" &&
+      department !== "none" &&
+      departmentControl.options.includes(department)
+        ? department
+        : null;
     addManualTask({
       title: finalTitle,
       contractId,
-      department: department === "none" ? null : department,
+      department: chosen,
       assignees: assignPeople
         ? assignees.filter((name) =>
             selectable.some(
@@ -124,7 +138,7 @@ export function NewTaskClient({
       priority,
       catalogKey,
       source: catalog?.system ? "system" : "manual",
-    });
+    }, { actor: { name: "", clearance: role, department: null } });
     void flushWorkspace();
     router.push(listHref);
   }
@@ -197,18 +211,24 @@ export function NewTaskClient({
           </div>
           <div className="space-y-1">
             <Label>Department</Label>
-            <select
-              className="flex h-9 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
-              value={department}
-              onChange={(e) => onDepartmentChange(e.target.value)}
-            >
-              <option value="none">Select later…</option>
-              {departments.map((d) => (
-                <option key={d} value={d}>
-                  {departmentDisplayName(d)}
-                </option>
-              ))}
-            </select>
+            {departmentControl.kind === "choose" ? (
+              <select
+                className="flex h-9 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
+                value={department}
+                onChange={(e) => onDepartmentChange(e.target.value)}
+              >
+                <option value="none">Select later…</option>
+                {departmentControl.options.map((d) => (
+                  <option key={d} value={d}>
+                    {departmentDisplayName(d)}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <p className="flex h-9 items-center text-sm text-[var(--fh-muted)]">
+                —
+              </p>
+            )}
           </div>
           <div className="space-y-1">
             <Label>Deadline</Label>

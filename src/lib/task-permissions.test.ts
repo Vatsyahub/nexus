@@ -5,9 +5,14 @@ import {
   applyTaskEditPolicy,
   canUpdateTask,
   coerceTaskAssignees,
-  departmentChangeAllowed,
   peopleNamedInDepartment,
   resolveTaskAssignees,
+  resolveTaskDepartment,
+  taskDepartmentControl,
+  TASK_DEPARTMENT_CLEAR_DENIED,
+  TASK_DEPARTMENT_LOCKED,
+  TASK_DEPARTMENT_SET_DENIED,
+  TASK_DEPARTMENT_SWITCH_DENIED,
   type TaskDirectoryPerson,
 } from "@/lib/task-permissions";
 import { completesImmediately } from "@/lib/task-notices";
@@ -116,23 +121,60 @@ test("a saved department can be updated only by master, director, its manager, o
   );
 });
 
-test("an empty department can still be edited, including by someone from another department", () => {
-  const row = task({ department: null, assignees: [] });
+test("an empty department can still be edited, and an ordinary user cannot set it", () => {
+  const row = task({ department: null, assignees: ["Site Lead"] });
+  const user = {
+    name: "Site Lead",
+    clearance: "user",
+    department: "Installation Department",
+  };
+  assert.equal(canUpdateTask(user, row), true);
+  const denied = resolveTaskDepartment({
+    parentId: null,
+    currentDepartment: null,
+    nextDepartment: "Installation Department",
+    assignees: row.assignees,
+    actor: user,
+  });
+  assert.equal(denied.ok, false);
+  if (!denied.ok) assert.equal(denied.error, TASK_DEPARTMENT_SET_DENIED);
   assert.equal(
-    canUpdateTask(
-      { name: "Site Lead", clearance: "user", department: "Installation Department" },
-      row
-    ),
-    true
+    taskDepartmentControl(user, row, ["Installation Department"], true).kind,
+    "fixed"
   );
-  assert.equal(departmentChangeAllowed(null, "Installation Department"), true);
-  assert.equal(departmentChangeAllowed("  ", "Contracts Department"), true);
+  assert.equal(
+    taskDepartmentControl(user, row, ["Installation Department"], false).kind,
+    "fixed"
+  );
 });
 
-test("a saved department cannot be changed or cleared", () => {
-  assert.equal(departmentChangeAllowed("Contracts Department", "Accounts Department"), false);
-  assert.equal(departmentChangeAllowed("Contracts Department", null), false);
-  assert.equal(departmentChangeAllowed("Contracts Department", "contracts department"), true);
+test("a saved parent department cannot be changed or cleared, including by master", () => {
+  const master = { name: "Master", clearance: "master", department: null };
+  const changed = resolveTaskDepartment({
+    parentId: null,
+    currentDepartment: "Contracts Department",
+    nextDepartment: "Accounts Department",
+    assignees: [],
+    actor: master,
+  });
+  const cleared = resolveTaskDepartment({
+    parentId: null,
+    currentDepartment: "Contracts Department",
+    nextDepartment: null,
+    assignees: [],
+    actor: master,
+  });
+  const same = resolveTaskDepartment({
+    parentId: null,
+    currentDepartment: "Contracts Department",
+    nextDepartment: "contracts department",
+    assignees: [],
+    actor: master,
+  });
+  assert.equal(changed.ok, false);
+  assert.equal(cleared.ok, false);
+  if (!changed.ok) assert.equal(changed.error, TASK_DEPARTMENT_LOCKED);
+  assert.deepEqual(same, { ok: true, department: "Contracts Department" });
 });
 
 test("a subtask uses its own department", () => {
@@ -283,18 +325,27 @@ test("a subtask edit follows the subtask department when both rows are saved tog
   );
 });
 
-test("an empty department can be set once, including by master, and then stays", () => {
-  const open = task({ department: null });
-  const [chosen] = applyTaskEditPolicy(
+test("an empty parent department can be set by a manager, director, or master, then stays", () => {
+  const open = task({ department: null, assignees: ["Site Lead"] });
+  const [blocked] = applyTaskEditPolicy(
     [open],
-    [task({ department: "Installation Department" })],
-    { name: "Site Lead", clearance: "user", department: "Quality Department" },
+    [task({ department: "Installation Department", notes: "user note" })],
+    { name: "Site Lead", clearance: "user", department: "Installation Department" },
     people
   );
-  assert.equal(chosen?.department, "Installation Department");
+  assert.equal(blocked?.department, null);
+  assert.equal(blocked?.notes, "user note");
+
+  const [byDirector] = applyTaskEditPolicy(
+    [open],
+    [task({ department: "Installation Department" })],
+    { name: "Deepa", clearance: "director", department: null },
+    people
+  );
+  assert.equal(byDirector?.department, "Installation Department");
   const [locked] = applyTaskEditPolicy(
-    [chosen!],
-    [task({ department: "Accounts Department", notes: "later" })],
+    [byDirector!],
+    [task({ department: null, notes: "later" })],
     { name: "Master", clearance: "master" },
     people
   );
@@ -380,4 +431,194 @@ test("workspace save keeps the edit rule and still lets a department rename thro
   );
   assert.equal(renamed.tasks[0]?.department, "Commercial Department");
   assert.equal(renamed.tasks[0]?.notes, "renamed with the catalog");
+});
+
+test("parent and subtask department rules survive a crafted workspace save", () => {
+  const master = { name: "Master", clearance: "master", department: null };
+  const director = { name: "Deepa", clearance: "director", department: null };
+  const contractsManager = {
+    name: "Priya Manager",
+    clearance: "manager",
+    department: "Contracts Department",
+  };
+  const installManager = {
+    name: "Isha Install",
+    clearance: "manager",
+    department: "Installation Department",
+  };
+  const named = {
+    name: "Anil User",
+    clearance: "user",
+    department: "Drawings Department",
+  };
+  const outsider = {
+    name: "Site Lead",
+    clearance: "user",
+    department: "Installation Department",
+  };
+  const departments = [
+    "Contracts Department",
+    "Installation Department",
+    "Accounts Department",
+  ];
+
+  const parent = task({ id: "parent", department: null, assignees: ["Anil User"] });
+  const [byManager] = applyTaskEditPolicy(
+    [parent],
+    [task({ id: "parent", department: "Installation Department", assignees: ["Anil User"] })],
+    contractsManager,
+    people
+  );
+  assert.equal(byManager?.department, "Installation Department");
+  assert.equal(
+    taskDepartmentControl(director, parent, departments, true).kind,
+    "choose"
+  );
+  assert.equal(
+    taskDepartmentControl(
+      { name: "Viewer", clearance: "manager", department: "Contracts Department" },
+      parent,
+      departments,
+      false
+    ).kind,
+    "fixed"
+  );
+
+  const sub = task({
+    id: "sub",
+    parentId: "parent",
+    department: null,
+    assignees: ["Anil User"],
+    title: "Install frames",
+  });
+  const [directorDenied] = applyTaskEditPolicy(
+    [sub],
+    [task({ ...sub, department: "Installation Department", notes: "no" })],
+    director,
+    people
+  );
+  assert.equal(directorDenied?.department, null);
+  assert.equal(directorDenied?.notes, "no");
+
+  const [outsiderDenied] = applyTaskEditPolicy(
+    [sub],
+    [task({ ...sub, department: "Installation Department" })],
+    outsider,
+    people
+  );
+  assert.equal(outsiderDenied?.department, null);
+
+  const [parentNameDenied] = applyTaskEditPolicy(
+    [sub],
+    [task({ ...sub, department: "Contracts Department" })],
+    { name: "New Joiner", clearance: "user", department: "Contracts Department" },
+    people
+  );
+  assert.equal(parentNameDenied?.department, null);
+
+  const [namedSet] = applyTaskEditPolicy(
+    [sub],
+    [task({ ...sub, department: "Drawings Department" })],
+    named,
+    people
+  );
+  assert.equal(namedSet?.department, "Drawings Department");
+  assert.deepEqual(namedSet?.assignees, ["Anil User"]);
+
+  const [switched] = applyTaskEditPolicy(
+    [namedSet!],
+    [task({ ...sub, department: "Installation Department", notes: "switch" })],
+    master,
+    people
+  );
+  assert.equal(switched?.department, "Drawings Department");
+  assert.equal(switched?.notes, "switch");
+  const refused = resolveTaskDepartment({
+    parentId: "parent",
+    currentDepartment: "Drawings Department",
+    nextDepartment: "Installation Department",
+    assignees: ["Anil User"],
+    actor: master,
+  });
+  assert.equal(refused.ok, false);
+  if (!refused.ok) assert.equal(refused.error, TASK_DEPARTMENT_SWITCH_DENIED);
+
+  const [removed] = applyTaskEditPolicy(
+    [namedSet!],
+    [task({ ...sub, department: null })],
+    named,
+    people
+  );
+  assert.equal(removed?.department, null);
+  const allowedClear = resolveTaskDepartment({
+    parentId: "parent",
+    currentDepartment: "Drawings Department",
+    nextDepartment: null,
+    assignees: ["Anil User"],
+    actor: named,
+  });
+  assert.deepEqual(allowedClear, { ok: true, department: null });
+
+  const [setAgain] = applyTaskEditPolicy(
+    [removed!],
+    [task({ ...sub, department: "Installation Department" })],
+    installManager,
+    people
+  );
+  assert.equal(setAgain?.department, "Installation Department");
+  const [managerElsewhere] = applyTaskEditPolicy(
+    [removed!],
+    [task({ ...sub, department: "Contracts Department" })],
+    installManager,
+    people
+  );
+  assert.equal(managerElsewhere?.department, null);
+
+  const directorNamed = task({
+    ...sub,
+    id: "sub-director",
+    assignees: ["Deepa"],
+    department: "Installation Department",
+  });
+  const [directorClear] = applyTaskEditPolicy(
+    [directorNamed],
+    [task({ ...directorNamed, department: null })],
+    director,
+    people
+  );
+  assert.equal(directorClear?.department, null);
+  const strangerClear = resolveTaskDepartment({
+    parentId: "parent",
+    currentDepartment: "Installation Department",
+    nextDepartment: null,
+    assignees: ["Anil User"],
+    actor: outsider,
+  });
+  assert.equal(strangerClear.ok, false);
+  if (!strangerClear.ok) assert.equal(strangerClear.error, TASK_DEPARTMENT_CLEAR_DENIED);
+
+  const viewOnly = mergeWorkspaceSave(
+    file({ tasks: [parent] }),
+    file({ tasks: [task({ id: "parent", department: "Contracts Department" })] }),
+    { ...defaultAccess("manager"), tasks: "view" },
+    "manager",
+    { actor: contractsManager, people }
+  );
+  assert.equal(viewOnly.tasks[0]?.department, null);
+
+  const system = task({
+    id: "gad",
+    source: "system",
+    catalogKey: "gad",
+    department: "Drawings Department",
+    parentId: null,
+  });
+  const manual = task({
+    id: "manual",
+    department: "Drawings Department",
+    parentId: null,
+  });
+  const created = applyTaskEditPolicy([], [system, manual], outsider, people);
+  assert.equal(created.find((row) => row.id === "gad")?.department, "Drawings Department");
+  assert.equal(created.find((row) => row.id === "manual")?.department, null);
 });

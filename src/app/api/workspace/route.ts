@@ -22,6 +22,8 @@ import {
 import type { TaskEditContext } from "@/lib/task-permissions";
 import { isWorkspaceChangeRequest } from "@/lib/workspace-changes";
 import type { ClearanceRole } from "@/lib/clearance";
+import { writeWorkspaceIfRevision } from "@/lib/workspace-commit";
+import { revisionWriteLanded } from "@/lib/workspace-revision";
 
 const STORE_ID = "default";
 
@@ -108,7 +110,7 @@ export async function GET() {
 
   const members = await audienceMembers();
   const stored = (row?.data ?? null) as FlowhubData | null;
-  const data = asFlowhubData(stored ?? empty, members);
+  let data = asFlowhubData(stored ?? empty, members);
   const rawNotificationCount = Array.isArray(stored?.notifications)
     ? stored.notifications.length
     : 0;
@@ -116,15 +118,21 @@ export async function GET() {
     ? stored.scheduleChangeLog.length
     : 0;
   // Persist purge so spent notifications and 14-day change-log rows leave the DB.
+  // Only when the hub is still the revision this read just saw.
   if (
     row &&
     (data.notifications.length < rawNotificationCount ||
       data.scheduleChangeLog.length < rawLogCount)
   ) {
-    await prisma.workspaceStore.update({
-      where: { id: STORE_ID },
-      data: { data },
-    });
+    const readRevision = data.workspaceRevision ?? 0;
+    const wrote = await writeWorkspaceIfRevision(data, readRevision);
+    if (!revisionWriteLanded(wrote)) {
+      const again = await prisma.workspaceStore.findUnique({
+        where: { id: STORE_ID },
+      });
+      const fresh = (again?.data ?? null) as FlowhubData | null;
+      data = asFlowhubData(fresh ?? empty, members);
+    }
   }
 
   const access = session.user.access ?? defaultAccess(session.user.clearance);
@@ -211,11 +219,28 @@ export async function PUT(req: Request) {
       }
     : decision.data;
 
-  await prisma.workspaceStore.upsert({
-    where: { id: STORE_ID },
-    create: { id: STORE_ID, data: saved },
-    update: { data: saved },
-  });
+  const startedFrom = current.workspaceRevision ?? 0;
+  const wrote = await writeWorkspaceIfRevision(saved, startedFrom);
+  if (!revisionWriteLanded(wrote)) {
+    const again = await prisma.workspaceStore.findUnique({
+      where: { id: STORE_ID },
+    });
+    const fresh = asFlowhubData(
+      ((again?.data ?? null) as FlowhubData | null) ?? empty,
+      members
+    );
+    return NextResponse.json(
+      {
+        ok: false,
+        skipped: "refuse-stale-revision",
+        error: STALE_WORKSPACE_SAVE_MESSAGE,
+        currentRevision: fresh.workspaceRevision ?? 0,
+        incomingRevision: startedFrom,
+        data: workspaceForAccount(fresh, access, clearance),
+      },
+      { status: 409 }
+    );
+  }
 
   const visible = workspaceForAccount(saved, access, clearance);
   return NextResponse.json({
