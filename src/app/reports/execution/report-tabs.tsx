@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { Trash2 } from "lucide-react";
 import type { FlowhubData } from "@/lib/types";
 import { SCHEDULE_KIND_LABELS } from "@/lib/types";
@@ -24,7 +24,11 @@ import {
 } from "@/lib/execution-reports";
 import { matchesAny } from "@/lib/list-search";
 import { confirmAction } from "@/components/confirm-panel";
-import { deleteDeliveryChallan, flushWorkspace } from "@/lib/store";
+import { EditIconButton } from "@/components/icon-actions";
+import { confirmWorkspaceSave } from "@/lib/save-notice";
+import { deleteDeliveryChallan, flushWorkspace, renameItem } from "@/lib/store";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ListSearchWithDateRange } from "@/components/list-date-range";
 import { ListSearchBar } from "@/components/list-search";
 import { ProjectIdentity } from "@/components/project-identity";
@@ -365,8 +369,18 @@ export function SummaryTab({ data }: { data: FlowhubData }) {
   );
 }
 
-export function ItemListTab({ data }: { data: FlowhubData }) {
+export function ItemListTab({
+  data,
+  canRename = false,
+}: {
+  data: FlowhubData;
+  canRename?: boolean;
+}) {
   const [q, setQ] = useState("");
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [savingRename, setSavingRename] = useState(false);
   const cities = useMemo(() => itemListCities(data), [data]);
   const headers = useMemo(() => itemListHeaders(cities), [cities]);
   const all = useMemo(() => buildItemListRows(data), [data]);
@@ -392,6 +406,42 @@ export function ItemListTab({ data }: { data: FlowhubData }) {
   }, [all, cities, q]);
   const colCount = headers.length;
 
+  function startRename(key: string, itemName: string) {
+    setEditingKey(key);
+    setDraft(itemName);
+    setRenameError(null);
+  }
+
+  function cancelRename() {
+    setEditingKey(null);
+    setDraft("");
+    setRenameError(null);
+  }
+
+  async function saveRename(event: FormEvent, itemName: string) {
+    event.preventDefault();
+    const next = draft.trim();
+    if (!next) {
+      setRenameError("Enter a new item name.");
+      return;
+    }
+    if (next === itemName) {
+      cancelRename();
+      return;
+    }
+    setSavingRename(true);
+    const result = renameItem(itemName, next);
+    if (!result.ok) {
+      setSavingRename(false);
+      setRenameError(result.error);
+      return;
+    }
+    const saved = await confirmWorkspaceSave();
+    setSavingRename(false);
+    if (!saved) return;
+    cancelRename();
+  }
+
   return (
     <div className="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden">
       <ListSearchBar
@@ -403,7 +453,11 @@ export function ItemListTab({ data }: { data: FlowhubData }) {
       <ReportsTableScroll className="mt-4">
         <table className="w-full table-fixed text-left text-sm">
           <colgroup>
-            <col style={{ width: cities.length === 0 ? "40%" : "18%" }} />
+            <col
+              style={{
+                width: cities.length === 0 ? "40%" : canRename ? "24%" : "18%",
+              }}
+            />
             <col style={{ width: cities.length === 0 ? "20%" : "12%" }} />
             {cities.map((city) => (
               <col key={city} />
@@ -436,7 +490,62 @@ export function ItemListTab({ data }: { data: FlowhubData }) {
             ) : (
               rows.map((r) => (
                 <tr key={r.key}>
-                  <td className={reportTd}>{r.itemName}</td>
+                  <td className={reportTd}>
+                    {canRename && editingKey === r.key ? (
+                      <form
+                        className="space-y-1"
+                        onSubmit={(event) => void saveRename(event, r.itemName)}
+                      >
+                        <Input
+                          value={draft}
+                          onChange={(event) => setDraft(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Escape") {
+                              event.preventDefault();
+                              cancelRename();
+                            }
+                          }}
+                          aria-label={`New name for ${r.itemName}`}
+                          className="h-8"
+                          autoFocus
+                        />
+                        <div className="flex flex-wrap gap-1">
+                          <Button
+                            type="submit"
+                            size="sm"
+                            disabled={savingRename}
+                          >
+                            {savingRename ? "Saving…" : "Save"}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={cancelRename}
+                            disabled={savingRename}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                        {renameError && (
+                          <p role="alert" className="text-xs text-[var(--destructive)]">
+                            {renameError}
+                          </p>
+                        )}
+                      </form>
+                    ) : canRename ? (
+                      <div className="flex items-start gap-1">
+                        <span className="min-w-0 break-words">{r.itemName}</span>
+                        <EditIconButton
+                          label={`Rename ${r.itemName}`}
+                          onClick={() => startRename(r.key, r.itemName)}
+                          className="shrink-0"
+                        />
+                      </div>
+                    ) : (
+                      r.itemName
+                    )}
+                  </td>
                   <td className={qtyCell}>{formatQty(r.totalQty)}</td>
                   {cities.map((city) => {
                     const cell = r.byCity[city];

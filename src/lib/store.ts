@@ -92,6 +92,7 @@ import {
   isBuiltinBillingTerm,
   renameCustomBillingTerm,
 } from "@/lib/billing-terms";
+import { renameItemRecords } from "@/lib/item-rename";
 import {
   applyWorkspaceChanges,
   diffWorkspace,
@@ -1829,6 +1830,18 @@ export function rememberCatalogItem(name: string, unit: string, rate: number) {
   const data = read();
   const { data: next } = upsertCatalog(data, name, unit, rate);
   write(next);
+}
+
+/** Master item-list rename. One catalog row keeps its identity under the new name. */
+export function renameItem(fromName: string, toName: string) {
+  if (workspaceWritesLocked) {
+    return { ok: false as const, error: "This login cannot save changes." };
+  }
+  const current = read();
+  const result = renameItemRecords(current, fromName, toName);
+  if (!result.ok) return result;
+  if (result.data !== current) write(result.data);
+  return result;
 }
 
 function systemTask(

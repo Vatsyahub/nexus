@@ -868,6 +868,99 @@ test("merge keeps a cleared notice out of that person's box", () => {
   );
 });
 
+test("only Master can rename an item that is already on an invoice", () => {
+  const boqLine = {
+    id: "b1",
+    catalogKey: "bolt",
+    name: "Bolt",
+    unit: "Nos",
+    rate: 5,
+    quantity: 2,
+  };
+  const spare = {
+    id: "b2",
+    catalogKey: "washer",
+    name: "Washer",
+    unit: "Nos",
+    rate: 1,
+    quantity: 4,
+  };
+  const current = file({
+    contracts: [contract({ boq: [boqLine, spare] })],
+    invoices: [
+      invoice({
+        lines: [
+          {
+            boqItemId: "b1",
+            itemName: "Bolt",
+            termKey: "supply",
+            billedQty: 1,
+            rate: 5,
+            termPercent: 100,
+            lineNet: 5,
+          },
+        ],
+      }),
+    ],
+    itemCatalog: [
+      { key: "bolt", name: "Bolt", unit: "Nos", lastRate: 5 },
+      { key: "washer", name: "Washer", unit: "Nos", lastRate: 1 },
+    ],
+  });
+  const incoming = file({
+    contracts: [
+      contract({
+        boq: [
+          { ...boqLine, catalogKey: "nut", name: "Nut", rate: 9, quantity: 4 },
+          { ...spare, name: "Shim" },
+        ],
+      }),
+    ],
+    invoices: [
+      invoice({
+        lines: [
+          {
+            boqItemId: "b1",
+            itemName: "Nut",
+            termKey: "supply",
+            billedQty: 3,
+            rate: 9,
+            termPercent: 100,
+            lineNet: 27,
+          },
+        ],
+      }),
+    ],
+    itemCatalog: [
+      { key: "nut", name: "Nut", unit: "Set", lastRate: 9 },
+      { key: "washer", name: "Washer", unit: "Nos", lastRate: 1 },
+    ],
+  });
+
+  for (const role of ["director", "manager", "user"] as const) {
+    const saved = save(current, incoming, access(), role);
+    const line = saved.contracts[0]?.boq.find((row) => row.id === "b1");
+    assert.equal(line?.name, "Bolt", role);
+    assert.equal(line?.catalogKey, "bolt", role);
+    assert.equal(line?.rate, 9, role);
+    assert.equal(line?.quantity, 4, role);
+    assert.equal(saved.invoices[0]?.lines[0]?.itemName, "Bolt", role);
+    assert.equal(saved.invoices[0]?.lines[0]?.billedQty, 3, role);
+    assert.equal(saved.itemCatalog.some((entry) => entry.key === "bolt"), true, role);
+    assert.equal(
+      saved.contracts[0]?.boq.find((row) => row.id === "b2")?.name,
+      "Shim",
+      role
+    );
+  }
+
+  const master = save(current, incoming, access(), "master");
+  assert.equal(master.contracts[0]?.boq.find((row) => row.id === "b1")?.name, "Nut");
+  assert.equal(master.invoices[0]?.lines[0]?.itemName, "Nut");
+  assert.equal(master.itemCatalog.some((entry) => entry.key === "nut"), true);
+  assert.equal(master.itemCatalog.some((entry) => entry.key === "bolt"), false);
+});
+
 test("merge ignores anything but the account doors", () => {
   const current = file({ tasks: [task({ title: "Stored" })] });
   const incoming = file({ tasks: [task({ title: "Incoming" })] });
