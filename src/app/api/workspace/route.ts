@@ -9,6 +9,7 @@ import {
   type NoticeAudienceMember,
 } from "@/lib/notification-ttl";
 import { purgeExpiredScheduleChangeLog } from "@/lib/schedule-change-log";
+import { normalizeTaskDeadlineChangeLog } from "@/lib/task-deadline-log";
 import { departmentCatalogFields } from "@/lib/departments";
 import { EMPTY_NEXUS_COSTS, type FlowhubData } from "@/lib/types";
 import { normalizeNexusCosts } from "@/lib/nexus-core";
@@ -33,6 +34,7 @@ const empty: FlowhubData = {
   payments: [],
   schedules: [],
   scheduleChangeLog: [],
+  taskDeadlineChangeLog: [],
   notifications: [],
   clearedNotices: {},
   customDepartments: [],
@@ -75,6 +77,9 @@ function asFlowhubData(
     payments: parsed.payments ?? [],
     schedules: parsed.schedules ?? [],
     scheduleChangeLog: purgeExpiredScheduleChangeLog(parsed.scheduleChangeLog),
+    taskDeadlineChangeLog: normalizeTaskDeadlineChangeLog(
+      parsed.taskDeadlineChangeLog
+    ),
     // Unread: 21 days from creation. Read: 24 hours from that read.
     // Department rows stay until every recipient's case is spent.
     notifications: purgeExpiredNotifications(
@@ -123,7 +128,9 @@ export async function GET() {
   }
 
   const access = session.user.access ?? defaultAccess(session.user.clearance);
-  return NextResponse.json(workspaceForAccount(data, access));
+  return NextResponse.json(
+    workspaceForAccount(data, access, session.user.clearance)
+  );
 }
 
 export async function PUT(req: Request) {
@@ -178,7 +185,9 @@ export async function PUT(req: Request) {
           : "Could not save. This entry was not stored.",
         currentRevision: decision.currentRevision,
         incomingRevision: decision.incomingRevision,
-        ...(stale ? { data: workspaceForAccount(current, access) } : {}),
+        ...(stale
+          ? { data: workspaceForAccount(current, access, clearance) }
+          : {}),
       },
       { status: 409 }
     );
@@ -208,7 +217,7 @@ export async function PUT(req: Request) {
     update: { data: saved },
   });
 
-  const visible = workspaceForAccount(saved, access);
+  const visible = workspaceForAccount(saved, access, clearance);
   return NextResponse.json({
     ok: true,
     data: visible,

@@ -23,6 +23,7 @@ import {
   type Payment,
   type ScheduleChangeLogEntry,
   type ScheduleKind,
+  type TaskDeadlineChangeLogEntry,
   type ScheduleLine,
   type Task,
   type TaskCatalogKey,
@@ -96,6 +97,10 @@ import {
   type TaskDirectoryPerson,
 } from "@/lib/task-permissions";
 import {
+  decideTaskDeadline,
+  normalizeTaskDeadlineChangeLog,
+} from "@/lib/task-deadline-log";
+import {
   billingTermsTotal,
   billingTermsTotalIs100,
   deleteCustomBillingTerm,
@@ -137,6 +142,7 @@ const empty: FlowhubData = {
   payments: [],
   schedules: [],
   scheduleChangeLog: [],
+  taskDeadlineChangeLog: [],
   notifications: [],
   clearedNotices: {},
   customDepartments: [],
@@ -471,6 +477,9 @@ function normalizeData(raw: FlowhubData): FlowhubData {
     ),
     schedules: (raw.schedules ?? []).map(normalizeSchedule),
     scheduleChangeLog: purgeExpiredScheduleChangeLog(raw.scheduleChangeLog),
+    taskDeadlineChangeLog: normalizeTaskDeadlineChangeLog(
+      raw.taskDeadlineChangeLog
+    ),
     // Unread notices last 21 days. A read notice lasts 24 hours from that read.
     // A cleared notice stays hidden for that person. The row remains while
     // anyone else can still see it.
@@ -733,6 +742,27 @@ function appendScheduleLog(
   return {
     ...data,
     scheduleChangeLog: [...(data.scheduleChangeLog ?? []), row],
+  };
+}
+
+function appendTaskDeadlineLog(
+  data: FlowhubData,
+  entry: Omit<TaskDeadlineChangeLogEntry, "id" | "at"> & { at?: string }
+): FlowhubData {
+  const row: TaskDeadlineChangeLogEntry = {
+    id: crypto.randomUUID(),
+    at: entry.at ?? new Date().toISOString(),
+    by: (entry.by || "").trim() || "User",
+    taskId: entry.taskId,
+    contractId: entry.contractId,
+    taskTitle: (entry.taskTitle || "").trim(),
+    fromDate: entry.fromDate,
+    toDate: entry.toDate,
+    reason: entry.reason,
+  };
+  return {
+    ...data,
+    taskDeadlineChangeLog: [...(data.taskDeadlineChangeLog ?? []), row],
   };
 }
 
@@ -2651,6 +2681,14 @@ export function clearScheduleChangeLog(): boolean {
   return true;
 }
 
+/** Remove every task-deadline log row. Tasks are left in place. */
+export function clearTaskDeadlineChangeLog(): boolean {
+  const data = read();
+  if ((data.taskDeadlineChangeLog ?? []).length === 0) return false;
+  write({ ...data, taskDeadlineChangeLog: [] });
+  return true;
+}
+
 function dropContractCosts(
   raw: NexusCosts | undefined,
   contractId: string
@@ -4005,6 +4043,7 @@ export function assignTask(
     by?: string | null;
     actor?: TaskActor;
     people?: TaskDirectoryPerson[];
+    deadlineReason?: string | null;
   }
 ): { ok: true; task: Task } | { ok: false; error: string } {
   const data = read();
@@ -4028,14 +4067,20 @@ export function assignTask(
     people: opts.people ?? [],
   });
   if (!names.ok) return names;
+  const deadline = decideTaskDeadline({
+    currentDue: current.dueDate,
+    nextDue:
+      assignment.dueDate !== undefined ? assignment.dueDate : current.dueDate,
+    reason: opts.deadlineReason,
+    actor: opts.actor,
+    task: current,
+  });
+  if (!deadline.ok) return deadline;
   const nextTask: Task = {
     ...current,
     department,
     assignees: names.assignees,
-    dueDate:
-      assignment.dueDate !== undefined
-        ? assignment.dueDate || null
-        : current.dueDate,
+    dueDate: deadline.dueDate,
     status:
       current.status === "pending" &&
       (department || names.assignees.length > 0)
@@ -4057,6 +4102,17 @@ export function assignTask(
     nextData = notifyForTasks(nextData, [nextTask], {
       createdBy: opts?.by ?? null,
       kind: "task_assigned",
+    });
+  }
+  if (deadline.log) {
+    nextData = appendTaskDeadlineLog(nextData, {
+      by: (opts.actor?.name || "").trim() || opts.by || "User",
+      taskId: current.id,
+      contractId: current.contractId,
+      taskTitle: current.title,
+      fromDate: deadline.log.fromDate,
+      toDate: deadline.log.toDate,
+      reason: deadline.log.reason,
     });
   }
   write(nextData);
@@ -4237,7 +4293,11 @@ export function updateTask(
       | "notRequiredReason"
     >
   >,
-  opts?: { actor?: TaskActor; people?: TaskDirectoryPerson[] }
+  opts?: {
+    actor?: TaskActor;
+    people?: TaskDirectoryPerson[];
+    deadlineReason?: string | null;
+  }
 ) {
   const data = read();
   const current = data.tasks.find((t) => t.id === id);
@@ -4267,12 +4327,21 @@ export function updateTask(
     if (!names.ok) return null;
     assignees = names.assignees;
   }
+  const deadline = decideTaskDeadline({
+    currentDue: current.dueDate,
+    nextDue: patch.dueDate === undefined ? current.dueDate : patch.dueDate,
+    reason: opts.deadlineReason,
+    actor: opts.actor,
+    task: current,
+  });
+  if (!deadline.ok) return null;
   const now = new Date().toISOString();
   let next: Task = {
     ...current,
     ...patch,
     department,
     assignees: assignees ?? current.assignees,
+    dueDate: deadline.dueDate,
   };
   if (patch.notes !== undefined && patch.notes !== current.notes) {
     next = {
@@ -4300,6 +4369,17 @@ export function updateTask(
     (next.department || (next.assignees?.length ?? 0) > 0)
   ) {
     nextData = notifyForTasks(nextData, [next], { kind: "task_assigned" });
+  }
+  if (deadline.log) {
+    nextData = appendTaskDeadlineLog(nextData, {
+      by: (opts.actor?.name || "").trim() || "User",
+      taskId: current.id,
+      contractId: current.contractId,
+      taskTitle: current.title,
+      fromDate: deadline.log.fromDate,
+      toDate: deadline.log.toDate,
+      reason: deadline.log.reason,
+    });
   }
   write(nextData);
   return next;

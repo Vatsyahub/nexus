@@ -208,6 +208,7 @@ function workspace(
     payments: [],
     schedules: [],
     scheduleChangeLog: [],
+    taskDeadlineChangeLog: [],
     notifications: [],
     clearedNotices: {},
     customDepartments: [],

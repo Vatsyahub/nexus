@@ -75,6 +75,7 @@ function workspace(opts: {
     invoices: [],
     payments: [],
     scheduleChangeLog: [],
+    taskDeadlineChangeLog: [],
     notifications: [],
     customDepartments: [],
     expenseCategories: [],

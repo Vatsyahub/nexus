@@ -169,6 +169,7 @@ async function main() {
     payments: data.payments ?? [],
     schedules: data.schedules ?? [],
     scheduleChangeLog: data.scheduleChangeLog ?? [],
+    taskDeadlineChangeLog: data.taskDeadlineChangeLog ?? [],
     notifications: [...notifications, personNotif, deptNotif, customNotif],
     customDepartments: data.customDepartments ?? [],
     departmentRenames: data.departmentRenames ?? {},

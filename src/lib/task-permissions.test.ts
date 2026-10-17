@@ -55,6 +55,7 @@ function file(partial: Partial<FlowhubData> = {}): FlowhubData {
     payments: [],
     schedules: [],
     scheduleChangeLog: [],
+    taskDeadlineChangeLog: [],
     notifications: [],
     clearedNotices: {},
     customDepartments: [],
