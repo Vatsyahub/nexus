@@ -104,12 +104,6 @@ function exportedLine(rowCount?: number) {
   return `${at}  ·  ${rowCount} row${rowCount === 1 ? "" : "s"}`;
 }
 
-/** Longest visual line, so a stacked heading does not widen the column by every line. */
-function headerTextWidth(header: string): number {
-  const lines = header.split("\n");
-  return Math.max(...lines.map((line) => line.length)) + 2;
-}
-
 /** Longest visual line, so a stacked city cell does not widen the column by both lines. */
 function cellTextWidth(v: ReportExportCell): number {
   if (typeof v === "number") {
@@ -185,7 +179,7 @@ async function exportExcel(props: Props) {
         ...sections
           .filter((s) => i < s.headers.length)
           .flatMap((s) => [
-            headerTextWidth(s.headers[i]),
+            s.headers[i].length + 2,
             ...s.rows.map((r) => cellTextWidth(r[i])),
           ])
       )
@@ -271,8 +265,7 @@ async function exportExcel(props: Props) {
       };
       cell.border = border;
     });
-    const headerLines = Math.max(1, ...headers.map((h) => h.split("\n").length));
-    headRow.height = headerLines === 1 ? 22 : 16 * headerLines;
+    headRow.height = 22;
 
     if (rows.length === 0 && section.emptyMessage) {
       const emptyRow = sheet.getRow(rowNo);

@@ -184,20 +184,14 @@ test("a city cell is left for supply, and a missing city stays blank", () => {
   const cities = itemListCities(data);
   assert.deepEqual(itemListHeaders(cities), [
     "Item name",
-    "Total\nBoq Qty",
+    "Total BOQ qty",
     "Ahmedabad",
     "Delhi",
     "Mumbai",
     "Pune",
-    "Total\nSupplied",
-    "Pending\nSupply Qty",
+    "Total supplied",
+    "Left for supply",
   ]);
-  assert.deepEqual(
-    itemListHeaders(cities)
-      .filter((header) => header.includes("\n"))
-      .map((header) => header.replaceAll("\n", " ")),
-    ["Total Boq Qty", "Total Supplied", "Pending Supply Qty"]
-  );
   assert.deepEqual(itemListExportRow(cities, panel), [
     "panel",
     27.5,
