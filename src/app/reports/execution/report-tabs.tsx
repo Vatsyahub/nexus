@@ -24,7 +24,10 @@ import {
   type ScheduleFulfilmentStatus,
   type WorkorderStatus,
 } from "@/lib/execution-reports";
-import { matchesAny } from "@/lib/list-search";
+import {
+  matchesAny,
+  matchesAnyRespectingCommitment,
+} from "@/lib/list-search";
 import { confirmAction } from "@/components/confirm-panel";
 import { EditIconButton } from "@/components/icon-actions";
 import { currentItemUnits } from "@/lib/item-rename";
@@ -103,7 +106,7 @@ export function SchedulesTab({ data }: { data: FlowhubData }) {
         r.status === "partially_installed";
       const overdue =
         incomplete && !!r.date && r.date < today ? "overdue" : null;
-      return matchesAny(q, [
+      return matchesAnyRespectingCommitment(q, r.committed, [
         r.projectNo,
         r.projectName,
         r.city,
