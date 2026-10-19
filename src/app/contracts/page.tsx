@@ -114,7 +114,7 @@ export default function ContractsPage() {
                     <TableCell>
                       <Link
                         href={`/contracts/${c.id}`}
-                        className="text-[15px] font-bold text-[var(--fh-steel)] hover:underline"
+                        className="text-sm font-bold text-[var(--fh-steel)] hover:underline"
                       >
                         {c.projectName}
                       </Link>
