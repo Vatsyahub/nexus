@@ -54,16 +54,17 @@ export default function EditContractPage() {
     return <p className="text-sm text-[var(--fh-muted)]">Contract not found.</p>;
   }
 
+  const saved = contract;
   const draft =
-    open?.contractId === contract.id ? open.draft : draftFromContract(contract);
+    open?.contractId === saved.id ? open.draft : draftFromContract(saved);
 
   function change(key: keyof ContractEditDraft) {
     return (value: string) => {
       setOpen((current) => {
         const base =
-          current?.contractId === contract.id
+          current?.contractId === saved.id
             ? current
-            : keepOpenContractEdit(current, contract);
+            : keepOpenContractEdit(current, saved);
         if (!base) return current;
         return {
           contractId: base.contractId,
@@ -113,7 +114,7 @@ export default function EditContractPage() {
         <h1 className="font-[family-name:var(--font-display)] text-4xl font-semibold text-[var(--fh-steel)]">
           Edit contract
         </h1>
-        <p className="mt-1 text-sm text-[var(--fh-muted)]">{contract.projectNo}</p>
+        <p className="mt-1 text-sm text-[var(--fh-muted)]">{saved.projectNo}</p>
       </div>
       <form
         onSubmit={submit}
