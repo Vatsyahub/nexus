@@ -76,7 +76,7 @@ export default function ContractsPage() {
 
       <HubDataScroll className="overflow-x-auto rounded-xl border border-[var(--fh-line)] bg-white">
         <Table>
-          <TableHeader className="uppercase tracking-wide">
+          <TableHeader className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-xs uppercase tracking-wide text-[var(--fh-muted)]">
             <TableRow>
               <TableHead>PROJECT</TableHead>
               <TableHead>ORDER</TableHead>
