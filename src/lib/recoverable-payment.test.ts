@@ -395,7 +395,7 @@ test("add and update reject recovered above the pool without counting an edit tw
         name: "Recoverable item",
         unit: "Nos",
         rate: 1000,
-        quantity: 1,
+        quantity: 2,
       },
     ],
   });
