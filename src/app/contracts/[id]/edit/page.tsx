@@ -7,6 +7,12 @@ import { useSession } from "next-auth/react";
 import { updateContract, useFlowhubData } from "@/lib/store";
 import { confirmWorkspaceSave } from "@/lib/save-notice";
 import { DLP_MONTHS_RANGE_MESSAGE, acceptedDlpMonths } from "@/lib/dlp-months";
+import {
+  draftFromContract,
+  keepOpenContractEdit,
+  type ContractEditDraft,
+  type OpenContractEdit,
+} from "@/lib/contract-edit-form";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,38 +28,11 @@ export default function EditContractPage() {
   const data = useFlowhubData();
   const contract = data.contracts.find((c) => c.id === id);
 
-  const [projectName, setProjectName] = useState("");
-  const [projectNo, setProjectNo] = useState("");
-  const [orderNos, setOrderNos] = useState("");
-  const [orderDate, setOrderDate] = useState("");
-  const [closureDate, setClosureDate] = useState("");
-  const [orderValue, setOrderValue] = useState("");
-  const [city, setCity] = useState("");
-  const [state, setState] = useState("");
-  const [country, setCountry] = useState("");
-  const [paymentDueDays, setPaymentDueDays] = useState("");
-  const [retentionPercent, setRetentionPercent] = useState("");
-  const [tdsPercent, setTdsPercent] = useState("");
-  const [dlpMonths, setDlpMonths] = useState("");
-  const [contractorAssigned, setContractorAssigned] = useState("");
+  const [open, setOpen] = useState<OpenContractEdit | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!contract) return;
-    setProjectName(contract.projectName);
-    setProjectNo(contract.projectNo);
-    setOrderNos(contract.orderNos);
-    setOrderDate(contract.orderDate);
-    setClosureDate(contract.closureDate);
-    setOrderValue(String(contract.orderValue));
-    setCity(contract.city);
-    setState(contract.state);
-    setCountry(contract.country);
-    setPaymentDueDays(String(contract.paymentDueDays));
-    setRetentionPercent(String(contract.retentionPercent));
-    setTdsPercent(String(contract.tdsPercent));
-    setDlpMonths(String(contract.dlpMonths));
-    setContractorAssigned(contract.contractorAssigned || "");
+    setOpen((current) => keepOpenContractEdit(current, contract));
   }, [contract]);
 
   if (status === "loading") {
@@ -75,34 +54,53 @@ export default function EditContractPage() {
     return <p className="text-sm text-[var(--fh-muted)]">Contract not found.</p>;
   }
 
+  const draft =
+    open?.contractId === contract.id ? open.draft : draftFromContract(contract);
+
+  function change(key: keyof ContractEditDraft) {
+    return (value: string) => {
+      setOpen((current) => {
+        const base =
+          current?.contractId === contract.id
+            ? current
+            : keepOpenContractEdit(current, contract);
+        if (!base) return current;
+        return {
+          contractId: base.contractId,
+          draft: { ...base.draft, [key]: value },
+        };
+      });
+    };
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    const value = Number(orderValue);
-    if (!projectName.trim() || !projectNo.trim() || !value) {
+    const value = Number(draft.orderValue);
+    if (!draft.projectName.trim() || !draft.projectNo.trim() || !value) {
       setError("Fill name, project no., and order value.");
       return;
     }
-    const dlp = acceptedDlpMonths(dlpMonths);
+    const dlp = acceptedDlpMonths(draft.dlpMonths);
     if (dlp == null) {
       setError(DLP_MONTHS_RANGE_MESSAGE);
       return;
     }
     updateContract(id, {
-      projectName: projectName.trim(),
-      projectNo: projectNo.trim(),
-      orderNos: orderNos.trim(),
-      orderDate,
-      closureDate,
+      projectName: draft.projectName.trim(),
+      projectNo: draft.projectNo.trim(),
+      orderNos: draft.orderNos.trim(),
+      orderDate: draft.orderDate,
+      closureDate: draft.closureDate,
       orderValue: value,
-      city: city.trim(),
-      state: state.trim(),
-      country: country.trim(),
-      paymentDueDays: Number(paymentDueDays) || 30,
-      retentionPercent: Number(retentionPercent) || 0,
-      tdsPercent: Number(tdsPercent) || 0,
+      city: draft.city.trim(),
+      state: draft.state.trim(),
+      country: draft.country.trim(),
+      paymentDueDays: Number(draft.paymentDueDays) || 30,
+      retentionPercent: Number(draft.retentionPercent) || 0,
+      tdsPercent: Number(draft.tdsPercent) || 0,
       dlpMonths: dlp,
-      contractorAssigned: contractorAssigned.trim(),
+      contractorAssigned: draft.contractorAssigned.trim(),
     });
     const saved = await confirmWorkspaceSave();
     if (!saved) return;
@@ -123,26 +121,44 @@ export default function EditContractPage() {
         className="space-y-4 rounded-xl border border-[var(--fh-line)] bg-white p-5"
       >
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Project name" value={projectName} onChange={setProjectName} />
-          <Field label="Project no." value={projectNo} onChange={setProjectNo} />
-          <Field label="Order no(s)" value={orderNos} onChange={setOrderNos} />
+          <Field label="Project name" value={draft.projectName} onChange={change("projectName")} />
+          <Field label="Project no." value={draft.projectNo} onChange={change("projectNo")} />
+          <Field label="Order no(s)" value={draft.orderNos} onChange={change("orderNos")} />
           <div className="space-y-2">
             <Label>Order date</Label>
-            <Input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} />
+            <Input type="date" value={draft.orderDate} onChange={(e) => change("orderDate")(e.target.value)} />
           </div>
           <div className="space-y-2">
             <Label>Closure date</Label>
-            <Input type="date" value={closureDate} onChange={(e) => setClosureDate(e.target.value)} />
+            <Input
+              type="date"
+              value={draft.closureDate}
+              onChange={(e) => change("closureDate")(e.target.value)}
+            />
           </div>
-          <Field label="Order value" value={orderValue} onChange={setOrderValue} type="number" />
-          <Field label="City" value={city} onChange={setCity} />
-          <Field label="State" value={state} onChange={setState} />
-          <Field label="Country" value={country} onChange={setCountry} />
-          <Field label="Payment due days" value={paymentDueDays} onChange={setPaymentDueDays} type="number" />
-          <Field label="Retention %" value={retentionPercent} onChange={setRetentionPercent} type="number" />
-          <Field label="TDS % of net" value={tdsPercent} onChange={setTdsPercent} type="number" />
-          <Field label="DLP months" value={dlpMonths} onChange={setDlpMonths} type="number" />
-          <Field label="Contractor assigned" value={contractorAssigned} onChange={setContractorAssigned} />
+          <Field label="Order value" value={draft.orderValue} onChange={change("orderValue")} type="number" />
+          <Field label="City" value={draft.city} onChange={change("city")} />
+          <Field label="State" value={draft.state} onChange={change("state")} />
+          <Field label="Country" value={draft.country} onChange={change("country")} />
+          <Field
+            label="Payment due days"
+            value={draft.paymentDueDays}
+            onChange={change("paymentDueDays")}
+            type="number"
+          />
+          <Field
+            label="Retention %"
+            value={draft.retentionPercent}
+            onChange={change("retentionPercent")}
+            type="number"
+          />
+          <Field label="TDS % of net" value={draft.tdsPercent} onChange={change("tdsPercent")} type="number" />
+          <Field label="DLP months" value={draft.dlpMonths} onChange={change("dlpMonths")} type="number" />
+          <Field
+            label="Contractor assigned"
+            value={draft.contractorAssigned}
+            onChange={change("contractorAssigned")}
+          />
         </div>
         {error && <p className="text-sm text-red-700">{error}</p>}
         <div className="flex gap-2">
