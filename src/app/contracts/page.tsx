@@ -114,11 +114,11 @@ export default function ContractsPage() {
                     <TableCell>
                       <Link
                         href={`/contracts/${c.id}`}
-                        className="text-base font-semibold text-[var(--fh-steel)] hover:underline"
+                        className="text-[15px] font-bold text-[var(--fh-steel)] hover:underline"
                       >
                         {c.projectName}
                       </Link>
-                      <p className="text-sm text-[var(--fh-muted)]">{c.projectNo}</p>
+                      <p className="text-xs text-[var(--fh-muted)]">{c.projectNo}</p>
                     </TableCell>
                     <TableCell className="text-sm">
                       {c.orderNos}
