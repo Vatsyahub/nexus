@@ -19,8 +19,9 @@ import {
   buildRetentionHeldRows,
   filterCollectionRows,
   formatRetentionStatusLabel,
-  sumCollectionCashReceived,
+  sumCollectionColumns,
   type BankGuaranteeRow,
+  type CollectionColumnTotals,
   type CollectionReportRow,
   type ExpenseReportRow,
   type RetentionHeldRow,
@@ -172,8 +173,8 @@ function AccountsReportInner() {
     () => expenseRows.reduce((s, r) => s + r.amount, 0),
     [expenseRows]
   );
-  const cashReceivedTotal = useMemo(
-    () => sumCollectionCashReceived(collectionRows),
+  const collectionTotals = useMemo(
+    () => sumCollectionColumns(collectionRows),
     [collectionRows]
   );
   const retentionTotal = useMemo(
@@ -235,13 +236,19 @@ function AccountsReportInner() {
           <div className="flex flex-wrap items-end justify-between gap-3">
             <TabBar tab={tab} onSelect={selectTab} />
             {tab === "collections" ? (
-              <div className="text-right">
-                <p className="text-xs uppercase tracking-wide text-[var(--fh-muted)]">
-                  Total cash received
-                </p>
-                <p className="mt-0.5 font-[family-name:var(--font-display)] text-xl tabular-nums text-[var(--fh-steel)]">
-                  {formatMoney(cashReceivedTotal)}
-                </p>
+              <div className="flex flex-wrap justify-end gap-4 text-right">
+                <CollectionTotal
+                  label="CASH RECEIVED NET"
+                  value={collectionTotals.cashReceivedNet}
+                />
+                <CollectionTotal
+                  label="CASH RECEIVED GST"
+                  value={collectionTotals.cashReceivedGst}
+                />
+                <CollectionTotal
+                  label="CASH RECEIVED TOTAL"
+                  value={collectionTotals.cashReceived}
+                />
               </div>
             ) : null}
             {tab === "retentions" ? (
@@ -306,6 +313,7 @@ function AccountsReportInner() {
           {tab === "collections" ? (
             <CollectionsTable
               rows={collectionRows}
+              totals={collectionTotals}
               filters={reportFilterSummary({
                 tab: "Collections",
                 search: q,
@@ -417,42 +425,73 @@ function TabButton({
   );
 }
 
+function CollectionTotal({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="text-right">
+      <p className="text-xs uppercase tracking-wide text-[var(--fh-muted)]">
+        {label}
+      </p>
+      <p className="mt-0.5 font-[family-name:var(--font-display)] text-xl tabular-nums text-[var(--fh-steel)]">
+        {formatMoney(value)}
+      </p>
+    </div>
+  );
+}
+
 function CollectionsTable({
   rows,
+  totals,
   filters,
 }: {
   rows: CollectionReportRow[];
+  totals: CollectionColumnTotals;
   filters: string;
 }) {
+  const exportRows = rows.map((r) => [
+    formatDisplayDate(r.date),
+    r.projectName,
+    r.projectNo,
+    r.against,
+    r.cashReceivedNet,
+    r.cashReceivedGst,
+    r.cashReceived,
+    r.retention,
+    r.tds,
+    r.otherDeductions,
+  ]);
   return (
     <>
       <ReportsTableScroll className="mt-4">
         <table className="w-full table-fixed text-left text-sm">
           <colgroup>
+            <col className="w-[9%]" />
+            <col className="w-[16%]" />
+            <col className="w-[12%]" />
+            <col className="w-[12%]" />
             <col className="w-[11%]" />
-            <col className="w-[22%]" />
-            <col className="w-[15%]" />
-            <col className="w-[13%]" />
-            <col className="w-[13%]" />
-            <col className="w-[13%]" />
-            <col className="w-[13%]" />
+            <col className="w-[12%]" />
+            <col className="w-[10%]" />
+            <col className="w-[7%]" />
+            <col className="w-[11%]" />
           </colgroup>
-          <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-[var(--fh-muted)]">
+          <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] uppercase tracking-wide text-[var(--fh-muted)]">
             <tr>
-              <th className={reportTh}>Date</th>
-              <th className={reportTh}>Contract</th>
-              <th className={reportTh}>Against</th>
-              <th className={cn(reportTh, "text-right")}>Cash received</th>
-              <th className={cn(reportTh, "text-right")}>Retention</th>
+              <th className={reportTh}>DATE</th>
+              <th className={reportTh}>CONTRACT</th>
+              <th className={reportTh}>AGAINST</th>
+              <th className={cn(reportTh, "text-right")}>CASH RECEIVED NET</th>
+              <th className={cn(reportTh, "text-right")}>CASH RECEIVED GST</th>
+              <th className={cn(reportTh, "text-right")}>CASH RECEIVED TOTAL</th>
+              <th className={cn(reportTh, "text-right")}>RETENTION</th>
               <th className={cn(reportTh, "text-right")}>TDS</th>
-              <th className={cn(reportTh, "text-right")}>Other deductions</th>
+              <th className={cn(reportTh, "text-right")}>OTHER DEDUCTIONS</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--fh-line)]">
             {rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={9}
                   className="px-3 py-6 text-center text-[var(--fh-muted)]"
                 >
                   No matching payments.
@@ -485,6 +524,8 @@ function CollectionsTable({
                       r.against
                     )}
                   </td>
+                  <td className={reportMoney}>{formatMoney(r.cashReceivedNet)}</td>
+                  <td className={reportMoney}>{formatMoney(r.cashReceivedGst)}</td>
                   <td className={reportMoney}>{formatMoney(r.cashReceived)}</td>
                   <td className={reportMoney}>{formatMoney(r.retention)}</td>
                   <td className={reportMoney}>{formatMoney(r.tds)}</td>
@@ -495,6 +536,29 @@ function CollectionsTable({
               ))
             )}
           </tbody>
+          {rows.length > 0 ? (
+            <tfoot className="border-t border-[var(--fh-line)] bg-[var(--fh-bg)] font-medium">
+              <tr>
+                <td className={reportTd} colSpan={3}>
+                  Total
+                </td>
+                <td className={reportMoney}>
+                  {formatMoney(totals.cashReceivedNet)}
+                </td>
+                <td className={reportMoney}>
+                  {formatMoney(totals.cashReceivedGst)}
+                </td>
+                <td className={reportMoney}>
+                  {formatMoney(totals.cashReceived)}
+                </td>
+                <td className={reportMoney}>{formatMoney(totals.retention)}</td>
+                <td className={reportMoney}>{formatMoney(totals.tds)}</td>
+                <td className={reportMoney}>
+                  {formatMoney(totals.otherDeductions)}
+                </td>
+              </tr>
+            </tfoot>
+          ) : null}
         </table>
       </ReportsTableScroll>
       <ReportExportIcons
@@ -502,25 +566,36 @@ function CollectionsTable({
         title="Accounts Report — Collections"
         filters={filters}
         headers={[
-          "Date",
-          "Contract",
-          "Project no.",
-          "Against",
-          "Cash received",
-          "Retention",
+          "DATE",
+          "CONTRACT",
+          "PROJECT NO.",
+          "AGAINST",
+          "CASH RECEIVED NET",
+          "CASH RECEIVED GST",
+          "CASH RECEIVED TOTAL",
+          "RETENTION",
           "TDS",
-          "Other deductions",
+          "OTHER DEDUCTIONS",
         ]}
-        rows={rows.map((r) => [
-          formatDisplayDate(r.date),
-          r.projectName,
-          r.projectNo,
-          r.against,
-          r.cashReceived,
-          r.retention,
-          r.tds,
-          r.otherDeductions,
-        ])}
+        rows={
+          rows.length > 0
+            ? [
+                ...exportRows,
+                [
+                  "Total",
+                  "",
+                  "",
+                  "",
+                  totals.cashReceivedNet,
+                  totals.cashReceivedGst,
+                  totals.cashReceived,
+                  totals.retention,
+                  totals.tds,
+                  totals.otherDeductions,
+                ],
+              ]
+            : exportRows
+        }
       />
     </>
   );
@@ -548,17 +623,17 @@ function GuaranteesTable({
             <col className="w-[10%]" />
             <col className="w-[10%]" />
           </colgroup>
-          <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-[var(--fh-muted)]">
+          <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] uppercase tracking-wide text-[var(--fh-muted)]">
             <tr>
-              <th className={reportTh}>Project</th>
-              <th className={reportTh}>Type</th>
-              <th className={reportTh}>Guarantee #</th>
-              <th className={reportTh}>Date</th>
-              <th className={cn(reportTh, "text-right")}>Value</th>
-              <th className={reportTh}>Bank</th>
-              <th className={reportTh}>Expiry</th>
-              <th className={reportTh}>Status</th>
-              <th className={reportTh}>Retrieval</th>
+              <th className={reportTh}>PROJECT</th>
+              <th className={reportTh}>TYPE</th>
+              <th className={reportTh}>GUARANTEE #</th>
+              <th className={reportTh}>DATE</th>
+              <th className={cn(reportTh, "text-right")}>VALUE</th>
+              <th className={reportTh}>BANK</th>
+              <th className={reportTh}>EXPIRY</th>
+              <th className={reportTh}>STATUS</th>
+              <th className={reportTh}>RETRIEVAL</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--fh-line)]">
@@ -610,16 +685,16 @@ function GuaranteesTable({
         title="Accounts Report — Bank guarantees"
         filters={filters}
         headers={[
-          "Project",
-          "Project no.",
-          "Type",
-          "Guarantee #",
-          "Date",
-          "Value",
-          "Bank",
-          "Expiry",
-          "Status",
-          "Retrieval",
+          "PROJECT",
+          "PROJECT NO.",
+          "TYPE",
+          "GUARANTEE #",
+          "DATE",
+          "VALUE",
+          "BANK",
+          "EXPIRY",
+          "STATUS",
+          "RETRIEVAL",
         ]}
         rows={rows.map((r) => [
           r.projectName,
@@ -697,12 +772,12 @@ function RetentionsTable({
             <col className="w-[22%]" />
             <col className="w-[32%]" />
           </colgroup>
-          <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-[var(--fh-muted)]">
+          <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] uppercase tracking-wide text-[var(--fh-muted)]">
             <tr>
-              <th className={reportTh}>Project</th>
-              <th className={cn(reportTh, "text-right")}>Retention held</th>
-              <th className={reportTh}>Status</th>
-              <th className={reportTh}>Action</th>
+              <th className={reportTh}>PROJECT</th>
+              <th className={cn(reportTh, "text-right")}>RETENTION HELD</th>
+              <th className={reportTh}>STATUS</th>
+              <th className={reportTh}>ACTION</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--fh-line)]">
@@ -799,7 +874,13 @@ function RetentionsTable({
         filename="retentions"
         title="Accounts Report — Retentions held"
         filters={filters}
-        headers={["Project", "Project no.", "Retention held", "Status", "Recovered on"]}
+        headers={[
+          "PROJECT",
+          "PROJECT NO.",
+          "RETENTION HELD",
+          "STATUS",
+          "RECOVERED ON",
+        ]}
         rows={rows.map((r) => [
           r.projectName,
           r.projectNo,
@@ -862,13 +943,13 @@ function ExpensesTable({
             <col className="w-[22%]" />
             <col className="w-[20%]" />
           </colgroup>
-          <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-[var(--fh-muted)]">
+          <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] uppercase tracking-wide text-[var(--fh-muted)]">
             <tr>
-              <th className={reportTh}>Project</th>
-              <th className={reportTh}>Date</th>
-              <th className={reportTh}>Expense type</th>
-              <th className={reportTh}>Expense person</th>
-              <th className={cn(reportTh, "text-right")}>Amount</th>
+              <th className={reportTh}>PROJECT</th>
+              <th className={reportTh}>DATE</th>
+              <th className={reportTh}>EXPENSE TYPE</th>
+              <th className={reportTh}>EXPENSE PERSON</th>
+              <th className={cn(reportTh, "text-right")}>AMOUNT</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--fh-line)]">
@@ -908,12 +989,12 @@ function ExpensesTable({
         title="Accounts Report — Expenses"
         filters={filters}
         headers={[
-          "Project",
-          "Project no.",
-          "Date",
-          "Expense type",
-          "Expense person",
-          "Amount",
+          "PROJECT",
+          "PROJECT NO.",
+          "DATE",
+          "EXPENSE TYPE",
+          "EXPENSE PERSON",
+          "AMOUNT",
         ]}
         rows={rows.map((r) => [
           r.projectName,
