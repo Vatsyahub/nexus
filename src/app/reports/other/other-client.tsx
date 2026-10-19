@@ -16,7 +16,7 @@ import {
 } from "../execution/report-tabs";
 
 function parseSub(raw: string | null): OtherSub {
-  if (raw === "tasks" || raw === "amendments") return raw;
+  if (raw === "tasks" || raw === "amendments" || raw === "advances") return raw;
   return "workorders";
 }
 
