@@ -1188,6 +1188,7 @@ export default function ContractDetailPage() {
         contract={c}
         canEdit={contractOpen}
         canAmend={canAmend}
+        canDeleteAmendment={isMaster}
         actorName={actorName}
         onMessage={setMsg}
       />

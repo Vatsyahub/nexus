@@ -6,11 +6,13 @@ import {
   boqAmendmentIssues,
   boqPlainEditIssues,
   computeBoqLineDiffs,
+  deleteLatestAmendment,
   describeBoqLineUse,
   editContractBoq,
   nextAmendmentSeq,
   useFlowhubData,
 } from "@/lib/store";
+import { confirmAction } from "@/components/confirm-panel";
 import { confirmWorkspaceSave } from "@/lib/save-notice";
 import {
   boqTotal,
@@ -86,11 +88,13 @@ export function BoqSection({
   contract,
   canEdit,
   canAmend,
+  canDeleteAmendment,
   actorName,
 }: {
   contract: Contract;
   canEdit: boolean;
   canAmend: boolean;
+  canDeleteAmendment: boolean;
   actorName: string;
   onMessage: (msg: string) => void;
 }) {
@@ -113,6 +117,7 @@ export function BoqSection({
   const [amdNote, setAmdNote] = useState("");
   const [confirmedValue, setConfirmedValue] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const proposed = useMemo(() => rowsToBoq(rows), [rows]);
@@ -591,7 +596,10 @@ export function BoqSection({
             </p>
             <p className="text-xs text-[var(--fh-muted)]">
               Change quantities, add lines, or remove lines. Rates on existing
-              lines stay as contracted. Nothing is saved until you confirm.
+              lines stay as contracted. To change a rate, remove the item and
+              add it again at the new rate. Supplied and installed quantities
+              move onto that new line. A schedule on this contract must be
+              deleted first. Nothing is saved until you confirm.
             </p>
           </div>
 
@@ -925,9 +933,24 @@ export function BoqSection({
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--fh-line)]">
-                {[...amendments].reverse().map((a) => (
+                {[...amendments].reverse().map((a) => {
+                  const latest = a.id === amendments[amendments.length - 1]?.id;
+                  return (
                   <tr key={a.id} className="align-top">
-                    <td className="px-3 py-2 font-medium">{a.number}</td>
+                    <td className="px-3 py-2 font-medium">
+                      {a.number}
+                      {canDeleteAmendment && latest && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="mt-1 block h-7 px-2 text-red-700"
+                          onClick={() => void removeLatestAmendment()}
+                        >
+                          Delete
+                        </Button>
+                      )}
+                    </td>
                     <td className="px-3 py-2 tabular-nums">
                       {formatDisplayDate(a.date)}
                     </td>
@@ -953,12 +976,33 @@ export function BoqSection({
                       </p>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
+        {historyError && (
+          <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+            {historyError}
+          </p>
+        )}
       </div>
     </section>
   );
+
+  async function removeLatestAmendment() {
+    setHistoryError(null);
+    const confirmed = await confirmAction({
+      message: "This amendment will disappear.",
+      action: "Delete",
+    });
+    if (!confirmed) return;
+    const res = deleteLatestAmendment(c.id);
+    if (!res.ok) {
+      setHistoryError(res.error);
+      return;
+    }
+    await confirmWorkspaceSave();
+  }
 }

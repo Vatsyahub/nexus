@@ -36,20 +36,22 @@ export function previewInvoiceLine(
   boq: readonly BoqItem[],
   billingTerms: BillingTerms
 ): InvoiceLine | null {
+  if (!draft.termKey) return null;
   const item = boq.find((row) => row.id === draft.boqItemId);
-  if (!item || !draft.termKey) return null;
+  if (!item && !draft.stored) return null;
   const billedQty = finiteNumber(draft.billedQty, 0);
   const rate = draft.stored
     ? finiteNumber(draft.stored.rate, 0)
-    : finiteNumber(item.rate, 0);
+    : finiteNumber(item?.rate ?? 0, 0);
   const termPercent = draft.stored
     ? finiteNumber(draft.stored.termPercent, 0)
     : finiteNumber(billingTerms[draft.termKey], 0);
   const itemName = draft.stored?.itemName?.trim()
     ? draft.stored.itemName
-    : item.name;
+    : (item?.name ?? "");
+  if (!itemName) return null;
   return {
-    boqItemId: item.id,
+    boqItemId: draft.boqItemId,
     itemName,
     termKey: draft.termKey,
     billedQty,

@@ -11,11 +11,18 @@ import {
 } from "@/lib/store";
 import { billingTermLabel } from "@/lib/billing-terms";
 import {
+  boqCallbackOffers,
+  draftCoversOffer,
+  taxInvoiceQuantityIssues,
+  type BoqCallbackOffer,
+} from "@/lib/amendment-callback";
+import {
   billingTermChoices,
   previewInvoiceLine,
   previewInvoiceLines,
   type StoredLineFigures,
 } from "@/lib/invoice-line-edit";
+import { BoqCallbackPanel } from "@/components/boq-callback-panel";
 import {
   GST_RATE,
   orderedBillingTermKeys,
@@ -123,9 +130,54 @@ export default function EditInvoicePage() {
     );
   }
 
+  const callbackOffers = useMemo(() => {
+    if (!contract || !inv || inv.type !== "TI") return [];
+    return boqCallbackOffers({
+      contract,
+      invoices: data.invoices,
+      exceptInvoiceId: inv.id,
+    }).filter(
+      (offer) =>
+        !draftLines.some((draft) => {
+          const item = contract.boq.find((row) => row.id === draft.boqItemId);
+          return draftCoversOffer(
+            [
+              {
+                itemName: draft.stored?.itemName || item?.name || "",
+                termKey: draft.termKey,
+                rate: draft.stored?.rate ?? item?.rate ?? 0,
+              },
+            ],
+            offer
+          );
+        })
+    );
+  }, [contract, data.invoices, draftLines, inv]);
+
+  const callbackLines = draftLines.filter(
+    (draft) => !contract?.boq.some((row) => row.id === draft.boqItemId)
+  );
+
   const net = previewLines.reduce((s, l) => s + l.lineNet, 0);
   const gst = contract?.gstApplicable ? net * GST_RATE : 0;
   const extraTotal = charges.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+
+  function addCallbackLines(offers: BoqCallbackOffer[]) {
+    setDraftLines((prev) => [
+      ...prev,
+      ...offers.map((offer) => ({
+        id: crypto.randomUUID(),
+        boqItemId: offer.boqItemId,
+        termKey: offer.termKey,
+        billedQty: String(offer.quantity),
+        stored: {
+          rate: offer.rate,
+          termPercent: offer.termPercent,
+          itemName: offer.itemName,
+        },
+      })),
+    ]);
+  }
 
   function addLineForItem(boqItemId: string) {
     const defaultTerm = termKeys[0] || "supply";
@@ -153,6 +205,18 @@ export default function EditInvoicePage() {
     ) {
       setMsg("Add at least one line; billed qty cannot be 0 (negative is allowed).");
       return;
+    }
+    if (inv?.type === "TI" && contract) {
+      const qtyIssues = taxInvoiceQuantityIssues({
+        contract,
+        invoices: data.invoices,
+        lines: previewLines,
+        exceptInvoiceId: inv.id,
+      });
+      if (qtyIssues.length) {
+        setMsg(qtyIssues[0]);
+        return;
+      }
     }
     const extraCharges: InvoiceExtraCharge[] = charges
       .filter((c) => c.label.trim() && Number(c.amount) > 0)
@@ -352,6 +416,37 @@ export default function EditInvoicePage() {
               );
             })}
           </ul>
+
+          {inv.type === "TI" && (
+            <BoqCallbackPanel
+              offers={callbackOffers}
+              lines={callbackLines.map((draft) => ({
+                id: draft.id,
+                itemName:
+                  draft.stored?.itemName ||
+                  contract.boq.find((row) => row.id === draft.boqItemId)?.name ||
+                  "Item",
+                termKey: draft.termKey,
+                rate:
+                  draft.stored?.rate ??
+                  contract.boq.find((row) => row.id === draft.boqItemId)?.rate ??
+                  0,
+                termPercent: draft.stored?.termPercent ?? 0,
+                billedQty: draft.billedQty,
+              }))}
+              onAdd={addCallbackLines}
+              onQty={(id, qty) =>
+                setDraftLines((prev) =>
+                  prev.map((row) =>
+                    row.id === id ? { ...row, billedQty: qty } : row
+                  )
+                )
+              }
+              onRemove={(id) =>
+                setDraftLines((prev) => prev.filter((row) => row.id !== id))
+              }
+            />
+          )}
 
           <div className="space-y-2 border-t border-[var(--fh-line)] pt-4">
             <div className="flex items-center justify-between">

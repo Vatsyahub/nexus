@@ -271,11 +271,11 @@ test("a used line can change rate and qty below what is already billed, schedule
   const amend = amendContractBoq({
     contractId: contract.id,
     boq: saved(contract.id).boq.map((b) =>
-      b.id === delivered.id ? { ...b, quantity: 1 } : b
+      b.id === delivered.id ? { ...b, quantity: 3 } : b
     ),
     newOrderValue: boqTotal(
       saved(contract.id).boq.map((b) =>
-        b.id === delivered.id ? { ...b, quantity: 1 } : b
+        b.id === delivered.id ? { ...b, quantity: 3 } : b
       )
     ),
     date: "2026-10-06",
@@ -283,7 +283,7 @@ test("a used line can change rate and qty below what is already billed, schedule
   });
   assert.equal(amend.ok, false);
   if (amend.ok) return;
-  assert.match(amend.error, /dispatched\/installed/);
+  assert.match(amend.error, /Scheduled item: delete the schedule first/);
 });
 
 test("an amendment still records history, keeps saved guarantee amounts, and closes its task", () => {

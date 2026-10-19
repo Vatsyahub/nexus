@@ -72,6 +72,17 @@ import {
 } from "@/lib/notification-ttl";
 import { purgeExpiredScheduleChangeLog } from "@/lib/schedule-change-log";
 import {
+  amendmentDeleteError,
+  boqBeforeAmendment,
+  existingLineRateIssues,
+  rateChangeCarries,
+  remapDeliveryChallans,
+  remapInstallation,
+  scheduleStopMessage,
+  taxInvoiceQuantityIssues,
+  undoRateChangeCarries,
+} from "@/lib/amendment-callback";
+import {
   currentSeedDepartment,
   deleteDepartmentRecords,
   departmentCatalogFields,
@@ -2780,9 +2791,9 @@ export function computeBoqLineDiffs(
 }
 
 /**
- * Blocking problems with a proposed amended BOQ. Qty cannot drop below what
- * was already dispatched / installed, and lines with execution or schedule
- * history cannot be removed (reduce qty instead).
+ * Blocking problems with a proposed amended BOQ.
+ * A schedule on the contract stops the save. Supplied, installed, and
+ * invoiced quantities do not. The rate on an existing line cannot change.
  */
 export function boqAmendmentIssues(
   contractId: string,
@@ -2792,6 +2803,8 @@ export function boqAmendmentIssues(
   const d = data ?? read();
   const contract = d.contracts.find((c) => c.id === contractId);
   if (!contract) return ["Contract not found."];
+  const schedule = scheduleStopMessage(contract, d.schedules);
+  if (schedule) return [schedule];
   const issues: string[] = [];
   if (proposed.length === 0) issues.push("BOQ needs at least one line.");
   const names = new Set<string>();
@@ -2808,45 +2821,9 @@ export function boqAmendmentIssues(
     const qty = Number(l.quantity);
     if (!Number.isFinite(qty) || qty <= 0) {
       issues.push(`Qty must be > 0 for ${name} (remove the line instead).`);
-      continue;
-    }
-    if (!contract.boq.some((b) => b.id === l.id)) continue;
-    const floor = Math.max(
-      suppliedQty(contractId, l.id, d),
-      installedQty(contractId, l.id, d)
-    );
-    if (qty + QTY_EPS < floor) {
-      issues.push(
-        `${name}: qty ${qty} is below already dispatched/installed ${floor}.`
-      );
     }
   }
-  const keptIds = new Set(proposed.map((l) => l.id));
-  for (const b of contract.boq) {
-    if (keptIds.has(b.id)) continue;
-    const hasExecution =
-      suppliedQty(contractId, b.id, d) > 0 || installedQty(contractId, b.id, d) > 0;
-    const hasSchedule = d.schedules.some(
-      (s) => s.contractId === contractId && s.boqItemId === b.id
-    );
-    const hasInvoice = d.invoices.some(
-      (i) =>
-        i.contractId === contractId &&
-        i.lines.some((l) => l.boqItemId === b.id)
-    );
-    const blocker = hasExecution
-      ? "dispatch/installation"
-      : hasSchedule
-        ? "schedule"
-        : hasInvoice
-          ? "invoice"
-          : null;
-    if (blocker) {
-      issues.push(
-        `${b.name} has ${blocker} records — reduce its qty instead of removing it.`
-      );
-    }
-  }
+  issues.push(...existingLineRateIssues(contract.boq, proposed));
   return issues;
 }
 
@@ -2917,6 +2894,20 @@ export function amendContractBoq(input: {
     next = res.data;
     return { ...line, catalogKey: line.catalogKey || res.catalogKey };
   });
+  const carries = rateChangeCarries(current.boq, boq);
+  next = {
+    ...next,
+    deliveryChallans: remapDeliveryChallans(
+      next.deliveryChallans,
+      current.id,
+      carries
+    ),
+    installationProgress: remapInstallation(
+      next.installationProgress,
+      current.id,
+      carries
+    ),
+  };
 
   const amendment: BoqAmendment = {
     id: crypto.randomUUID(),
@@ -2963,6 +2954,61 @@ export function amendContractBoq(input: {
   });
   syncDatedSystemTasks();
   return { ok: true, amendment, contract: updated };
+}
+
+export type DeleteAmendmentResult =
+  | { ok: true; contract: Contract }
+  | { ok: false; error: string };
+
+/**
+ * Delete the latest amendment and restore the previous BOQ and order value.
+ * Supplied and installed quantities that moved onto a new line move back.
+ * Invoices and cash are left as recorded.
+ */
+export function deleteLatestAmendment(
+  contractId: string
+): DeleteAmendmentResult {
+  const data = read();
+  const current = data.contracts.find((c) => c.id === contractId);
+  if (!current) return { ok: false, error: "Contract not found." };
+  const ordered = [...(current.amendments ?? [])].sort((a, b) => a.seq - b.seq);
+  const latest = ordered[ordered.length - 1];
+  if (!latest) return { ok: false, error: "No amendment to delete." };
+  const error = amendmentDeleteError({
+    contract: current,
+    invoices: data.invoices,
+    deliveryChallans: data.deliveryChallans,
+    installationProgress: data.installationProgress,
+    schedules: data.schedules,
+  });
+  if (error) return { ok: false, error };
+
+  const boq = boqBeforeAmendment(current, latest);
+  const carries = undoRateChangeCarries(latest.lineDiffs);
+  const next = {
+    ...data,
+    deliveryChallans: remapDeliveryChallans(
+      data.deliveryChallans,
+      current.id,
+      carries
+    ),
+    installationProgress: remapInstallation(
+      data.installationProgress,
+      current.id,
+      carries
+    ),
+  };
+  const updated = normalizeContract({
+    ...current,
+    boq,
+    orderValue: latest.previousOrderValue,
+    amendments: current.amendments.filter((row) => row.id !== latest.id),
+  });
+  write({
+    ...next,
+    contracts: next.contracts.map((c) => (c.id === current.id ? updated : c)),
+  });
+  return { ok: true, contract: updated };
 }
 
 export type BoqLineUseKind = "invoice" | "schedule" | "delivery challan";
@@ -3431,6 +3477,12 @@ export function addInvoice(input: {
   const lines = recalcInvoiceLines(input.lines);
   if (!contract || lines.length === 0) return null;
   if (lines.some((l) => !isValidInvoiceQty(l.billedQty))) return null;
+  if (
+    input.type === "TI" &&
+    taxInvoiceQuantityIssues({ contract, invoices: data.invoices, lines }).length
+  ) {
+    return null;
+  }
 
   const netAmount = lines.reduce((s, l) => s + l.lineNet, 0);
   const gstAmount = contract.gstApplicable ? netAmount * GST_RATE : 0;
@@ -3474,6 +3526,18 @@ export function updateInvoice(
   if (lines.length === 0) return null;
   if (patch.lines && lines.some((l) => !isValidInvoiceQty(l.billedQty)))
     return null;
+  if (
+    current.type === "TI" &&
+    patch.lines &&
+    taxInvoiceQuantityIssues({
+      contract,
+      invoices: data.invoices,
+      lines,
+      exceptInvoiceId: current.id,
+    }).length
+  ) {
+    return null;
+  }
   const extraCharges = patch.extraCharges ?? current.extraCharges ?? [];
   const netAmount = lines.reduce((s, l) => s + l.lineNet, 0);
   const gstAmount = contract.gstApplicable ? netAmount * GST_RATE : 0;
@@ -3515,6 +3579,16 @@ export function convertPiToTi(
   const lines = recalcInvoiceLines(overrides?.lines ?? pi.lines);
   if (lines.length === 0) return null;
   if (lines.some((l) => !isValidInvoiceQty(l.billedQty))) return null;
+  if (
+    contract &&
+    taxInvoiceQuantityIssues({
+      contract,
+      invoices: data.invoices,
+      lines,
+    }).length
+  ) {
+    return null;
+  }
   const extraCharges = overrides?.extraCharges ?? pi.extraCharges ?? [];
   const netAmount = lines.reduce((s, l) => s + l.lineNet, 0);
   const gstAmount = contract?.gstApplicable ? netAmount * GST_RATE : 0;

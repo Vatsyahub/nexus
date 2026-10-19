@@ -7,16 +7,26 @@ import {
   addInvoice,
   flushWorkspace,
   isValidInvoiceQty,
-  lineNet,
   useFlowhubData,
 } from "@/lib/store";
 import { billingTermLabel } from "@/lib/billing-terms";
+import {
+  boqCallbackOffers,
+  draftCoversOffer,
+  taxInvoiceQuantityIssues,
+  type BoqCallbackOffer,
+} from "@/lib/amendment-callback";
+import {
+  previewInvoiceLine,
+  type StoredLineFigures,
+} from "@/lib/invoice-line-edit";
 import {
   GST_RATE,
   orderedBillingTermKeys,
   type InvoiceExtraCharge,
   type InvoiceLine,
 } from "@/lib/types";
+import { BoqCallbackPanel } from "@/components/boq-callback-panel";
 import { ContractTypeahead } from "@/components/contract-typeahead";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
@@ -38,6 +48,7 @@ type DraftLine = {
   boqItemId: string;
   termKey: string;
   billedQty: string;
+  stored?: StoredLineFigures;
 };
 
 export default function NewInvoicePage() {
@@ -69,37 +80,84 @@ export default function NewInvoicePage() {
   const previewLines: InvoiceLine[] = useMemo(() => {
     if (!contract) return [];
     return draftLines
-      .map((d) => {
-        const item = contract.boq.find((b) => b.id === d.boqItemId);
-        if (!item || !d.termKey) return null;
-        const qty = Number(d.billedQty) || 0;
-        const termPercent = contract.billingTerms[d.termKey] || 0;
-        return {
-          boqItemId: item.id,
-          itemName: item.name,
-          termKey: d.termKey,
-          billedQty: qty,
-          rate: item.rate,
-          termPercent,
-          lineNet: lineNet(item.rate, qty, termPercent),
-        } satisfies InvoiceLine;
-      })
-      .filter(Boolean) as InvoiceLine[];
+      .map((d) =>
+        previewInvoiceLine(
+          {
+            boqItemId: d.boqItemId,
+            termKey: d.termKey,
+            billedQty: Number(d.billedQty) || 0,
+            stored: d.stored,
+          },
+          contract.boq,
+          contract.billingTerms
+        )
+      )
+      .filter((line): line is InvoiceLine => line != null);
   }, [contract, draftLines]);
 
-  function draftLineNet(d: DraftLine): number {
-    const item = contract?.boq.find((b) => b.id === d.boqItemId);
-    if (!item || !contract) return 0;
-    return lineNet(
-      item.rate,
-      Number(d.billedQty) || 0,
-      contract.billingTerms[d.termKey] || 0
+  const callbackOffers = useMemo(() => {
+    if (!contract || type !== "TI") return [];
+    const offers = boqCallbackOffers({
+      contract,
+      invoices: data.invoices,
+    });
+    return offers.filter(
+      (offer) =>
+        !draftLines.some((draft) => {
+          const item = contract.boq.find((row) => row.id === draft.boqItemId);
+          return draftCoversOffer(
+            [
+              {
+                itemName: draft.stored?.itemName || item?.name || "",
+                termKey: draft.termKey,
+                rate: draft.stored?.rate ?? item?.rate ?? 0,
+              },
+            ],
+            offer
+          );
+        })
+    );
+  }, [contract, data.invoices, draftLines, type]);
+
+  const callbackLines = draftLines.filter(
+    (draft) =>
+      draft.stored && !contract?.boq.some((row) => row.id === draft.boqItemId)
+  );
+
+  function draftPreview(d: DraftLine): InvoiceLine | null {
+    if (!contract) return null;
+    return previewInvoiceLine(
+      {
+        boqItemId: d.boqItemId,
+        termKey: d.termKey,
+        billedQty: Number(d.billedQty) || 0,
+        stored: d.stored,
+      },
+      contract.boq,
+      contract.billingTerms
     );
   }
 
   const net = previewLines.reduce((s, l) => s + l.lineNet, 0);
   const gst = contract?.gstApplicable ? net * GST_RATE : 0;
   const extraTotal = charges.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+
+  function addCallbackLines(offers: BoqCallbackOffer[]) {
+    setDraftLines((prev) => [
+      ...prev,
+      ...offers.map((offer) => ({
+        id: crypto.randomUUID(),
+        boqItemId: offer.boqItemId,
+        termKey: offer.termKey,
+        billedQty: String(offer.quantity),
+        stored: {
+          rate: offer.rate,
+          termPercent: offer.termPercent,
+          itemName: offer.itemName,
+        },
+      })),
+    ]);
+  }
 
   function addLineForItem(boqItemId: string) {
     const defaultTerm = termKeys[0] || "supply";
@@ -127,6 +185,17 @@ export default function NewInvoicePage() {
     ) {
       setMsg("Add at least one line; billed qty cannot be 0 (negative is allowed).");
       return;
+    }
+    if (type === "TI" && contract) {
+      const qtyIssues = taxInvoiceQuantityIssues({
+        contract,
+        invoices: data.invoices,
+        lines: previewLines,
+      });
+      if (qtyIssues.length) {
+        setMsg(qtyIssues[0]);
+        return;
+      }
     }
     const extraCharges: InvoiceExtraCharge[] = charges
       .filter((c) => c.label.trim() && Number(c.amount) > 0)
@@ -195,7 +264,13 @@ export default function NewInvoicePage() {
             <select
               className="flex h-8 w-full rounded-lg border border-input px-2 text-sm"
               value={type}
-              onChange={(e) => setType(e.target.value as "PI" | "TI")}
+              onChange={(e) => {
+                const next = e.target.value as "PI" | "TI";
+                setType(next);
+                if (next === "PI") {
+                  setDraftLines((prev) => prev.filter((draft) => !draft.stored));
+                }
+              }}
             >
               <option value="PI">Proforma Invoice</option>
               <option value="TI">Tax Invoice</option>
@@ -288,7 +363,7 @@ export default function NewInvoicePage() {
                           <Label className="text-xs">
                             Billed qty{" "}
                             <span className="text-[var(--fh-muted)]">
-                              · {formatMoney(draftLineNet(draft))}
+                              · {formatMoney(draftPreview(draft)?.lineNet ?? 0)}
                             </span>
                           </Label>
                           <Input
@@ -326,6 +401,31 @@ export default function NewInvoicePage() {
                 );
               })}
             </ul>
+
+            {type === "TI" && contract && (
+              <BoqCallbackPanel
+                offers={callbackOffers}
+                lines={callbackLines.map((draft) => ({
+                  id: draft.id,
+                  itemName: draft.stored?.itemName || "Item",
+                  termKey: draft.termKey,
+                  rate: draft.stored?.rate ?? 0,
+                  termPercent: draft.stored?.termPercent ?? 0,
+                  billedQty: draft.billedQty,
+                }))}
+                onAdd={addCallbackLines}
+                onQty={(id, qty) =>
+                  setDraftLines((prev) =>
+                    prev.map((row) =>
+                      row.id === id ? { ...row, billedQty: qty } : row
+                    )
+                  )
+                }
+                onRemove={(id) =>
+                  setDraftLines((prev) => prev.filter((row) => row.id !== id))
+                }
+              />
+            )}
 
             <div className="space-y-2 border-t border-[var(--fh-line)] pt-4">
               <div className="flex items-center justify-between">
