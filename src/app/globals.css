@@ -498,6 +498,15 @@ html[data-theme="dark-knight"] [class~="bg-emerald-100"] {
   background-color: #12312c;
 }
 
+/* Amendments details only: added-line text stays darker than the green fill. */
+.amendment-added-text {
+  color: #022c22;
+}
+html[data-theme="dark"] .amendment-added-text,
+html[data-theme="dark-knight"] .amendment-added-text {
+  color: #d1fae5;
+}
+
 html[data-theme="dark"] [class~="text-green-700"],
 html[data-theme="dark-knight"] [class~="text-green-700"],
 html[data-theme="dark"] [class~="text-green-800"],
