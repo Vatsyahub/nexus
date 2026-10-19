@@ -6,6 +6,7 @@ import {
   collectionCashReceived,
   filterCollectionRows,
   sumCollectionCashReceived,
+  sumCollectionColumns,
 } from "@/lib/reports";
 
 function contract(
@@ -215,6 +216,50 @@ test("a missing payment link still resolves today's invoice or unlinked", () => 
   const byId = new Map(rows.map((r) => [r.paymentId, r]));
   assert.equal(byId.get("legacy")?.against, "TI-9");
   assert.equal(byId.get("loose")?.against, "Unlinked");
+});
+
+test("a payment with net, GST, and retention splits cash received and leaves retention out", () => {
+  const site = contract({
+    id: "c-split",
+    projectNo: "P-7",
+    projectName: "Split site",
+  });
+  const [row] = buildCollectionRows(
+    workspace(
+      [site],
+      [],
+      [
+        pay({
+          id: "split",
+          contractId: site.id,
+          netAmount: 1000,
+          gstAmount: 180,
+          retentionAmount: 50,
+          tdsAmount: 20,
+          otherDeductions: 5,
+        }),
+      ]
+    )
+  );
+
+  assert.equal(row.cashReceivedNet, 1000);
+  assert.equal(row.cashReceivedGst, 180);
+  assert.equal(row.cashReceived, 1180);
+  assert.equal(row.cashReceived, row.cashReceivedNet + row.cashReceivedGst);
+  assert.equal(row.retention, 50);
+  assert.equal(row.tds, 20);
+  assert.equal(row.otherDeductions, 5);
+  assert.notEqual(row.cashReceivedNet, 1000 + 50);
+  assert.notEqual(row.cashReceivedGst, 180 + 50);
+  assert.notEqual(row.cashReceived, 1000 + 180 + 50 + 20 + 5);
+
+  const totals = sumCollectionColumns([row]);
+  assert.equal(totals.cashReceivedNet, row.cashReceivedNet);
+  assert.equal(totals.cashReceivedGst, row.cashReceivedGst);
+  assert.equal(totals.cashReceived, row.cashReceived);
+  assert.equal(totals.cashReceived, totals.cashReceivedNet + totals.cashReceivedGst);
+  assert.equal(totals.retention, row.retention);
+  assert.equal(sumCollectionCashReceived([row]), 1180);
 });
 
 test("cash received ignores a recovered field", () => {

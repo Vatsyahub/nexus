@@ -877,20 +877,34 @@ export type CollectionReportRow = {
   date: string;
   /** Tax invoice number, proforma number, “Recoverable”, or “Unlinked”. */
   against: string;
-  /** Payment net + GST only. Retention, TDS, other deductions, and recovered stay out. */
+  /** Payment net only. Retention, TDS, other deductions, and recovered stay out. */
+  cashReceivedNet: number;
+  /** Payment GST only. Retention, TDS, other deductions, and recovered stay out. */
+  cashReceivedGst: number;
+  /** Payment net + GST. Retention, TDS, other deductions, and recovered stay out. */
   cashReceived: number;
   retention: number;
   tds: number;
   otherDeductions: number;
 };
 
+/** Net on the payments that already make up cash received. Holds and deductions stay out. */
+export function collectionCashReceivedNet(p: Payment): number {
+  return Number(p.netAmount) || 0;
+}
+
+/** GST on the payments that already make up cash received. Holds and deductions stay out. */
+export function collectionCashReceivedGst(p: Payment): number {
+  return Number(p.gstAmount) || 0;
+}
+
 /**
- * Cash received on a collection row: payment net + GST.
+ * Cash received total on a collection row: payment net + GST.
  * Retention, TDS, other deductions, and a `recovered` amount (when that field
  * exists) are not part of this figure.
  */
 export function collectionCashReceived(p: Payment): number {
-  return (Number(p.netAmount) || 0) + (Number(p.gstAmount) || 0);
+  return collectionCashReceivedNet(p) + collectionCashReceivedGst(p);
 }
 
 function paymentLinkValue(p: Payment): string {
@@ -951,6 +965,8 @@ export function buildCollectionRows(data: FlowhubData): CollectionReportRow[] {
         projectName: contract?.projectName ?? "—",
         date: p.date,
         against,
+        cashReceivedNet: collectionCashReceivedNet(p),
+        cashReceivedGst: collectionCashReceivedGst(p),
         cashReceived: collectionCashReceived(p),
         retention: Number(p.retentionAmount) || 0,
         tds: Number(p.tdsAmount) || 0,
@@ -974,10 +990,14 @@ export function filterCollectionRows(
       r.projectNo,
       r.projectName,
       r.against,
+      r.cashReceivedNet,
+      r.cashReceivedGst,
       r.cashReceived,
       r.retention,
       r.tds,
       r.otherDeductions,
+      formatMoney(r.cashReceivedNet),
+      formatMoney(r.cashReceivedGst),
       formatMoney(r.cashReceived),
       formatMoney(r.retention),
       formatMoney(r.tds),
@@ -990,6 +1010,38 @@ export function filterCollectionRows(
 /** Sum of cash received on the rows still in the list. Holds and deductions stay out. */
 export function sumCollectionCashReceived(rows: CollectionReportRow[]): number {
   return rows.reduce((sum, row) => sum + row.cashReceived, 0);
+}
+
+export type CollectionColumnTotals = {
+  cashReceivedNet: number;
+  cashReceivedGst: number;
+  cashReceived: number;
+  retention: number;
+  tds: number;
+  otherDeductions: number;
+};
+
+/** Column sums for the rows still in the list. Cash total is net plus GST. */
+export function sumCollectionColumns(
+  rows: CollectionReportRow[]
+): CollectionColumnTotals {
+  const totals: CollectionColumnTotals = {
+    cashReceivedNet: 0,
+    cashReceivedGst: 0,
+    cashReceived: 0,
+    retention: 0,
+    tds: 0,
+    otherDeductions: 0,
+  };
+  for (const row of rows) {
+    totals.cashReceivedNet += row.cashReceivedNet;
+    totals.cashReceivedGst += row.cashReceivedGst;
+    totals.cashReceived += row.cashReceived;
+    totals.retention += row.retention;
+    totals.tds += row.tds;
+    totals.otherDeductions += row.otherDeductions;
+  }
+  return totals;
 }
 
 export function formatRetentionStatusLabel(status: RetentionReportStatus): string {
