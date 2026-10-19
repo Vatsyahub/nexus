@@ -76,16 +76,16 @@ export default function ContractsPage() {
 
       <HubDataScroll className="overflow-x-auto rounded-xl border border-[var(--fh-line)] bg-white">
         <Table>
-          <TableHeader>
+          <TableHeader className="uppercase tracking-wide">
             <TableRow>
-              <TableHead>Project</TableHead>
-              <TableHead>Order</TableHead>
-              <TableHead>Location</TableHead>
-              <TableHead className="text-right">Value</TableHead>
-              <TableHead>Closure date</TableHead>
-              <TableHead className="text-right">Yet to bill</TableHead>
-              <TableHead>Pending tasks</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead>PROJECT</TableHead>
+              <TableHead>ORDER</TableHead>
+              <TableHead>LOCATION</TableHead>
+              <TableHead className="text-right">VALUE</TableHead>
+              <TableHead>CLOSURE DATE</TableHead>
+              <TableHead className="text-right">YET TO BILL</TableHead>
+              <TableHead>PENDING TASKS</TableHead>
+              <TableHead>STATUS</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
