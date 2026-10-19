@@ -1,3 +1,4 @@
+import { taskNotificationHref } from "@/lib/notification-href";
 import type { HubNotification, Task } from "@/lib/types";
 
 
@@ -101,6 +102,78 @@ export function notificationVisibleTo(
     return sameDepartment(user.department, n.audienceDepartment);
   }
   return false;
+}
+
+/** Managers of the waiting user's department, or Master when that department is missing. */
+export function taskVerifyNotice(task: Task, actor: TaskActor): HubNotification {
+  const dept = (actor.department || "").trim() || null;
+  return {
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+    kind: "task_verify",
+    title: "Verify completed task",
+    body: task.title,
+    href: taskNotificationHref(task),
+    taskId: task.id,
+    contractId: task.contractId,
+    audienceUserNames: [],
+    audienceDepartment: dept,
+    audienceClearance: dept ? null : "master",
+    createdBy: actor.name ?? null,
+    readByUserIds: [],
+    readAtByUserIds: {},
+    clearedByUserIds: [],
+  };
+}
+
+function isSubtaskRow(task: { parentId?: string | null }): boolean {
+  return (task.parentId || "").trim().length > 0;
+}
+
+/**
+ * A subtask completion must not add a verify notice.
+ * A parent that a user has just parked still gets one if the save omitted it.
+ * Notices already stored are left alone.
+ */
+export function reconcileTaskVerifyNotices(input: {
+  previousTasks: Task[];
+  tasks: Task[];
+  previousNotifications: HubNotification[];
+  notifications: HubNotification[];
+  actor: TaskActor | null | undefined;
+}): HubNotification[] {
+  const previousIds = new Set(input.previousNotifications.map((notice) => notice.id));
+  const previousById = new Map(input.previousTasks.map((task) => [task.id, task]));
+  const subtaskIds = new Set(
+    input.tasks.filter((task) => isSubtaskRow(task)).map((task) => task.id)
+  );
+  const kept = input.notifications.filter((notice) => {
+    if (notice.kind !== "task_verify" || previousIds.has(notice.id)) return true;
+    return !(notice.taskId && subtaskIds.has(notice.taskId));
+  });
+  if (!input.actor) return kept;
+  const extra: HubNotification[] = [];
+  for (const task of input.tasks) {
+    if (isSubtaskRow(task)) continue;
+    const prev = previousById.get(task.id);
+    if (!prev) continue;
+    if (task.status !== "awaiting_verification") continue;
+    if (prev.status === "awaiting_verification") continue;
+    const alreadyRaised = kept.some(
+      (notice) =>
+        notice.kind === "task_verify" &&
+        notice.taskId === task.id &&
+        !previousIds.has(notice.id)
+    );
+    if (alreadyRaised) continue;
+    extra.push(
+      taskVerifyNotice(task, {
+        name: input.actor.name,
+        department: task.verificationDepartment,
+      })
+    );
+  }
+  return extra.length ? [...kept, ...extra] : kept;
 }
 
 /** Department manager for the waiting user's department, or Master for any. */

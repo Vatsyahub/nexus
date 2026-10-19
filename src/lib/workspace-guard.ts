@@ -21,6 +21,7 @@ import {
   isWorkspaceChangeRequest,
   type WorkspaceChangeRequest,
 } from "@/lib/workspace-changes";
+import { reconcileTaskVerifyNotices } from "@/lib/task-notices";
 import {
   applyTaskEditPolicy,
   type TaskEditContext,
@@ -458,6 +459,13 @@ export function mergeWorkspaceSave(
     });
     tasks = reconciled.tasks;
     taskDeadlineChangeLog = reconciled.log;
+    notifications = reconcileTaskVerifyNotices({
+      previousTasks: current.tasks,
+      tasks,
+      previousNotifications: current.notifications,
+      notifications,
+      actor: taskEdit?.actor ?? null,
+    });
   }
 
   const clearedNotices = pruneClearedNotices(

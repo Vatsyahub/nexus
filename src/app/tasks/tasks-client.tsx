@@ -62,12 +62,10 @@ import {
   formatDisplayDate,
   formatDisplayDateTime,
 } from "@/lib/dates";
-import {
-  canMoveTaskDeadline,
-} from "@/lib/task-deadline-log";
 import type { TaskDeadlineChangeLogEntry } from "@/lib/types";
 import { confirmWorkspaceSave } from "@/lib/save-notice";
 import {
+  canEditTaskSchedule,
   canUpdateTask,
   departmentIsSet,
   namedOnTask,
@@ -1314,8 +1312,12 @@ function TaskEditor({
     departments,
     canEditTasks
   );
-  const mayMoveDeadline = canMoveTaskDeadline(actor, task);
-  const deadlineLocked = !!task.dueDate && !mayMoveDeadline;
+  const mayEditSchedule = canEditTaskSchedule(actor, task);
+  const maySetNewSubDeadline = canEditTaskSchedule(actor, {
+    department: null,
+    assignees: [],
+  });
+  const deadlineLocked = !mayEditSchedule;
   const canName = canNamePeople(actor, task, canAssignPeople);
   const selectable = peopleForDepartment(people, department);
   const openSubs = subtasks.filter(taskIsOpen);
@@ -1382,7 +1384,11 @@ function TaskEditor({
       return;
     }
     setDeadlineReason("");
-    const updated = updateTask(task.id, { priority }, { actor, people });
+    const updated = updateTask(
+      task.id,
+      { priority: mayEditSchedule ? priority : task.priority },
+      { actor, people }
+    );
     if (!updated) {
       setErr(TASK_SAVE_DENIED);
       return;
@@ -1762,7 +1768,7 @@ function TaskEditor({
             <Label className="text-xs">Deadline</Label>
             {deadlineLocked ? (
               <p className="flex h-9 items-center text-sm text-[var(--fh-ink)]">
-                {formatDisplayDate(task.dueDate)}
+                {task.dueDate ? formatDisplayDate(task.dueDate) : "No deadline"}
               </p>
             ) : (
               <Input
@@ -1775,17 +1781,23 @@ function TaskEditor({
           </div>
           <div className="col-span-2 min-w-0 space-y-1 lg:col-span-2">
             <Label className="text-xs">Priority</Label>
-            <select
-              className="flex h-9 w-full rounded-lg border border-input bg-white px-2 text-sm"
-              value={priority}
-              onChange={(e) => setPriority(e.target.value as TaskPriority)}
-            >
-              {(Object.keys(TASK_PRIORITY_LABELS) as TaskPriority[]).map((p) => (
-                <option key={p} value={p}>
-                  {TASK_PRIORITY_LABELS[p]}
-                </option>
-              ))}
-            </select>
+            {mayEditSchedule ? (
+              <select
+                className="flex h-9 w-full rounded-lg border border-input bg-white px-2 text-sm"
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as TaskPriority)}
+              >
+                {(Object.keys(TASK_PRIORITY_LABELS) as TaskPriority[]).map((p) => (
+                  <option key={p} value={p}>
+                    {TASK_PRIORITY_LABELS[p]}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <p className="flex h-9 items-center text-sm text-[var(--fh-ink)]">
+                {TASK_PRIORITY_LABELS[task.priority]}
+              </p>
+            )}
           </div>
           {canName && (
             <div className="col-span-2 min-w-0 space-y-1 lg:col-span-4">
@@ -1818,7 +1830,7 @@ function TaskEditor({
             </div>
           )}
         </div>
-        {task.dueDate && dueDate && dueDate !== task.dueDate && mayMoveDeadline && (
+        {task.dueDate && dueDate && dueDate !== task.dueDate && mayEditSchedule && (
           <div className="space-y-1">
             <Label className="text-xs">Reason for the new deadline</Label>
             <Input
@@ -2079,6 +2091,7 @@ function TaskEditor({
             />
           </div>
           )}
+          {maySetNewSubDeadline && (
           <div className="space-y-1">
             <Label className="text-xs">Deadline</Label>
             <Input
@@ -2088,6 +2101,7 @@ function TaskEditor({
               onChange={(e) => setSubDue(e.target.value)}
             />
           </div>
+          )}
           <Button
             size="sm"
             variant="outline"
@@ -2100,7 +2114,7 @@ function TaskEditor({
                 {
                   title: subTitle,
                   department: chosenDepartment(newSubControl, subDept),
-                  dueDate: subDue || null,
+                  dueDate: maySetNewSubDeadline ? subDue || null : null,
                 },
                 { actor }
               );
@@ -2144,6 +2158,7 @@ function SubtaskEditor({
   const [assignees, setAssignees] = useState<string[]>(task.assignees);
   const [dueDate, setDueDate] = useState(task.dueDate ?? "");
   const [deadlineReason, setDeadlineReason] = useState("");
+  const [priority, setPriority] = useState<TaskPriority>(task.priority);
   const [status, setStatus] = useState<TaskStatus>(task.status);
   const [notes, setNotes] = useState(task.notes ?? "");
   const [reason, setReason] = useState(task.notRequiredReason ?? "");
@@ -2159,8 +2174,8 @@ function SubtaskEditor({
   const keepingSavedDepartment =
     departmentControl.kind === "fixed" ||
     (departmentControl.kind === "clear" && department !== "none");
-  const mayMoveDeadline = canMoveTaskDeadline(actor, task);
-  const deadlineLocked = !!task.dueDate && !mayMoveDeadline;
+  const mayEditSchedule = canEditTaskSchedule(actor, task);
+  const deadlineLocked = !mayEditSchedule;
   const canName = canNamePeople(actor, task, canAssignPeople);
   const selectable = peopleForDepartment(
     people,
@@ -2201,7 +2216,7 @@ function SubtaskEditor({
       className="mt-1 w-full space-y-1.5 border-t border-[var(--fh-line)] pt-1.5"
       data-task-access="edit"
     >
-      <div className="grid gap-1.5 sm:grid-cols-3">
+      <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
         <DepartmentField
           control={departmentControl}
           value={department}
@@ -2213,7 +2228,7 @@ function SubtaskEditor({
         />
         {deadlineLocked ? (
           <p className="flex h-9 items-center text-sm text-[var(--fh-ink)]">
-            {formatDisplayDate(task.dueDate)}
+            {task.dueDate ? formatDisplayDate(task.dueDate) : "No deadline"}
           </p>
         ) : (
           <Input
@@ -2222,6 +2237,23 @@ function SubtaskEditor({
             value={dueDate}
             onChange={(e) => setDueDate(e.target.value)}
           />
+        )}
+        {mayEditSchedule ? (
+          <select
+            className="flex h-9 rounded-lg border border-input bg-white px-2 text-sm"
+            value={priority}
+            onChange={(e) => setPriority(e.target.value as TaskPriority)}
+          >
+            {(Object.keys(TASK_PRIORITY_LABELS) as TaskPriority[]).map((p) => (
+              <option key={p} value={p}>
+                {TASK_PRIORITY_LABELS[p]}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <p className="flex h-9 items-center text-sm text-[var(--fh-ink)]">
+            {TASK_PRIORITY_LABELS[task.priority]}
+          </p>
         )}
         <select
           className="flex h-9 rounded-lg border border-input bg-white px-2 text-sm"
@@ -2235,7 +2267,7 @@ function SubtaskEditor({
           ))}
         </select>
       </div>
-      {task.dueDate && dueDate && dueDate !== task.dueDate && mayMoveDeadline && (
+      {task.dueDate && dueDate && dueDate !== task.dueDate && mayEditSchedule && (
         <Input
           placeholder="Reason for the new deadline"
           value={deadlineReason}
@@ -2323,6 +2355,15 @@ function SubtaskEditor({
               return;
             }
             setDeadlineReason("");
+            const scheduled = updateTask(
+              task.id,
+              { priority: mayEditSchedule ? priority : task.priority },
+              { actor, people }
+            );
+            if (!scheduled) {
+              setErr(TASK_SAVE_DENIED);
+              return;
+            }
             const result = updateTaskStatus(task.id, status, {
               notes,
               notRequiredReason: reason,

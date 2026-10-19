@@ -12,7 +12,11 @@ import {
   type TaskPriority,
 } from "@/lib/types";
 import type { ClearanceRole } from "@/lib/clearance";
-import { peopleNamedInDepartment, taskDepartmentControl } from "@/lib/task-permissions";
+import {
+  canEditTaskSchedule,
+  peopleNamedInDepartment,
+  taskDepartmentControl,
+} from "@/lib/task-permissions";
 import type { AssignablePerson } from "../tasks-client";
 import { ContractTypeahead } from "@/components/contract-typeahead";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
@@ -50,6 +54,10 @@ export function NewTaskClient({
   const router = useRouter();
   const departments = useMemo(() => listDepartments(data), [data]);
   const assignPeople = canAssignPeople(role);
+  const maySetSchedule = canEditTaskSchedule(
+    { name: "", clearance: role, department: null },
+    { department: null, assignees: [] }
+  );
   const departmentControl = taskDepartmentControl(
     { name: "", clearance: role, department: null },
     { parentId: null, department: null, assignees: [] },
@@ -134,8 +142,8 @@ export function NewTaskClient({
             )
           )
         : [],
-      dueDate: dueDate || null,
-      priority,
+      dueDate: maySetSchedule ? dueDate || null : null,
+      priority: maySetSchedule ? priority : "normal",
       catalogKey,
       source: catalog?.system ? "system" : "manual",
     }, { actor: { name: "", clearance: role, department: null } });
@@ -232,25 +240,37 @@ export function NewTaskClient({
           </div>
           <div className="space-y-1">
             <Label>Deadline</Label>
-            <Input
-              type="date"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-            />
+            {maySetSchedule ? (
+              <Input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+              />
+            ) : (
+              <p className="flex h-9 items-center text-sm text-[var(--fh-muted)]">
+                No deadline
+              </p>
+            )}
           </div>
           <div className="space-y-1">
             <Label>Priority</Label>
-            <select
-              className="flex h-9 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
-              value={priority}
-              onChange={(e) => setPriority(e.target.value as TaskPriority)}
-            >
-              {(Object.keys(TASK_PRIORITY_LABELS) as TaskPriority[]).map((p) => (
-                <option key={p} value={p}>
-                  {TASK_PRIORITY_LABELS[p]}
-                </option>
-              ))}
-            </select>
+            {maySetSchedule ? (
+              <select
+                className="flex h-9 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as TaskPriority)}
+              >
+                {(Object.keys(TASK_PRIORITY_LABELS) as TaskPriority[]).map((p) => (
+                  <option key={p} value={p}>
+                    {TASK_PRIORITY_LABELS[p]}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <p className="flex h-9 items-center text-sm text-[var(--fh-muted)]">
+                {TASK_PRIORITY_LABELS.normal}
+              </p>
+            )}
           </div>
           {assignPeople && department !== "none" && (
             <div className="space-y-1 sm:col-span-2">

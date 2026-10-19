@@ -6,6 +6,7 @@ import {
   addSubtask,
   assignTask,
   completeTaskWithSubtasks,
+  confirmTaskVerification,
   getData,
   updateTask,
   updateTaskStatus,
@@ -275,4 +276,115 @@ test("task and subtask saves follow the department on that row", () => {
   });
   assert.equal(masterFinish?.status, "in_progress");
   assert.equal(taskByTitle("Dept lock close parent").notes, "master note");
+});
+
+function verifyNotices(taskId: string) {
+  return getData().notifications.filter(
+    (notice) => notice.kind === "task_verify" && notice.taskId === taskId
+  );
+}
+
+test("a user completes a subtask immediately and a parent still waits", () => {
+  const { contract } = addContract({
+    projectName: "Complete now",
+    projectNo: "COMPLETE-NOW",
+    orderNos: "COMPLETE-NOW",
+    orderDate: "2026-01-01",
+    closureDate: "2026-12-31",
+    orderValue: 1000,
+    gstApplicable: false,
+    city: "Delhi",
+    state: "Delhi",
+    country: "India",
+    billingTerms: { supply: 100 },
+    paymentDueDays: 30,
+    retentionPercent: 0,
+    tdsPercent: 2,
+    dlpMonths: 12,
+    abgRequired: false,
+    abgPercent: null,
+    abgValue: null,
+    pbgRequired: false,
+    pbgPercent: null,
+    pbgValue: null,
+    contractorAssigned: "",
+    boq: [],
+  });
+  const user: TaskActor = {
+    name: "Site Lead",
+    clearance: "user",
+    department: "Installation Department",
+  };
+  const parent = addManualTask({
+    title: "Complete now parent",
+    contractId: contract.id,
+    department: "Contracts Department",
+    assignees: ["Site Lead"],
+  });
+  const sub = addSubtask(parent.id, {
+    title: "Complete now sub",
+    department: "Installation Department",
+    assignees: ["Site Lead"],
+  });
+  assert.ok(sub);
+
+  const finishedSub = updateTaskStatus(sub.id, "completed", { actor: user });
+  assert.equal(finishedSub?.status, "completed");
+  assert.equal(taskByTitle("Complete now sub").status, "completed");
+  assert.equal(verifyNotices(sub.id).length, 0);
+
+  const waitingParent = updateTaskStatus(parent.id, "completed", {
+    actor: user,
+    notes: "parent ready",
+  });
+  assert.equal(waitingParent?.status, "awaiting_verification");
+  assert.equal(taskByTitle("Complete now parent").status, "awaiting_verification");
+  assert.equal(verifyNotices(parent.id).length, 1);
+
+  const withSubs = addManualTask({
+    title: "Complete now with subs",
+    contractId: contract.id,
+    department: "Installation Department",
+    assignees: ["Site Lead"],
+  });
+  const openSub = addSubtask(withSubs.id, {
+    title: "Complete now child",
+    department: "Installation Department",
+    assignees: ["Site Lead"],
+  });
+  assert.ok(openSub);
+  const closed = completeTaskWithSubtasks(
+    withSubs.id,
+    [{ id: openSub.id, status: "completed" }],
+    { actor: user, notes: "closing" }
+  );
+  assert.equal(closed.ok, true);
+  if (closed.ok) assert.equal(closed.status, "awaiting_verification");
+  assert.equal(taskByTitle("Complete now child").status, "completed");
+  assert.equal(taskByTitle("Complete now with subs").status, "awaiting_verification");
+  assert.equal(verifyNotices(openSub.id).length, 0);
+  assert.equal(verifyNotices(withSubs.id).length, 1);
+
+  const waitingSub = addSubtask(withSubs.id, {
+    title: "Complete now waiting",
+    department: "Installation Department",
+    assignees: ["Site Lead"],
+  });
+  assert.ok(waitingSub);
+  const stored = getData().tasks.find((task) => task.id === waitingSub.id);
+  assert.ok(stored);
+  stored.status = "awaiting_verification";
+  stored.verificationDepartment = "Installation Department";
+  stored.verificationRequestedBy = "Site Lead";
+  stored.completedAt = null;
+  const noted = updateTask(
+    waitingSub.id,
+    { notes: "still waiting" },
+    { actor: user, people }
+  );
+  assert.equal(noted?.notes, "still waiting");
+  assert.equal(noted?.status, "awaiting_verification");
+  const confirmed = confirmTaskVerification(waitingSub.id, installManager);
+  assert.equal(confirmed.ok, true);
+  assert.equal(taskByTitle("Complete now waiting").status, "completed");
 });

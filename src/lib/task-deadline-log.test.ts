@@ -13,8 +13,12 @@ import {
   updateTaskStatus,
 } from "@/lib/store";
 import type { TaskActor } from "@/lib/task-notices";
-import type { TaskDirectoryPerson } from "@/lib/task-permissions";
 import {
+  TASK_DEPARTMENT_LOCKED,
+  type TaskDirectoryPerson,
+} from "@/lib/task-permissions";
+import {
+  decideTaskDeadline,
   TASK_DEADLINE_CLEAR_DENIED,
   TASK_DEADLINE_MOVE_DENIED,
   TASK_DEADLINE_REASON_REQUIRED,
@@ -330,20 +334,18 @@ describe("task deadline change log", { concurrency: false }, () => {
     assert.equal(rowsFor(row.id).length, 0);
   });
 
-  test("a director who is not the assignee or the department manager cannot move a deadline", () => {
+  test("a director can move a deadline without being named or the department manager", () => {
     resetWorkspaceClientForTests();
     const row = freshTask({ title: "Director locked", dueDate: "2026-11-15" });
-    assert.equal(
-      updateTask(
-        row.id,
-        { dueDate: "2026-12-01", notes: "nope" },
-        { actor: director, people, deadlineReason: "I run the company" }
-      ),
-      null
+    const moved = updateTask(
+      row.id,
+      { dueDate: "2026-12-01", notes: "director note" },
+      { actor: director, people, deadlineReason: "I run the company" }
     );
-    assert.equal(savedTask(row.id).dueDate, "2026-11-15");
-    assert.equal(savedTask(row.id).notes, "");
-    assert.equal(rowsFor(row.id).length, 0);
+    assert.equal(moved?.dueDate, "2026-12-01");
+    assert.equal(moved?.notes, "director note");
+    assert.equal(rowsFor(row.id).length, 1);
+    assert.equal(rowsFor(row.id)[0]?.by, "Deepa Director");
 
     const sameDepartment = assignTask(
       row.id,
@@ -358,21 +360,9 @@ describe("task deadline change log", { concurrency: false }, () => {
         deadlineReason: "My department",
       }
     );
-    assert.equal(sameDepartment.ok, false);
-    if (!sameDepartment.ok) {
-      assert.equal(sameDepartment.error, TASK_DEADLINE_MOVE_DENIED);
-    }
-    assert.equal(savedTask(row.id).dueDate, "2026-11-15");
-    assert.equal(rowsFor(row.id).length, 0);
-
-    const noted = updateTask(
-      row.id,
-      { notes: "director can still edit" },
-      { actor: director, people }
-    );
-    assert.equal(noted?.notes, "director can still edit");
-    assert.equal(savedTask(row.id).dueDate, "2026-11-15");
-    assert.equal(rowsFor(row.id).length, 0);
+    assert.equal(sameDepartment.ok, true);
+    assert.equal(savedTask(row.id).dueDate, "2026-12-20");
+    assert.equal(rowsFor(row.id).length, 2);
   });
 
   test("an assignee and that department’s manager can move a deadline", () => {
@@ -475,16 +465,14 @@ describe("task deadline change log", { concurrency: false }, () => {
       { actor: director, people }
     );
     assert.equal(noted?.notes, "director note");
-    assert.equal(
-      updateTask(
-        sub.id,
-        { dueDate: "2026-12-01" },
-        { actor: director, people, deadlineReason: "Director" }
-      ),
-      null
+    const byDirector = updateTask(
+      sub.id,
+      { dueDate: "2026-11-25" },
+      { actor: director, people, deadlineReason: "Director" }
     );
-    assert.equal(savedTask(sub.id).dueDate, "2026-11-20");
+    assert.equal(byDirector?.dueDate, "2026-11-25");
     assert.equal(savedTask(sub.id).notes, "director note");
+    assert.equal(rowsFor(sub.id).length, 1);
 
     const bySubAssignee = updateTask(
       sub.id,
@@ -500,7 +488,7 @@ describe("task deadline change log", { concurrency: false }, () => {
       }
     );
     assert.equal(bySubAssignee?.dueDate, "2026-12-01");
-    assert.equal(rowsFor(sub.id).length, 1);
+    assert.equal(rowsFor(sub.id).length, 2);
 
     const byInstallManager = assignTask(
       sub.id,
@@ -515,7 +503,7 @@ describe("task deadline change log", { concurrency: false }, () => {
     assert.equal(savedTask(sub.id).dueDate, "2026-12-15");
     assert.equal(savedTask(parent.id).dueDate, "2026-11-15");
     assert.equal(rowsFor(parent.id).length, 0);
-    assert.equal(rowsFor(sub.id).length, 2);
+    assert.equal(rowsFor(sub.id).length, 3);
   });
 
   test("notes, status, and priority do not write a deadline log row", () => {
@@ -629,7 +617,7 @@ test("the workspace save enforces the deadline rules and does not drop the log",
   assert.equal(blank.tasks[0]?.dueDate, "2026-11-15");
   assert.equal(blank.taskDeadlineChangeLog.length, 0);
 
-  const blockedDirector = saved(
+  const byDirector = saved(
     task({ dueDate: "2026-12-01" }),
     [
       logRow({
@@ -643,8 +631,9 @@ test("the workspace save enforces the deadline rules and does not drop the log",
     director,
     "director"
   );
-  assert.equal(blockedDirector.tasks[0]?.dueDate, "2026-11-15");
-  assert.equal(blockedDirector.taskDeadlineChangeLog.length, 0);
+  assert.equal(byDirector.tasks[0]?.dueDate, "2026-12-01");
+  assert.equal(byDirector.taskDeadlineChangeLog.length, 1);
+  assert.equal(byDirector.taskDeadlineChangeLog[0]?.by, "Deepa Director");
 
   const byMaster = saved(
     task({ dueDate: "2026-12-01" }),
@@ -771,4 +760,171 @@ test("a task save does not drop the deadline log, and only master and director r
     saved.data.taskDeadlineChangeLog.map((row) => row.id).sort(),
     ["row-1", "row-2"]
   );
+});
+
+test("due date and priority can be changed only by the people on that task", () => {
+  resetWorkspaceClientForTests();
+  const row = freshTask({
+    title: "Schedule lock",
+    department: "Contracts Department",
+    assignees: ["Anil User"],
+    dueDate: "2026-11-15",
+  });
+
+  const byNamed = updateTask(
+    row.id,
+    { dueDate: "2026-12-01", priority: "high" },
+    { actor: assignee, people, deadlineReason: "Named on it" }
+  );
+  assert.equal(byNamed?.dueDate, "2026-12-01");
+  assert.equal(byNamed?.priority, "high");
+
+  const byManager = updateTask(
+    row.id,
+    { dueDate: "2026-12-20", priority: "urgent" },
+    { actor: manager, people, deadlineReason: "My department" }
+  );
+  assert.equal(byManager?.dueDate, "2026-12-20");
+  assert.equal(byManager?.priority, "urgent");
+
+  const byDirector = updateTask(
+    row.id,
+    { dueDate: "2026-11-01", priority: "low" },
+    { actor: director, people, deadlineReason: "Director" }
+  );
+  assert.equal(byDirector?.dueDate, "2026-11-01");
+  assert.equal(byDirector?.priority, "low");
+
+  assert.equal(
+    updateTask(
+      row.id,
+      { dueDate: "2026-10-01", priority: "high", notes: "other manager" },
+      { actor: installManager, people, deadlineReason: "Not my department" }
+    ),
+    null
+  );
+  const unrelated: TaskActor = {
+    name: "New Joiner",
+    clearance: "user",
+    department: "Contracts Department",
+  };
+  assert.equal(
+    updateTask(
+      row.id,
+      { dueDate: "2026-10-02", priority: "high", notes: "unrelated" },
+      { actor: unrelated, people, deadlineReason: "No" }
+    ),
+    null
+  );
+  assert.equal(savedTask(row.id).dueDate, "2026-11-01");
+  assert.equal(savedTask(row.id).priority, "low");
+  assert.equal(savedTask(row.id).notes, "");
+  assert.equal(savedTask(row.id).department, "Contracts Department");
+
+  assert.equal(
+    updateTask(
+      row.id,
+      { dueDate: null, notes: "clear" },
+      { actor: director, people }
+    ),
+    null
+  );
+  assert.equal(savedTask(row.id).dueDate, "2026-11-01");
+  assert.equal(savedTask(row.id).notes, "");
+
+  const relock = assignTask(
+    row.id,
+    { department: "Installation Department" },
+    { actor: master, people }
+  );
+  assert.equal(relock.ok, false);
+  if (!relock.ok) assert.equal(relock.error, TASK_DEPARTMENT_LOCKED);
+  assert.equal(savedTask(row.id).department, "Contracts Department");
+
+  const open = addManualTask({
+    title: "No department yet",
+    contractId: row.contractId!,
+    department: null,
+    assignees: [],
+    dueDate: null,
+    priority: "normal",
+  });
+  const stillEditable = updateTask(
+    open.id,
+    { notes: "notes stay", dueDate: "2026-12-01", priority: "high" },
+    { actor: unrelated, people }
+  );
+  assert.equal(stillEditable?.notes, "notes stay");
+  assert.equal(stillEditable?.dueDate, null);
+  assert.equal(stillEditable?.priority, "normal");
+
+  const managerFirst = assignTask(
+    open.id,
+    {
+      department: "Contracts Department",
+      assignees: [],
+      dueDate: "2026-12-01",
+    },
+    { actor: manager, people }
+  );
+  assert.equal(managerFirst.ok, true);
+  assert.equal(savedTask(open.id).department, "Contracts Department");
+  assert.equal(savedTask(open.id).dueDate, null);
+  assert.equal(savedTask(open.id).notes, "notes stay");
+  const managerAfter = updateTask(
+    open.id,
+    { dueDate: "2026-12-01", priority: "high" },
+    { actor: manager, people }
+  );
+  assert.equal(managerAfter?.dueDate, "2026-12-01");
+  assert.equal(managerAfter?.priority, "high");
+  const denied = decideTaskDeadline({
+    currentDue: null,
+    nextDue: "2026-12-01",
+    actor: unrelated,
+    task: open,
+  });
+  assert.equal(denied.ok, false);
+  if (!denied.ok) assert.equal(denied.error, TASK_DEADLINE_MOVE_DENIED);
+
+  const namedOpen = addManualTask({
+    title: "Named before a department",
+    contractId: row.contractId!,
+    department: null,
+    assignees: ["Anil User"],
+    dueDate: null,
+  });
+  const namedSet = updateTask(
+    namedOpen.id,
+    { dueDate: "2026-12-01", priority: "high", notes: "named" },
+    { actor: assignee, people }
+  );
+  assert.equal(namedSet?.dueDate, "2026-12-01");
+  assert.equal(namedSet?.priority, "high");
+  assert.equal(namedSet?.notes, "named");
+
+  const sub = addSubtask(row.id, {
+    title: "Install frames",
+    department: "Installation Department",
+    assignees: ["Site Lead"],
+    dueDate: "2026-11-20",
+  });
+  assert.ok(sub);
+  assert.equal(
+    updateTask(
+      sub.id,
+      { dueDate: "2026-12-01", priority: "urgent" },
+      { actor: manager, people, deadlineReason: "Parent department" }
+    ),
+    null
+  );
+  const byInstall = updateTask(
+    sub.id,
+    { dueDate: "2026-12-15", priority: "high" },
+    { actor: installManager, people, deadlineReason: "Own department" }
+  );
+  assert.equal(byInstall?.dueDate, "2026-12-15");
+  assert.equal(byInstall?.priority, "high");
+  assert.equal(savedTask(row.id).dueDate, "2026-11-01");
+  assert.equal(savedTask(row.id).priority, "low");
 });

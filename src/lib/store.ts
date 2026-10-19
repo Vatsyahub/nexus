@@ -86,9 +86,11 @@ import {
   planDueNotices,
   taskAlertAudience,
   taskDueTodayAudience,
+  taskVerifyNotice,
   type TaskActor,
 } from "@/lib/task-notices";
 import {
+  canEditTaskSchedule,
   canUpdateTask,
   resolveTaskAssignees,
   resolveTaskDepartment,
@@ -99,6 +101,7 @@ import {
 import {
   decideTaskDeadline,
   normalizeTaskDeadlineChangeLog,
+  TASK_DEADLINE_MOVE_DENIED,
 } from "@/lib/task-deadline-log";
 import {
   billingTermsTotal,
@@ -582,15 +585,7 @@ function buildVerifyNotification(
   task: Task,
   actor: TaskActor
 ): HubNotification {
-  const dept = (actor.department || "").trim() || null;
-  return blankNotification(task, {
-    kind: "task_verify",
-    title: "Verify completed task",
-    createdBy: actor.name ?? null,
-    names: [],
-    department: dept,
-    audienceClearance: dept ? null : "master",
-  });
+  return taskVerifyNotice(task, actor);
 }
 
 function appendNotifications(
@@ -4142,12 +4137,13 @@ export function assignTask(
     actor: opts.actor,
     task: current,
   });
-  if (!deadline.ok) return deadline;
+  if (!deadline.ok && deadline.error !== TASK_DEADLINE_MOVE_DENIED) return deadline;
+  const dueDate = deadline.ok ? deadline.dueDate : current.dueDate;
   const nextTask: Task = {
     ...current,
     department,
     assignees: names.assignees,
-    dueDate: deadline.dueDate,
+    dueDate,
     status:
       current.status === "pending" &&
       (department || names.assignees.length > 0)
@@ -4171,7 +4167,7 @@ export function assignTask(
       kind: "task_assigned",
     });
   }
-  if (deadline.log) {
+  if (deadline.ok && deadline.log) {
     nextData = appendTaskDeadlineLog(nextData, {
       by: (opts.actor?.name || "").trim() || opts.by || "User",
       taskId: current.id,
@@ -4246,9 +4242,15 @@ function holdForVerification(
   };
 }
 
+function taskHasParent(task: { parentId?: string | null }): boolean {
+  return (task.parentId || "").trim().length > 0;
+}
+
 /**
- * User clearance parks the task as waiting and notifies once.
- * Manager, Director, and Master complete it now with no verify notice.
+ * A subtask marked completed finishes now, including for a normal user.
+ * It does not wait and it does not raise a verify notice.
+ * A parent still waits when a user marks it completed.
+ * Manager, Director, and Master finish a parent now with no verify notice.
  */
 function applyCompletion(
   data: FlowhubData,
@@ -4261,7 +4263,7 @@ function applyCompletion(
   sideEffects: boolean;
   alreadyWaiting: boolean;
 } {
-  if (completesImmediately(actor?.clearance)) {
+  if (taskHasParent(task) || completesImmediately(actor?.clearance)) {
     const next = applyStatusFields(task, "completed", extra);
     return {
       data: {
@@ -4401,14 +4403,22 @@ export function updateTask(
     actor: opts.actor,
     task: current,
   });
-  if (!deadline.ok) return null;
+  if (!deadline.ok && deadline.error !== TASK_DEADLINE_MOVE_DENIED) return null;
+  const dueDate = deadline.ok ? deadline.dueDate : current.dueDate;
+  const priority =
+    patch.priority !== undefined &&
+    patch.priority !== current.priority &&
+    !canEditTaskSchedule(opts.actor, current)
+      ? current.priority
+      : (patch.priority ?? current.priority);
   const now = new Date().toISOString();
   let next: Task = {
     ...current,
     ...patch,
     department,
     assignees: assignees ?? current.assignees,
-    dueDate: deadline.dueDate,
+    dueDate,
+    priority,
   };
   if (patch.notes !== undefined && patch.notes !== current.notes) {
     next = {
@@ -4417,7 +4427,34 @@ export function updateTask(
       notesUpdatedAt: now,
     };
   }
-  if (patch.status !== undefined && patch.status !== current.status) {
+  let verify = false;
+  if (patch.status === "completed" || patch.status === "awaiting_verification") {
+    const base: Task = {
+      ...next,
+      status: current.status,
+      completedAt: current.completedAt,
+      notRequiredReason: current.notRequiredReason,
+      verificationDepartment: current.verificationDepartment,
+      verificationRequestedBy: current.verificationRequestedBy,
+    };
+    if (
+      patch.status === "awaiting_verification" &&
+      current.status === "awaiting_verification"
+    ) {
+      next = holdForVerification(base, opts.actor ?? {}, { notes: patch.notes });
+    } else if (taskHasParent(current) || completesImmediately(opts.actor?.clearance)) {
+      next = applyStatusFields(base, "completed", {
+        notes: patch.notes,
+        notRequiredReason: patch.notRequiredReason,
+      });
+    } else if (current.status === "completed" || current.status === "not_required") {
+      next = base;
+    } else {
+      const already = current.status === "awaiting_verification";
+      next = holdForVerification(base, opts.actor ?? {}, { notes: patch.notes });
+      verify = !already;
+    }
+  } else if (patch.status !== undefined && patch.status !== current.status) {
     next = applyStatusFields(next, patch.status, {
       notes: patch.notes,
       notRequiredReason: patch.notRequiredReason,
@@ -4437,7 +4474,15 @@ export function updateTask(
   ) {
     nextData = notifyForTasks(nextData, [next], { kind: "task_assigned" });
   }
-  if (deadline.log) {
+  if (verify) {
+    nextData = appendNotifications(nextData, [
+      buildVerifyNotification(next, {
+        name: opts.actor?.name,
+        department: next.verificationDepartment,
+      }),
+    ]);
+  }
+  if (deadline.ok && deadline.log) {
     nextData = appendTaskDeadlineLog(nextData, {
       by: (opts.actor?.name || "").trim() || "User",
       taskId: current.id,
@@ -4479,6 +4524,9 @@ opts?: { actor?: TaskActor }
     });
     department = decision.ok ? decision.department : null;
   }
+  const maySetSchedule =
+    !opts?.actor ||
+    canEditTaskSchedule(opts.actor, { department: null, assignees: [] });
   const full: Task = {
     id: crypto.randomUUID(),
     title: input.title.trim(),
@@ -4487,11 +4535,11 @@ opts?: { actor?: TaskActor }
     assignees,
     status:
       input.department || assignees.length > 0 ? "in_progress" : "pending",
-    dueDate: input.dueDate || null,
+    dueDate: maySetSchedule ? input.dueDate || null : null,
     parentId: input.parentId ?? null,
     source: input.source ?? "manual",
     catalogKey: input.catalogKey ?? "custom",
-    priority: input.priority ?? "normal",
+    priority: maySetSchedule ? (input.priority ?? "normal") : "normal",
     notes: input.notes?.trim() ?? "",
     notesUpdatedAt: input.notes?.trim() ? new Date().toISOString() : null,
     completedAt: null,
