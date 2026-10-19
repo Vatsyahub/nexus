@@ -12,6 +12,7 @@ import {
 import { HUB_NAME, HUB_TAGLINE } from "@/lib/types";
 import { contractDisplayStatus, todayIso as statusToday } from "@/lib/nexus-core";
 import { formatDisplayDate } from "@/lib/dates";
+import { recentContracts } from "@/lib/recent-contracts";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -189,42 +190,34 @@ export default function HomePage() {
           </p>
         ) : (
           <ul className="mt-2 divide-y divide-[var(--fh-line)]">
-            {data.contracts
-              .slice()
-              .sort(
-                (a, b) =>
-                  new Date(a.closureDate || a.createdAt).getTime() -
-                  new Date(b.closureDate || b.createdAt).getTime()
-              )
-              .slice(0, 3)
-              .map((c) => (
-                <li
-                  key={c.id}
-                  className="flex flex-wrap items-center justify-between gap-2 py-2"
-                >
-                  <div className="min-w-0">
-                    <Link
-                      href={`/contracts/${c.id}`}
-                      className="line-clamp-1 text-sm font-medium text-[var(--fh-steel)] hover:underline"
-                    >
-                      {c.projectName}
-                    </Link>
-                    <p className="text-[11px] text-[var(--fh-muted)]">
-                      {c.projectNo} · Closure{" "}
-                      {formatDisplayDate(c.closureDate)}
-                    </p>
-                  </div>
-                  <Badge
-                    variant={
-                      contractDisplayStatus(data, c, todayKey) === "Active"
-                        ? "default"
-                        : "secondary"
-                    }
+            {recentContracts(data.contracts).map((c) => (
+              <li
+                key={c.id}
+                className="flex flex-wrap items-center justify-between gap-2 py-2"
+              >
+                <div className="min-w-0">
+                  <Link
+                    href={`/contracts/${c.id}`}
+                    className="line-clamp-1 text-sm font-medium text-[var(--fh-steel)] hover:underline"
                   >
-                    {contractDisplayStatus(data, c, todayKey)}
-                  </Badge>
-                </li>
-              ))}
+                    {c.projectName}
+                  </Link>
+                  <p className="text-[11px] text-[var(--fh-muted)]">
+                    {c.projectNo} · Closure{" "}
+                    {formatDisplayDate(c.closureDate)}
+                  </p>
+                </div>
+                <Badge
+                  variant={
+                    contractDisplayStatus(data, c, todayKey) === "Active"
+                      ? "default"
+                      : "secondary"
+                  }
+                >
+                  {contractDisplayStatus(data, c, todayKey)}
+                </Badge>
+              </li>
+            ))}
           </ul>
         )}
       </section>
