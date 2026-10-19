@@ -2,6 +2,7 @@ import { TASK_CATALOG, type Task } from "@/lib/types";
 import {
   canConfirmTaskVerification,
   clearanceKey,
+  completesImmediately,
   sameDepartment,
   type TaskActor,
 } from "@/lib/task-notices";
@@ -67,6 +68,24 @@ function managesDepartment(
     clearanceKey(actor.clearance) === "manager" &&
     sameDepartment(actor.department, department)
   );
+}
+
+/**
+ * Deadline and priority, set or changed.
+ * Master, any Director, a person already named on this task, or the manager
+ * of this task’s own department. Before a department is saved, a manager is
+ * not included. A subtask uses its own department and its own assignees.
+ */
+export function canEditTaskSchedule(
+  actor: TaskActor | null | undefined,
+  task: { department?: string | null; assignees?: string[] | null }
+): boolean {
+  if (!actor) return false;
+  const role = clearanceKey(actor.clearance);
+  if (role === "master" || role === "director") return true;
+  if (namedOnTask(actor, task)) return true;
+  if (!departmentIsSet(task.department)) return false;
+  return role === "manager" && sameDepartment(actor.department, task.department);
 }
 
 /** Master, Director, or any login with manager clearance. */
@@ -408,7 +427,78 @@ function withAllowedEdits(
     nextAssignees: next.assignees,
     people,
   });
-  return { ...next, department, assignees };
+  const priority = canEditTaskSchedule(actor, prev) ? next.priority : prev.priority;
+  return settleTaskCompletion(prev, { ...next, department, assignees, priority }, actor);
+}
+
+function finishTaskNow(next: Task): Task {
+  return {
+    ...next,
+    status: "completed",
+    completedAt: next.completedAt || new Date().toISOString(),
+    notRequiredReason: null,
+    verificationDepartment: null,
+    verificationRequestedBy: null,
+  };
+}
+
+function parkTaskForVerification(next: Task, actor: TaskActor, prev?: Task): Task {
+  const already = prev?.status === "awaiting_verification";
+  return {
+    ...next,
+    status: "awaiting_verification",
+    completedAt: null,
+    notRequiredReason: null,
+    verificationDepartment: already
+      ? (prev?.verificationDepartment ?? null)
+      : (actor.department || "").trim() || null,
+    verificationRequestedBy: already
+      ? (prev?.verificationRequestedBy ?? null)
+      : (actor.name || "").trim() || null,
+  };
+}
+
+/**
+ * A subtask marked completed finishes now. It does not enter
+ * awaiting_verification. A subtask already waiting stays waiting until
+ * the confirm path, or until someone marks it completed.
+ * A parent still waits when a user marks it completed. Manager, Director,
+ * and Master finish a parent immediately.
+ */
+function settleTaskCompletion(prev: Task, next: Task, actor: TaskActor): Task {
+  const subtask = isSubtask(prev.parentId);
+  const wantsCompleted = next.status === "completed";
+  const wantsWaiting = next.status === "awaiting_verification";
+  if (!wantsCompleted && !wantsWaiting) return next;
+
+  if (subtask) {
+    if (wantsWaiting && prev.status === "awaiting_verification") {
+      return parkTaskForVerification(next, actor, prev);
+    }
+    return finishTaskNow(next);
+  }
+
+  if (prev.status === "completed" || prev.status === "not_required") return next;
+
+  if (wantsWaiting && prev.status === "awaiting_verification") {
+    return parkTaskForVerification(next, actor, prev);
+  }
+
+  if (
+    prev.status === "awaiting_verification" &&
+    wantsCompleted &&
+    canConfirmTaskVerification(actor, prev)
+  ) {
+    return finishTaskNow(next);
+  }
+
+  if (completesImmediately(actor.clearance)) return finishTaskNow(next);
+
+  if (prev.status === "awaiting_verification" && wantsCompleted) {
+    return parkTaskForVerification(next, actor, prev);
+  }
+
+  return parkTaskForVerification(next, actor);
 }
 
 function sanitizeNewTask(
@@ -436,7 +526,21 @@ function sanitizeNewTask(
     nextAssignees: next.assignees,
     people,
   });
-  return { ...next, department, assignees };
+  const scheduleLocked =
+    !isAppSystemTask(next) &&
+    !canEditTaskSchedule(actor, { department: null, assignees: [] });
+  const drafted: Task = {
+    ...next,
+    department,
+    assignees,
+    dueDate: scheduleLocked ? null : next.dueDate,
+    priority: scheduleLocked ? "normal" : next.priority,
+  };
+  return settleTaskCompletion(
+    { ...drafted, status: "pending", completedAt: null },
+    drafted,
+    actor
+  );
 }
 
 /**

@@ -1,9 +1,5 @@
-import { namedOnTask } from "@/lib/task-permissions";
-import {
-  clearanceKey,
-  sameDepartment,
-  type TaskActor,
-} from "@/lib/task-notices";
+import { canEditTaskSchedule } from "@/lib/task-permissions";
+import { type TaskActor } from "@/lib/task-notices";
 import type { Task, TaskDeadlineChangeLogEntry } from "@/lib/types";
 
 export const TASK_DEADLINE_CLEAR_DENIED =
@@ -28,19 +24,16 @@ export function deadlineReasonLine(value: string | null | undefined): string {
 }
 
 /**
- * Master, a person named on this task, or the manager of this task’s own
- * department. Director is not that manager unless they are also named here.
- * A subtask is judged on its own assignees and department.
+ * Who may set or change a deadline. Same people as priority.
+ * Master, any Director, a person named on this task, or the manager of this
+ * task’s own department. Before a department is saved, only Master, any
+ * Director, or someone already named. A subtask uses its own row.
  */
 export function canMoveTaskDeadline(
   actor: TaskActor | null | undefined,
   task: { department?: string | null; assignees?: string[] | null }
 ): boolean {
-  if (!actor) return false;
-  const role = clearanceKey(actor.clearance);
-  if (role === "master") return true;
-  if (namedOnTask(actor, task)) return true;
-  return role === "manager" && sameDepartment(actor.department, task.department);
+  return canEditTaskSchedule(actor, task);
 }
 
 export type DeadlineDecision =
@@ -53,9 +46,10 @@ export type DeadlineDecision =
   | { ok: false; error: string };
 
 /**
- * Empty → date is a first deadline: no reason and no log row.
+ * Empty → date is a first deadline for someone who may set it: no reason and no log row.
  * Date → blank is rejected, including for Master.
- * Date → a different date needs a person who may move it and a one-line reason.
+ * Date → a different date needs a person who may change it and a one-line reason.
+ * Someone who may edit the task but may not set the date does not change it.
  */
 export function decideTaskDeadline(input: {
   currentDue: string | null | undefined;
@@ -67,13 +61,13 @@ export function decideTaskDeadline(input: {
   const current = normalizeDeadline(input.currentDue);
   const next = normalizeDeadline(input.nextDue);
   if (current === next) return { ok: true, dueDate: current, log: null };
-  if (!current && next) return { ok: true, dueDate: next, log: null };
   if (current && !next) {
     return { ok: false, error: TASK_DEADLINE_CLEAR_DENIED };
   }
   if (!canMoveTaskDeadline(input.actor, input.task)) {
     return { ok: false, error: TASK_DEADLINE_MOVE_DENIED };
   }
+  if (!current && next) return { ok: true, dueDate: next, log: null };
   const reason = deadlineReasonLine(input.reason);
   if (!reason) return { ok: false, error: TASK_DEADLINE_REASON_REQUIRED };
   return {

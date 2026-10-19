@@ -16,7 +16,12 @@ import {
   type TaskDirectoryPerson,
 } from "@/lib/task-permissions";
 import { completesImmediately } from "@/lib/task-notices";
-import { EMPTY_NEXUS_COSTS, type FlowhubData, type Task } from "@/lib/types";
+import {
+  EMPTY_NEXUS_COSTS,
+  type FlowhubData,
+  type HubNotification,
+  type Task,
+} from "@/lib/types";
 import { mergeWorkspaceSave } from "@/lib/workspace-guard";
 
 const people: TaskDirectoryPerson[] = [
@@ -621,4 +626,244 @@ test("parent and subtask department rules survive a crafted workspace save", () 
   const created = applyTaskEditPolicy([], [system, manual], outsider, people);
   assert.equal(created.find((row) => row.id === "gad")?.department, "Drawings Department");
   assert.equal(created.find((row) => row.id === "manual")?.department, null);
+});
+
+function verifyNotice(taskId: string): HubNotification {
+  return {
+    id: `verify-${taskId}`,
+    createdAt: "2026-10-02T00:00:00.000Z",
+    kind: "task_verify",
+    title: "Verify completed task",
+    body: "Check site",
+    href: "/tasks",
+    taskId,
+    contractId: "c1",
+    audienceUserNames: [],
+    audienceDepartment: "Installation Department",
+    audienceClearance: null,
+    createdBy: "Site Lead",
+    readByUserIds: [],
+    readAtByUserIds: {},
+  };
+}
+
+test("a crafted save finishes a subtask, keeps a parent waiting, and locks schedule fields", () => {
+  const user = {
+    name: "Site Lead",
+    clearance: "user",
+    department: "Installation Department",
+  };
+  const named = {
+    name: "Anil User",
+    clearance: "user",
+    department: "Drawings Department",
+  };
+  const director = { name: "Deepa", clearance: "director", department: null };
+  const contractsManager = {
+    name: "Priya Manager",
+    clearance: "manager",
+    department: "Contracts Department",
+  };
+  const otherManager = {
+    name: "Isha Install",
+    clearance: "manager",
+    department: "Installation Department",
+  };
+  const access = { ...defaultAccess("user"), tasks: "edit" as const };
+
+  const sub = task({
+    id: "sub",
+    parentId: "parent",
+    department: "Installation Department",
+    assignees: ["Site Lead"],
+    status: "in_progress",
+    dueDate: "2026-11-15",
+    priority: "normal",
+    notes: "",
+  });
+  const subSaved = mergeWorkspaceSave(
+    file({ tasks: [sub] }),
+    file({
+      tasks: [
+        task({
+          ...sub,
+          status: "awaiting_verification",
+          notes: "done",
+          priority: "urgent",
+          dueDate: "2026-12-01",
+        }),
+      ],
+      notifications: [verifyNotice("sub")],
+      taskDeadlineChangeLog: [],
+    }),
+    access,
+    "user",
+    { actor: user, people }
+  );
+  assert.equal(subSaved.tasks[0]?.status, "completed");
+  assert.equal(subSaved.tasks[0]?.notes, "done");
+  assert.equal(subSaved.tasks[0]?.priority, "urgent");
+  assert.equal(subSaved.notifications.filter((notice) => notice.kind === "task_verify").length, 0);
+
+  const parent = task({
+    id: "parent",
+    department: "Installation Department",
+    assignees: ["Site Lead"],
+    status: "in_progress",
+    notes: "",
+  });
+  const parentSaved = mergeWorkspaceSave(
+    file({ tasks: [parent] }),
+    file({
+      tasks: [task({ ...parent, status: "completed", notes: "ready" })],
+    }),
+    access,
+    "user",
+    { actor: user, people }
+  );
+  assert.equal(parentSaved.tasks[0]?.status, "awaiting_verification");
+  assert.equal(parentSaved.tasks[0]?.notes, "ready");
+  assert.equal(
+    parentSaved.notifications.filter((notice) => notice.kind === "task_verify").length,
+    1
+  );
+
+  const waiting = task({
+    ...sub,
+    id: "waiting-sub",
+    status: "awaiting_verification",
+    verificationDepartment: "Installation Department",
+    verificationRequestedBy: "Site Lead",
+    notes: "keep",
+  });
+  const stillWaiting = mergeWorkspaceSave(
+    file({ tasks: [waiting] }),
+    file({ tasks: [task({ ...waiting, notes: "still waiting" })] }),
+    access,
+    "user",
+    { actor: user, people }
+  );
+  assert.equal(stillWaiting.tasks[0]?.status, "awaiting_verification");
+  assert.equal(stillWaiting.tasks[0]?.notes, "still waiting");
+  assert.equal(stillWaiting.tasks[0]?.verificationDepartment, "Installation Department");
+
+  const scheduled = task({
+    id: "scheduled",
+    department: "Contracts Department",
+    assignees: ["Anil User"],
+    dueDate: "2026-11-15",
+    priority: "normal",
+    notes: "keep",
+  });
+  const namedChange = mergeWorkspaceSave(
+    file({ tasks: [scheduled] }),
+    file({
+      tasks: [task({ ...scheduled, dueDate: "2026-12-01", priority: "high", notes: "named" })],
+      taskDeadlineChangeLog: [
+        {
+          id: "named-move",
+          at: "2026-10-02T00:00:00.000Z",
+          by: "Anil User",
+          taskId: "scheduled",
+          contractId: "c1",
+          taskTitle: "Check site",
+          fromDate: "2026-11-15",
+          toDate: "2026-12-01",
+          reason: "Named move",
+        },
+      ],
+    }),
+    access,
+    "user",
+    { actor: named, people }
+  );
+  assert.equal(namedChange.tasks[0]?.dueDate, "2026-12-01");
+  assert.equal(namedChange.tasks[0]?.priority, "high");
+  assert.equal(namedChange.tasks[0]?.notes, "named");
+
+  const managerChange = mergeWorkspaceSave(
+    file({ tasks: [namedChange.tasks[0]!] }),
+    file({
+      tasks: [
+        task({
+          ...namedChange.tasks[0],
+          dueDate: "2026-12-20",
+          priority: "urgent",
+        }),
+      ],
+      taskDeadlineChangeLog: [
+        {
+          id: "manager-move",
+          at: "2026-10-03T00:00:00.000Z",
+          by: "Priya Manager",
+          taskId: "scheduled",
+          contractId: "c1",
+          taskTitle: "Check site",
+          fromDate: "2026-12-01",
+          toDate: "2026-12-20",
+          reason: "Manager move",
+        },
+      ],
+    }),
+    { ...defaultAccess("manager"), tasks: "edit" },
+    "manager",
+    { actor: contractsManager, people }
+  );
+  assert.equal(managerChange.tasks[0]?.dueDate, "2026-12-20");
+  assert.equal(managerChange.tasks[0]?.priority, "urgent");
+
+  const directorChange = mergeWorkspaceSave(
+    file({ tasks: [managerChange.tasks[0]!] }),
+    file({
+      tasks: [
+        task({
+          ...managerChange.tasks[0],
+          dueDate: "2026-11-01",
+          priority: "low",
+          department: "Installation Department",
+        }),
+      ],
+      taskDeadlineChangeLog: [
+        {
+          id: "director-move",
+          at: "2026-10-04T00:00:00.000Z",
+          by: "Deepa",
+          taskId: "scheduled",
+          contractId: "c1",
+          taskTitle: "Check site",
+          fromDate: "2026-12-20",
+          toDate: "2026-11-01",
+          reason: "Director move",
+        },
+      ],
+    }),
+    { ...defaultAccess("director"), tasks: "edit" },
+    "director",
+    { actor: director, people }
+  );
+  assert.equal(directorChange.tasks[0]?.dueDate, "2026-11-01");
+  assert.equal(directorChange.tasks[0]?.priority, "low");
+  assert.equal(directorChange.tasks[0]?.department, "Contracts Department");
+
+  const blocked = mergeWorkspaceSave(
+    file({ tasks: [directorChange.tasks[0]!] }),
+    file({
+      tasks: [
+        task({
+          ...directorChange.tasks[0],
+          dueDate: null,
+          priority: "urgent",
+          notes: "blocked",
+          department: "Accounts Department",
+        }),
+      ],
+    }),
+    { ...defaultAccess("manager"), tasks: "edit" },
+    "manager",
+    { actor: otherManager, people }
+  );
+  assert.equal(blocked.tasks[0]?.dueDate, "2026-11-01");
+  assert.equal(blocked.tasks[0]?.priority, "low");
+  assert.equal(blocked.tasks[0]?.notes, "named");
+  assert.equal(blocked.tasks[0]?.department, "Contracts Department");
 });
