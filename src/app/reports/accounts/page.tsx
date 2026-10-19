@@ -236,19 +236,13 @@ function AccountsReportInner() {
           <div className="flex flex-wrap items-end justify-between gap-3">
             <TabBar tab={tab} onSelect={selectTab} />
             {tab === "collections" ? (
-              <div className="flex flex-wrap justify-end gap-4 text-right">
-                <CollectionTotal
-                  label="CASH RECEIVED NET"
-                  value={collectionTotals.cashReceivedNet}
-                />
-                <CollectionTotal
-                  label="CASH RECEIVED GST"
-                  value={collectionTotals.cashReceivedGst}
-                />
-                <CollectionTotal
-                  label="CASH RECEIVED TOTAL"
-                  value={collectionTotals.cashReceived}
-                />
+              <div className="text-right">
+                <p className="text-xs uppercase tracking-wide text-[var(--fh-muted)]">
+                  Total cash received
+                </p>
+                <p className="mt-0.5 font-[family-name:var(--font-display)] text-xl tabular-nums text-[var(--fh-steel)]">
+                  {formatMoney(collectionTotals.cashReceived)}
+                </p>
               </div>
             ) : null}
             {tab === "retentions" ? (
@@ -422,19 +416,6 @@ function TabButton({
     >
       {label}
     </button>
-  );
-}
-
-function CollectionTotal({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="text-right">
-      <p className="text-xs uppercase tracking-wide text-[var(--fh-muted)]">
-        {label}
-      </p>
-      <p className="mt-0.5 font-[family-name:var(--font-display)] text-xl tabular-nums text-[var(--fh-steel)]">
-        {formatMoney(value)}
-      </p>
-    </div>
   );
 }
 
