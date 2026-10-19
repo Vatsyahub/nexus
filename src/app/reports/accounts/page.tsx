@@ -238,7 +238,7 @@ function AccountsReportInner() {
             {tab === "collections" ? (
               <div className="text-right">
                 <p className="text-xs uppercase tracking-wide text-[var(--fh-muted)]">
-                  Total cash received
+                  SUM OF CASH RECEIVED
                 </p>
                 <p className="mt-0.5 font-[family-name:var(--font-display)] text-xl tabular-nums text-[var(--fh-steel)]">
                   {formatMoney(collectionTotals.cashReceived)}
