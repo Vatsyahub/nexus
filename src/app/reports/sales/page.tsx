@@ -159,7 +159,7 @@ function SalesReportInner() {
             {!showContracts ? (
               <div className="text-right">
                 <p className="text-xs uppercase tracking-wide text-[var(--fh-muted)]">
-                  Total net
+                  SUM OF NET AMOUNT
                 </p>
                 <p className="mt-0.5 font-[family-name:var(--font-display)] text-xl tabular-nums text-[var(--fh-steel)]">
                   {formatMoney(netTotal)}
