@@ -3011,6 +3011,157 @@ export function deleteLatestAmendment(
   return { ok: true, contract: updated };
 }
 
+export type EditAmendmentInput = {
+  contractId: string;
+  boq: BoqItem[];
+  newOrderValue: number;
+  date: string;
+  number?: string;
+  note?: string;
+  by?: string | null;
+};
+
+export type EditAmendmentDataResult =
+  | { ok: true; data: FlowhubData; amendment: BoqAmendment; contract: Contract }
+  | { ok: false; error: string };
+
+/**
+ * Replace the latest amendment. Does not append one.
+ * The same schedule, billing, supply, and installation stops as delete apply.
+ * Supplied and installed quantities move when a removed name is added back.
+ */
+export function editLatestAmendmentIn(
+  data: FlowhubData,
+  input: EditAmendmentInput
+): EditAmendmentDataResult {
+  const current = data.contracts.find((c) => c.id === input.contractId);
+  if (!current) return { ok: false, error: "Contract not found." };
+  const ordered = [...(current.amendments ?? [])].sort((a, b) => a.seq - b.seq);
+  const latest = ordered[ordered.length - 1];
+  if (!latest) return { ok: false, error: "No amendment to delete." };
+  const blocked = amendmentDeleteError({
+    contract: current,
+    invoices: data.invoices,
+    deliveryChallans: data.deliveryChallans,
+    installationProgress: data.installationProgress,
+    schedules: data.schedules,
+  });
+  if (blocked) return { ok: false, error: blocked };
+
+  const baseline = boqBeforeAmendment(current, latest);
+  const proposed: BoqItem[] = input.boq.map((l) => ({
+    ...l,
+    id: l.id || crypto.randomUUID(),
+    name: l.name.trim(),
+    unit: l.unit.trim() || "Nos",
+    rate: Number(l.rate) || 0,
+    quantity: Number(l.quantity) || 0,
+  }));
+  if (proposed.length === 0) return { ok: false, error: "BOQ needs at least one line." };
+  const names = new Set<string>();
+  for (const line of proposed) {
+    const name = line.name.trim();
+    if (!name) return { ok: false, error: "Every BOQ line needs an item name." };
+    const key = name.toLowerCase();
+    if (names.has(key)) return { ok: false, error: `Duplicate BOQ item: ${name}.` };
+    names.add(key);
+    if (!(Number(line.rate) > 0)) {
+      return { ok: false, error: `Rate must be > 0 for ${name}.` };
+    }
+    const qty = Number(line.quantity);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      return {
+        ok: false,
+        error: `Qty must be > 0 for ${name} (remove the line instead).`,
+      };
+    }
+  }
+  const rateIssue = existingLineRateIssues(baseline, proposed)[0];
+  if (rateIssue) return { ok: false, error: rateIssue };
+
+  const date = (input.date || "").slice(0, 10);
+  if (!date) return { ok: false, error: "Amendment date is required." };
+  const newOrderValue = Number(input.newOrderValue);
+  if (!Number.isFinite(newOrderValue) || newOrderValue <= 0) {
+    return { ok: false, error: "Confirmed contract value must be > 0." };
+  }
+  const lineDiffs = computeBoqLineDiffs(baseline, proposed);
+  const valueChanged =
+    Math.abs(newOrderValue - latest.previousOrderValue) > 0.005;
+  if (!lineDiffs.length && !valueChanged) {
+    return { ok: false, error: "No BOQ changes to amend." };
+  }
+  const number = (input.number ?? "").trim() || latest.number;
+  if (
+    current.amendments.some(
+      (row) =>
+        row.id !== latest.id &&
+        row.number.trim().toLowerCase() === number.toLowerCase()
+    )
+  ) {
+    return { ok: false, error: `Amendment no. ${number} already exists.` };
+  }
+
+  let next = data;
+  const boq = proposed.map((line) => {
+    const res = upsertCatalog(next, line.name, line.unit, line.rate);
+    next = res.data;
+    return { ...line, catalogKey: line.catalogKey || res.catalogKey };
+  });
+  const undo = undoRateChangeCarries(latest.lineDiffs);
+  const forward = rateChangeCarries(baseline, boq);
+  next = {
+    ...next,
+    deliveryChallans: remapDeliveryChallans(
+      remapDeliveryChallans(next.deliveryChallans, current.id, undo),
+      current.id,
+      forward
+    ),
+    installationProgress: remapInstallation(
+      remapInstallation(next.installationProgress, current.id, undo),
+      current.id,
+      forward
+    ),
+  };
+  const amendment: BoqAmendment = {
+    ...latest,
+    number,
+    date,
+    at: new Date().toISOString(),
+    by: input.by?.trim() || null,
+    note: (input.note ?? "").trim(),
+    previousOrderValue: latest.previousOrderValue,
+    newOrderValue,
+    previousBoqTotal: boqTotal(baseline),
+    newBoqTotal: boqTotal(boq),
+    lineDiffs,
+    boqSnapshot: boq.map((line) => ({ ...line })),
+  };
+  const updated = normalizeContract({
+    ...current,
+    boq,
+    orderValue: newOrderValue,
+    amendments: current.amendments.map((row) =>
+      row.id === latest.id ? amendment : row
+    ),
+  });
+  const saved: FlowhubData = {
+    ...next,
+    contracts: next.contracts.map((c) => (c.id === current.id ? updated : c)),
+  };
+  return { ok: true, data: saved, amendment, contract: updated };
+}
+
+/** Save over the latest amendment. A blocked edit uses the delete message. */
+export function editLatestAmendment(
+  input: EditAmendmentInput
+): AmendBoqResult {
+  const result = editLatestAmendmentIn(read(), input);
+  if (!result.ok) return result;
+  write(result.data);
+  return { ok: true, amendment: result.amendment, contract: result.contract };
+}
+
 export type BoqLineUseKind = "invoice" | "schedule" | "delivery challan";
 
 /** Where this BOQ line is already used. Installation alone does not count. */
