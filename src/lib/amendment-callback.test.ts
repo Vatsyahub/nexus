@@ -12,6 +12,8 @@ import {
   addPayment,
   amendContractBoq,
   deleteLatestAmendment,
+  editLatestAmendment,
+  editLatestAmendmentIn,
   getData,
   installedQty,
   recordInstallationTotal,
@@ -702,4 +704,230 @@ test("billing above the previous quantity blocks delete until that quantity is r
   assert.equal(removed.contract.boq[0]?.quantity, 10);
   assert.equal(removed.contract.orderValue, 2000);
   assert.equal(removed.contract.amendments.length, 0);
+});
+
+test("editing the latest amendment replaces it and moves supply onto the new name", () => {
+  const row = item("edit-a", "Edit item", 100, 10);
+  const contract = makeContract("C-AMD-EDIT", [row]);
+  const billed = addInvoice({
+    type: "TI",
+    number: "TI-EDIT-OLD",
+    date: "2026-10-02",
+    contractId: contract.id,
+    lines: [invoiceLine(row, "advance", 4)],
+  });
+  if (!billed) {
+    assert.fail("invoice was not saved");
+    return;
+  }
+  const invoiceId = billed.id;
+  const challan = addDeliveryChallan({
+    contractId: contract.id,
+    dcNo: "DC-EDIT",
+    date: "2026-10-02",
+    lines: [{ boqItemId: row.id, qty: 4 }],
+  });
+  assert.equal(challan.ok, true);
+  const installed = recordInstallationTotal({
+    contractId: contract.id,
+    boqItemId: row.id,
+    newTotal: 2,
+    date: "2026-10-03",
+  });
+  assert.equal(installed.ok, true);
+  const first = amendContractBoq({
+    contractId: contract.id,
+    boq: [{ ...row, quantity: 12 }],
+    newOrderValue: 1200,
+    date: "2026-10-04",
+    number: "A1",
+    note: "first",
+  });
+  assert.equal(first.ok, true);
+  if (!first.ok) return;
+  const second = amendContractBoq({
+    contractId: contract.id,
+    boq: [{ ...row, quantity: 14 }],
+    newOrderValue: 1400,
+    date: "2026-10-05",
+    number: "A2",
+  });
+  assert.equal(second.ok, true);
+  if (!second.ok) return;
+  const replacement = item("edit-a-new", "Edit item", 1000, 14);
+  const edited = editLatestAmendment({
+    contractId: contract.id,
+    boq: [replacement],
+    newOrderValue: 14000,
+    date: "2026-11-01",
+    number: "A2-R",
+    note: "rate revised",
+    by: "Master",
+  });
+  assert.equal(edited.ok, true);
+  if (!edited.ok) return;
+  assert.equal(edited.contract.amendments.length, 2);
+  assert.equal(edited.contract.amendments[0]?.id, first.amendment.id);
+  assert.equal(edited.contract.amendments[0]?.number, "A1");
+  assert.equal(edited.contract.amendments[0]?.newOrderValue, 1200);
+  const latest = edited.contract.amendments[1];
+  assert.equal(latest?.id, second.amendment.id);
+  assert.equal(latest?.number, "A2-R");
+  assert.equal(latest?.date, "2026-11-01");
+  assert.equal(latest?.note, "rate revised");
+  assert.equal(latest?.previousOrderValue, 1200);
+  assert.equal(latest?.newOrderValue, 14000);
+  assert.equal(latest?.lineDiffs.find((diff) => diff.kind === "removed")?.previousQty, 12);
+  assert.equal(edited.contract.orderValue, 14000);
+  assert.equal(edited.contract.boq.length, 1);
+  assert.equal(edited.contract.boq[0]?.id, replacement.id);
+  assert.equal(edited.contract.boq[0]?.rate, 1000);
+  assert.equal(suppliedQty(contract.id, replacement.id), 4);
+  assert.equal(installedQty(contract.id, replacement.id), 2);
+  assert.equal(suppliedQty(contract.id, row.id), 0);
+  assert.equal(installedQty(contract.id, row.id), 0);
+  const invoice = savedInvoice(invoiceId);
+  assert.equal(invoice.lines[0]?.rate, 100);
+  assert.equal(invoice.lines[0]?.boqItemId, row.id);
+});
+
+test("edit is blocked by the same schedule, billing, supply, and installation rules as delete", () => {
+  const row = item("edit-blk", "Edit blocked", 100, 10);
+  const contract = makeContract("C-AMD-EDIT-BLOCK", [row]);
+  const raised = amendContractBoq({
+    contractId: contract.id,
+    boq: [item("edit-blk-new", "Edit blocked", 1000, 20)],
+    newOrderValue: 20000,
+    date: "2026-10-03",
+    number: "A1",
+  });
+  assert.equal(raised.ok, true);
+  const replacement = item("edit-blk-other", "Edit blocked", 800, 10);
+  const attempt = () =>
+    editLatestAmendment({
+      contractId: contract.id,
+      boq: [replacement],
+      newOrderValue: 8000,
+      date: "2026-10-09",
+      number: "A1",
+    });
+
+  const billedNew = addInvoice({
+    type: "TI",
+    number: "TI-EDIT-NEW",
+    date: "2026-10-04",
+    contractId: contract.id,
+    lines: [
+      invoiceLine(
+        { id: "edit-blk-new", name: "Edit blocked", rate: 1000 },
+        "advance",
+        10,
+        1000
+      ),
+    ],
+  });
+  assert.ok(billedNew);
+  const billedBlock = attempt();
+  assert.equal(billedBlock.ok, false);
+  if (billedBlock.ok) return;
+  assert.match(billedBlock.error, /1,000/);
+  assert.equal(savedContract(contract.id).amendments.length, 1);
+  assert.equal(savedContract(contract.id).boq[0]?.id, "edit-blk-new");
+  const cleared = addInvoice({
+    type: "TI",
+    number: "TI-EDIT-CLEAR",
+    date: "2026-10-05",
+    contractId: contract.id,
+    lines: [
+      invoiceLine(
+        { id: "edit-blk-new", name: "Edit blocked", rate: 1000 },
+        "advance",
+        -10,
+        1000
+      ),
+    ],
+  });
+  assert.ok(cleared);
+
+  const extraSupply = addDeliveryChallan({
+    contractId: contract.id,
+    dcNo: "DC-EDIT-MORE",
+    date: "2026-10-06",
+    lines: [{ boqItemId: "edit-blk-new", qty: 15 }],
+  });
+  assert.equal(extraSupply.ok, true);
+  const supplyBlock = attempt();
+  const supplyDelete = amendmentDeleteError({
+    contract: savedContract(contract.id),
+    invoices: getData().invoices,
+    deliveryChallans: getData().deliveryChallans,
+    installationProgress: getData().installationProgress,
+    schedules: getData().schedules,
+  });
+  assert.equal(supplyBlock.ok, false);
+  if (supplyBlock.ok) return;
+  assert.equal(supplyBlock.error, supplyDelete);
+  assert.match(
+    supplyBlock.error,
+    /supplied quantity 15 is above the previous BOQ quantity 10/
+  );
+
+  const schedule = saveContractSchedulePlan({
+    contractId: contract.id,
+    committed: false,
+    testingDate: "",
+    handoverDate: "",
+    items: [
+      {
+        boqItemId: "edit-blk-new",
+        supplies: [
+          { startDate: "2026-10-08", endDate: "2026-10-09", quantity: 1 },
+        ],
+        installations: [],
+      },
+    ],
+  });
+  assert.equal(schedule.ok, true);
+  const scheduled = attempt();
+  assert.equal(scheduled.ok, false);
+  if (scheduled.ok) return;
+  assert.match(scheduled.error, /Edit blocked: delete the schedule first/);
+  assert.equal(savedContract(contract.id).amendments[0]?.number, "A1");
+  assert.equal(savedContract(contract.id).boq[0]?.rate, 1000);
+
+  const current = getData();
+  const installBlock = editLatestAmendmentIn(
+    {
+      ...current,
+      schedules: current.schedules.filter((line) => line.contractId !== contract.id),
+      deliveryChallans: current.deliveryChallans.filter(
+        (challan) => challan.contractId !== contract.id
+      ),
+      installationProgress: [
+        ...current.installationProgress,
+        {
+          id: "inst-edit",
+          contractId: contract.id,
+          boqItemId: "edit-blk-new",
+          installedQty: 12,
+          lastUpdatedAt: "2026-10-06",
+          history: [],
+        },
+      ],
+    },
+    {
+      contractId: contract.id,
+      boq: [replacement],
+      newOrderValue: 8000,
+      date: "2026-10-09",
+      number: "A1",
+    }
+  );
+  assert.equal(installBlock.ok, false);
+  if (installBlock.ok) return;
+  assert.match(
+    installBlock.error,
+    /installed quantity 12 is above the previous BOQ quantity 10/
+  );
+  assert.equal(savedContract(contract.id).amendments.length, 1);
 });

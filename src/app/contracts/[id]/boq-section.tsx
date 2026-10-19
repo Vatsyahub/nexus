@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState, type FormEvent } from "react";
+import { amendmentDeleteError } from "@/lib/amendment-callback";
+import { DeleteIconButton, EditIconButton } from "@/components/icon-actions";
 import {
   amendContractBoq,
   boqAmendmentIssues,
@@ -9,6 +11,7 @@ import {
   deleteLatestAmendment,
   describeBoqLineUse,
   editContractBoq,
+  editLatestAmendment,
   nextAmendmentSeq,
   useFlowhubData,
 } from "@/lib/store";
@@ -17,6 +20,7 @@ import { confirmWorkspaceSave } from "@/lib/save-notice";
 import {
   boqTotal,
   defaultAmendmentNumber,
+  type BoqAmendment,
   type BoqAmendmentLineDiff,
   type BoqItem,
   type Contract,
@@ -119,6 +123,7 @@ export function BoqSection({
   const [error, setError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const proposed = useMemo(() => rowsToBoq(rows), [rows]);
   const diffs = useMemo(
@@ -160,6 +165,7 @@ export function BoqSection({
   }
 
   function openEditor() {
+    setEditingId(null);
     setRows(rowsFromBoq(c.boq));
     setNewName("");
     setNewUnit("Nos");
@@ -173,6 +179,7 @@ export function BoqSection({
   }
 
   function cancel() {
+    setEditingId(null);
     setStep("closed");
     setError(null);
   }
@@ -272,11 +279,16 @@ export function BoqSection({
       setError(issues[0]);
       return;
     }
-    if (!diffs.length) {
+    if (!editingId && !diffs.length) {
       setError("No BOQ changes yet — change a qty, add, or remove a line.");
       return;
     }
-    setConfirmedValue(String(Math.round(proposedTotal * 100) / 100));
+    const latest = amendments[amendments.length - 1];
+    if (editingId && latest && diffs.length === 0) {
+      setConfirmedValue(String(latest.newOrderValue));
+    } else {
+      setConfirmedValue(String(Math.round(proposedTotal * 100) / 100));
+    }
     setStep("confirm");
   }
 
@@ -306,7 +318,7 @@ export function BoqSection({
     e.preventDefault();
     setError(null);
     setSaving(true);
-    const res = amendContractBoq({
+    const payload = {
       contractId: c.id,
       boq: proposed,
       newOrderValue: Number(confirmedValue),
@@ -314,7 +326,10 @@ export function BoqSection({
       date: amdDate,
       note: amdNote,
       by: actorName,
-    });
+    };
+    const res = editingId
+      ? editLatestAmendment(payload)
+      : amendContractBoq(payload);
     if (!res.ok) {
       setSaving(false);
       setError(res.error);
@@ -323,6 +338,7 @@ export function BoqSection({
     const saved = await confirmWorkspaceSave();
     setSaving(false);
     if (!saved) return;
+    setEditingId(null);
     setStep("closed");
   }
 
@@ -592,9 +608,14 @@ export function BoqSection({
         >
           <div>
             <p className="text-sm font-medium text-[var(--fh-steel)]">
-              Amendment editor · {defaultAmendmentNumber(seq)}
+              {editingId
+                ? `Edit amendment · ${amdNumber || "latest"}`
+                : `Amendment editor · ${defaultAmendmentNumber(seq)}`}
             </p>
             <p className="text-xs text-[var(--fh-muted)]">
+              {editingId
+                ? "This reopens the amendment number, date, note, and BOQ. Saving replaces this amendment. It does not add another one. "
+                : ""}
               Change quantities, add lines, or remove lines. Rates on existing
               lines stay as contracted. To change a rate, remove the item and
               add it again at the new rate. Supplied and installed quantities
@@ -602,6 +623,35 @@ export function BoqSection({
               deleted first. Nothing is saved until you confirm.
             </p>
           </div>
+
+          {editingId && (
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-1">
+                <Label>Amendment no.</Label>
+                <Input
+                  value={amdNumber}
+                  onChange={(e) => setAmdNumber(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Amendment date</Label>
+                <Input
+                  type="date"
+                  value={amdDate}
+                  onChange={(e) => setAmdDate(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Note (optional)</Label>
+                <Input
+                  value={amdNote}
+                  onChange={(e) => setAmdNote(e.target.value)}
+                  placeholder="Client letter ref, reason…"
+                />
+              </div>
+            </div>
+          )}
 
           <div className="overflow-x-auto rounded-lg border border-[var(--fh-line)] bg-white">
             <table className="w-full min-w-[640px] text-left text-sm">
@@ -763,7 +813,7 @@ export function BoqSection({
                 {...entrySaveProps}
                 className="bg-[var(--fh-steel)]"
                 onClick={goConfirm}
-                disabled={!diffs.length || issues.length > 0}
+                disabled={(!editingId && !diffs.length) || issues.length > 0}
               >
                 Review &amp; confirm value
               </Button>
@@ -786,8 +836,12 @@ export function BoqSection({
           className="mt-4 space-y-4 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)] p-4"
         >
           <p className="text-sm font-medium text-[var(--fh-steel)]">
-            Confirm amendment
+            {editingId ? "Save amendment" : "Confirm amendment"}
           </p>
+          {editingId && diffs.length === 0 && (
+            <p className="text-sm text-[var(--fh-muted)]">BOQ is unchanged.</p>
+          )}
+          {diffs.length > 0 && (
           <ul className="space-y-1 rounded-md border border-[var(--fh-line)] bg-white p-3 text-sm">
             {diffs.map((d) => {
               const amt = diffAmount(d);
@@ -813,6 +867,7 @@ export function BoqSection({
               );
             })}
           </ul>
+          )}
 
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="rounded-md border border-[var(--fh-line)] bg-white p-3">
@@ -882,9 +937,9 @@ export function BoqSection({
           </div>
 
           <p className="text-xs text-[var(--fh-muted)]">
-            On confirm the BOQ is replaced with the amended lines and the
-            contract / WO value becomes the confirmed value. Saved ABG and PBG
-            amounts stay as they are.
+            {editingId
+              ? "Saving replaces this amendment. It does not add another one. Saved ABG and PBG amounts stay as they are."
+              : "On confirm the BOQ is replaced with the amended lines and the contract / WO value becomes the confirmed value. Saved ABG and PBG amounts stay as they are."}
           </p>
 
           <div className="flex flex-wrap gap-2">
@@ -900,7 +955,7 @@ export function BoqSection({
               className="bg-[var(--fh-steel)]"
               disabled={saving || !(Number(confirmedValue) > 0)}
             >
-              {saving ? "Saving…" : "Confirm amendment"}
+              {saving ? "Saving…" : editingId ? "Save amendment" : "Confirm amendment"}
             </Button>
           </div>
         </form>
@@ -938,17 +993,18 @@ export function BoqSection({
                   return (
                   <tr key={a.id} className="align-top">
                     <td className="px-3 py-2 font-medium">
-                      {a.number}
+                      <div>{a.number}</div>
                       {canDeleteAmendment && latest && (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="mt-1 block h-7 px-2 text-red-700"
-                          onClick={() => void removeLatestAmendment()}
-                        >
-                          Delete
-                        </Button>
+                        <div className="mt-1 flex items-center gap-1">
+                          <EditIconButton
+                            label={`Edit amendment ${a.number}`}
+                            onClick={() => beginEdit(a)}
+                          />
+                          <DeleteIconButton
+                            label={`Delete amendment ${a.number}`}
+                            onClick={() => void removeLatestAmendment()}
+                          />
+                        </div>
                       )}
                     </td>
                     <td className="px-3 py-2 tabular-nums">
@@ -990,6 +1046,32 @@ export function BoqSection({
       </div>
     </section>
   );
+
+  function beginEdit(amendment: BoqAmendment) {
+    setHistoryError(null);
+    const blocked = amendmentDeleteError({
+      contract: c,
+      invoices: data.invoices,
+      deliveryChallans: data.deliveryChallans,
+      installationProgress: data.installationProgress,
+      schedules: data.schedules,
+    });
+    if (blocked) {
+      setHistoryError(blocked);
+      return;
+    }
+    setRows(rowsFromBoq(c.boq));
+    setNewName("");
+    setNewUnit("Nos");
+    setNewRate("");
+    setNewQty("");
+    setAmdNumber(amendment.number);
+    setAmdDate(amendment.date.slice(0, 10));
+    setAmdNote(amendment.note ?? "");
+    setEditingId(amendment.id);
+    setError(null);
+    setStep("edit");
+  }
 
   async function removeLatestAmendment() {
     setHistoryError(null);
