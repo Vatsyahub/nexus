@@ -43,6 +43,7 @@ import {
   reportFilterSummary,
 } from "@/components/report-export-icons";
 import { cn } from "@/lib/utils";
+import { RecoverableAdvancesPanel } from "../other/advances-panel";
 import { AmendmentsPanel } from "../other/amendments-panel";
 import {
   ReportsTableScroll,
@@ -642,12 +643,13 @@ export function ItemListTab({
   );
 }
 
-export type OtherSub = "workorders" | "tasks" | "amendments";
+export type OtherSub = "workorders" | "tasks" | "amendments" | "advances";
 
 const OTHER_SUBS: { id: OtherSub; label: string }[] = [
   { id: "workorders", label: "Workorders summary" },
   { id: "tasks", label: "Tasks" },
   { id: "amendments", label: "Amendments" },
+  { id: "advances", label: "Recoverable advances" },
 ];
 
 /** Workorders + Tasks rollups (Reports → Other reports page). */
@@ -680,6 +682,7 @@ export function OtherReportsPanels({
       {sub === "workorders" && <WorkordersTable data={data} />}
       {sub === "tasks" && <TasksTable data={data} />}
       {sub === "amendments" && <AmendmentsPanel data={data} />}
+      {sub === "advances" && <RecoverableAdvancesPanel data={data} />}
     </div>
   );
 }
