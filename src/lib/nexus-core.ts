@@ -487,6 +487,53 @@ export function billingCityBars(
   );
 }
 
+export type OutstandingOverviewBar = {
+  key: "d0" | "d8" | "d16" | "d24" | "overdue";
+  label: string;
+  amount: number;
+  count: number;
+};
+
+const OUTSTANDING_WINDOWS: readonly OutstandingOverviewBar[] = [
+  { key: "d0", label: "0–7 days", amount: 0, count: 0 },
+  { key: "d8", label: "8–15 days", amount: 0, count: 0 },
+  { key: "d16", label: "16–23 days", amount: 0, count: 0 },
+  { key: "d24", label: "24+ days", amount: 0, count: 0 },
+  { key: "overdue", label: "Overdue", amount: 0, count: 0 },
+];
+
+/** Day windows for Outstandings Overview. Due today is 0. Both ends of each window count. */
+export function outstandingWindowIndex(daysUntilDue: number): number {
+  if (daysUntilDue < 0) return 4;
+  if (daysUntilDue <= 7) return 0;
+  if (daysUntilDue <= 15) return 1;
+  if (daysUntilDue <= 23) return 2;
+  return 3;
+}
+
+/**
+ * Five bars from tax invoices that still have a balance.
+ * The caller passes only those rows. Total includes overdue.
+ */
+export function buildOutstandingOverview(
+  rows: readonly { daysUntilDue: number; outstanding: number }[]
+): { total: number; bars: OutstandingOverviewBar[] } {
+  const bars = OUTSTANDING_WINDOWS.map((bar) => ({ ...bar }));
+  let total = 0;
+  for (const row of rows) {
+    const amount = Number(row.outstanding);
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    const days = Number(row.daysUntilDue);
+    const index = outstandingWindowIndex(Number.isFinite(days) ? days : 0);
+    const bar = bars[index];
+    if (!bar) continue;
+    bar.amount += amount;
+    bar.count += 1;
+    total += amount;
+  }
+  return { total, bars };
+}
+
 /** Top of the billing scale: the largest city's work-order value. */
 export function billingScaleMax(workOrders: readonly number[]): number {
   let max = 0;

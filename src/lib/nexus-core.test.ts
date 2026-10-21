@@ -4,6 +4,7 @@ import {
   billingCityBars,
   billingScaleMax,
   buildCoreReportRows,
+  buildOutstandingOverview,
   buildCostCentreRows,
   contractCostAmount,
   normalizeNexusCosts,
@@ -244,6 +245,34 @@ test("core report profit matches the project card and rows follow project number
   assert.equal(report[1]?.spent, 0);
   assert.equal(report[1]?.yetToSpend, 50000);
   assert.equal(report[1]?.city, "Pune");
+});
+
+test("outstanding windows include both ends and the total includes overdue", () => {
+  const overview = buildOutstandingOverview([
+    { daysUntilDue: 0, outstanding: 100 },
+    { daysUntilDue: 7, outstanding: 200 },
+    { daysUntilDue: 8, outstanding: 300 },
+    { daysUntilDue: 15, outstanding: 400 },
+    { daysUntilDue: 16, outstanding: 500 },
+    { daysUntilDue: 23, outstanding: 600 },
+    { daysUntilDue: 24, outstanding: 700 },
+    { daysUntilDue: -1, outstanding: 800 },
+  ]);
+  assert.deepEqual(
+    overview.bars.map((bar) => [bar.label, bar.amount, bar.count]),
+    [
+      ["0–7 days", 300, 2],
+      ["8–15 days", 700, 2],
+      ["16–23 days", 1100, 2],
+      ["24+ days", 700, 1],
+      ["Overdue", 800, 1],
+    ]
+  );
+  assert.equal(overview.total, 3600);
+  const empty = buildOutstandingOverview([]);
+  assert.equal(empty.total, 0);
+  assert.equal(empty.bars.length, 5);
+  assert.ok(empty.bars.every((bar) => bar.amount === 0 && bar.count === 0));
 });
 
 test("pie percents add to 100 and the billing scale is the largest work order", () => {

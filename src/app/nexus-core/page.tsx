@@ -15,6 +15,7 @@ import {
   bankGuaranteeTotal,
   billingCityBars,
   billingScaleMax,
+  buildOutstandingOverview,
   comparisonValue,
   contractCities,
   contractCostAmount,
@@ -93,22 +94,10 @@ export default function NexusCorePage() {
   );
 
   const outstanding = useMemo(() => {
-    const rows = buildInvoiceOutstandingRows(data);
-    let currentDue = 0;
-    let currentCount = 0;
-    let overdue = 0;
-    let overdueCount = 0;
-    for (const row of rows) {
-      if (!outstandingIsStillDue(row.outstanding)) continue;
-      if (row.status === "overdue") {
-        overdue += row.outstanding;
-        overdueCount += 1;
-      } else if (row.status === "due" || row.status === "partially paid") {
-        currentDue += row.outstanding;
-        currentCount += 1;
-      }
-    }
-    return { currentDue, currentCount, overdue, overdueCount };
+    const rows = buildInvoiceOutstandingRows(data).filter((row) =>
+      outstandingIsStillDue(row.outstanding)
+    );
+    return buildOutstandingOverview(rows);
   }, [data]);
 
   const departments = useMemo(() => {
@@ -138,15 +127,6 @@ export default function NexusCorePage() {
         </h1>
         <div className="flex flex-wrap gap-2">
           <Link
-            href="/nexus-core/report"
-            className={cn(
-              buttonVariants(),
-              "h-auto bg-[var(--fh-steel)] px-4 py-2 text-sm text-white hover:bg-[var(--fh-steel)]/90"
-            )}
-          >
-            Core report
-          </Link>
-          <Link
             href="/nexus-core/costs"
             className={cn(
               buttonVariants(),
@@ -154,6 +134,15 @@ export default function NexusCorePage() {
             )}
           >
             Cost centre
+          </Link>
+          <Link
+            href="/nexus-core/report"
+            className={cn(
+              buttonVariants(),
+              "h-auto bg-[var(--fh-steel)] px-4 py-2 text-sm text-white hover:bg-[var(--fh-steel)]/90"
+            )}
+          >
+            Core report
           </Link>
         </div>
       </header>
@@ -190,7 +179,7 @@ export default function NexusCorePage() {
           }}
         >
         <ChartCard
-          title="Cost and selling price"
+          title="Contracts Profit Overview"
           controls={
             <div className="flex min-w-0 max-w-full flex-wrap rounded border border-[var(--fh-line)] p-0.5">
               <Toggle
@@ -212,7 +201,7 @@ export default function NexusCorePage() {
         </ChartCard>
 
         <ChartCard
-          title="Billing progress"
+          title="Billing Progression"
           controls={
             <label className="flex items-center gap-1.5 text-[13px] text-[var(--fh-muted)]">
               City
@@ -237,16 +226,11 @@ export default function NexusCorePage() {
           <BillingChart bars={bars} />
         </ChartCard>
 
-        <ChartCard title="Outstanding tax invoices">
-          <OutstandingChart
-            currentDue={outstanding.currentDue}
-            currentCount={outstanding.currentCount}
-            overdue={outstanding.overdue}
-            overdueCount={outstanding.overdueCount}
-          />
+        <ChartCard title="Outstandings Overview">
+          <OutstandingChart overview={outstanding} />
         </ChartCard>
 
-        <ChartCard title="Open tasks">
+        <ChartCard title="Task Progression">
           <DepartmentChart rows={departments} />
         </ChartCard>
         </section>
@@ -637,83 +621,70 @@ function LegendItem({ color, label }: { color: string; label: string }) {
   );
 }
 
-function niceMax(value: number): number {
-  if (value <= 0) return 1;
-  const pow = Math.pow(10, Math.floor(Math.log10(value)));
-  const n = value / pow;
-  const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
-  return step * pow;
-}
-
 function OutstandingChart({
-  currentDue,
-  currentCount,
-  overdue,
-  overdueCount,
+  overview,
 }: {
-  currentDue: number;
-  currentCount: number;
-  overdue: number;
-  overdueCount: number;
+  overview: ReturnType<typeof buildOutstandingOverview>;
 }) {
-  const maxL = niceMax(Math.max(currentDue, overdue) / 100000);
-  const bars = [
-    {
-      label: "Current due",
-      count: `${currentCount} TI due`,
-      amount: currentDue,
-      color: STEEL,
-    },
-    {
-      label: "Overdue",
-      count: `${overdueCount} TI overdue`,
-      amount: overdue,
-      color: LOSS,
-    },
-  ];
-
+  const max = billingScaleMax(overview.bars.map((bar) => bar.amount));
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="grid min-h-0 flex-1 grid-cols-2 items-end gap-9 px-4">
-        {bars.map((bar) => {
-          const ratio = maxL <= 0 ? 0 : Math.min(1, bar.amount / 100000 / maxL);
-          const height =
-            bar.amount > 0.005
-              ? `max(4px, ${(ratio * 100).toFixed(2)}%)`
-              : "2px";
-          return (
-            <div
-              key={bar.label}
-              className="flex h-full min-w-0 flex-col items-center"
-            >
+    <div
+      role="img"
+      aria-label="Outstandings Overview: tax invoices by days until due, with overdue included in the total"
+      className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+    >
+      <p className="mb-1 flex shrink-0 items-baseline justify-between gap-2">
+        <span className="text-[13px] leading-4 text-[var(--fh-muted)]">
+          Total outstanding
+        </span>
+        <span className="font-[family-name:var(--font-display)] text-lg font-semibold tabular-nums leading-none text-[var(--fh-steel)]">
+          {formatCoreMoney(overview.total)}
+        </span>
+      </p>
+      <div className="flex min-h-0 min-w-0 flex-1 gap-2">
+        <div className="flex w-[3.4rem] shrink-0 flex-col">
+          <div className="h-5 shrink-0" />
+          <div className="flex min-h-0 flex-1 flex-col justify-between border-r border-[var(--fh-line)] pr-1 text-right text-[11px] font-semibold tabular-nums leading-none text-[var(--fh-ink)]">
+            <span>{formatCoreMoney(max)}</span>
+            <span>{formatCoreMoney(max / 2)}</span>
+            <span>0.00L</span>
+          </div>
+          <div className="h-9 shrink-0" />
+        </div>
+        <div className="flex min-h-0 min-w-0 flex-1 gap-1">
+          {overview.bars.map((bar) => {
+            const height = max <= 0 ? 0 : Math.min(1, Math.max(0, bar.amount) / max);
+            const color = bar.key === "overdue" ? LOSS : STEEL;
+            return (
               <div
-                className="shrink-0 whitespace-nowrap font-[family-name:var(--font-display)] text-[32px] font-semibold tabular-nums leading-none"
-                style={{ color: bar.color }}
+                key={bar.key}
+                className="flex h-full min-w-0 flex-1 flex-col items-center"
               >
-                {formatCoreMoney(bar.amount)}
-              </div>
-              <div className="mt-2 flex min-h-[3rem] w-full flex-1 items-end justify-center">
+                <div className="h-5 shrink-0" />
+                <div className="relative min-h-0 w-full flex-1">
+                  <div
+                    className="absolute bottom-0 left-1/2 flex w-[70%] max-w-[42px] -translate-x-1/2 flex-col"
+                    style={{ height: `${(height * 100).toFixed(2)}%` }}
+                  >
+                    <div className="absolute bottom-full left-1/2 mb-0.5 -translate-x-1/2 whitespace-nowrap text-[11px] font-semibold tabular-nums leading-none text-[var(--fh-ink)]">
+                      {formatCoreMoney(bar.amount)}
+                    </div>
+                    <div className="min-h-0 flex-1" style={{ background: color }} />
+                  </div>
+                </div>
+                <div className="mt-1 h-4 shrink-0 whitespace-nowrap text-[11px] font-semibold tabular-nums leading-none text-[var(--fh-ink)]">
+                  {bar.count}
+                </div>
                 <div
-                  className="w-[38%] min-w-[84px] max-w-[140px]"
-                  style={{ height, background: bar.color }}
-                />
+                  className="h-4 w-full truncate text-center text-[11px] font-semibold leading-4 text-[var(--fh-ink)]"
+                  title={bar.label}
+                >
+                  {bar.label}
+                </div>
               </div>
-              <div className="mt-2 shrink-0 whitespace-nowrap text-lg font-semibold leading-tight text-[var(--fh-ink)]">
-                {bar.label}
-              </div>
-              <div
-                className="shrink-0 whitespace-nowrap text-sm leading-5"
-                style={{ color: bar.color }}
-              >
-                {bar.count}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className="flex shrink-0 justify-between px-8 pt-1.5 text-[13px] leading-4 text-[var(--fh-muted)]">
-        <span>0.00L</span>
-        <span>{formatCoreMoney(maxL * 100000)}</span>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
