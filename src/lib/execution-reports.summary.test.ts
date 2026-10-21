@@ -26,12 +26,18 @@ function boq(id: string, name: string, quantity: number, unit = "Nos"): BoqItem 
   };
 }
 
-function contract(id: string, projectNo: string, lines: BoqItem[]): Contract {
+function contract(
+  id: string,
+  projectNo: string,
+  lines: BoqItem[],
+  billingTerms: Contract["billingTerms"] = { supply: 70, installation: 30 }
+): Contract {
   return {
     id,
     projectNo,
     projectName: projectNo,
     boq: lines,
+    billingTerms,
   } as Contract;
 }
 
@@ -259,4 +265,74 @@ test("a BOQ line with no tax invoice stays fully unbilled", () => {
   assert.equal(row.leftToInstall, 2.5);
   assert.equal(row.unbilledSupplyQty, 2.5);
   assert.equal(row.unbilledInstallQty, 0);
+});
+
+test("a missing billing term stands in for the unbilled quantity", () => {
+  const lines = [invoiceLine("item", 4, "supply"), invoiceLine("item", 3, "installation"), invoiceLine("item", 2, "testing"), invoiceLine("item", 1, "handover")];
+  const data = workspace({
+    contracts: [
+      contract("install", "P-1", [boq("item", "Item", 10)], {
+        supply: 0,
+        installation: 40,
+        testing: 30,
+        handover: 30,
+      }),
+      contract("testing", "P-2", [boq("item", "Item", 10)], {
+        supply: 0,
+        installation: 0,
+        testing: 50,
+        handover: 50,
+      }),
+      contract("handover", "P-3", [boq("item", "Item", 10)], {
+        supply: 0,
+        installation: 0,
+        testing: 0,
+        handover: 100,
+      }),
+      contract("supply-only", "P-4", [boq("item", "Item", 10)], {
+        supply: 100,
+        installation: 0,
+        testing: 0,
+        handover: 0,
+      }),
+      contract("none", "P-5", [boq("item", "Item", 10)], {
+        supply: 0,
+        installation: 0,
+        testing: 0,
+        handover: 0,
+      }),
+    ],
+    deliveryChallans: ["install", "testing", "handover", "supply-only", "none"].map(
+      (id) => challan(id, id, [{ boqItemId: "item", qty: 8 }])
+    ),
+    installationProgress: ["install", "testing", "handover", "supply-only", "none"].map(
+      (id) => installed(id, "item", 6)
+    ),
+    invoices: [
+      invoice({ id: "ti-install", type: "TI", contractId: "install", lines }),
+      invoice({ id: "ti-testing", type: "TI", contractId: "testing", lines }),
+      invoice({ id: "ti-handover", type: "TI", contractId: "handover", lines }),
+      invoice({ id: "ti-supply", type: "TI", contractId: "supply-only", lines }),
+      invoice({ id: "ti-none", type: "TI", contractId: "none", lines }),
+      invoice({
+        id: "pi",
+        type: "PI",
+        contractId: "install",
+        lines: [invoiceLine("item", 100, "installation")],
+      }),
+    ],
+  });
+  const byProject = new Map(
+    buildExecutionSummaryRows(data).map((row) => [row.projectNo, row])
+  );
+  assert.equal(byProject.get("P-1")?.unbilledSupplyQty, 8 - 3);
+  assert.equal(byProject.get("P-1")?.unbilledInstallQty, 6 - 3);
+  assert.equal(byProject.get("P-2")?.unbilledSupplyQty, 8 - 2);
+  assert.equal(byProject.get("P-2")?.unbilledInstallQty, 6 - 2);
+  assert.equal(byProject.get("P-3")?.unbilledSupplyQty, 8 - 1);
+  assert.equal(byProject.get("P-3")?.unbilledInstallQty, 6 - 1);
+  assert.equal(byProject.get("P-4")?.unbilledSupplyQty, 8 - 4);
+  assert.equal(byProject.get("P-4")?.unbilledInstallQty, 6);
+  assert.equal(byProject.get("P-5")?.unbilledSupplyQty, 8);
+  assert.equal(byProject.get("P-5")?.unbilledInstallQty, 6);
 });

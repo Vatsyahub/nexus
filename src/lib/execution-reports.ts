@@ -177,47 +177,49 @@ export type ExecutionSummaryRow = {
   leftToSupply: number;
   /** Supplied − installed */
   leftToInstall: number;
-  /**
-   * Supplied minus tax-invoice qty billed on the Supply term only.
-   * Never negative.
-   */
+  /** Supplied minus the billed supply quantity. Never negative. */
   unbilledSupplyQty: number;
-  /**
-   * Installed minus tax-invoice qty billed on the Installation term only.
-   * Never negative.
-   */
+  /** Installed minus the billed install quantity. Never negative. */
   unbilledInstallQty: number;
 };
 
-const SUPPLY_BILLING_TERM = "supply";
-const INSTALLATION_BILLING_TERM = "installation";
+const SUPPLY_STAND_IN_TERMS = [
+  "supply",
+  "installation",
+  "testing",
+  "handover",
+] as const;
+const INSTALL_STAND_IN_TERMS = ["installation", "testing", "handover"] as const;
 
-/**
- * Tax-invoice billed qty for one contract + BOQ line, split by term.
- * Only term keys `supply` and `installation` are kept. Proforma invoices,
- * advance, GAD, testing, handover, and custom terms are left out.
- * Lines on another contract do not count. A negative line on the matching
- * term reduces that term's total.
- */
-export function taxInvoiceBilledByLine(
-  data: FlowhubData
-): Map<string, { supply: number; installation: number }> {
-  const totals = new Map<string, { supply: number; installation: number }>();
+function termIsOpen(
+  terms: Contract["billingTerms"] | null | undefined,
+  key: string
+): boolean {
+  const percent = Number(terms?.[key]);
+  return Number.isFinite(percent) && percent > 0;
+}
+
+function standInTerm(
+  terms: Contract["billingTerms"] | null | undefined,
+  keys: readonly string[]
+): string | null {
+  for (const key of keys) {
+    if (termIsOpen(terms, key)) return key;
+  }
+  return null;
+}
+
+/** Tax-invoice qty by contract, BOQ line, and billing term. Proforma stays out. */
+function taxInvoiceQtyByTerm(data: FlowhubData): Map<string, number> {
+  const totals = new Map<string, number>();
   for (const invoice of data.invoices ?? []) {
     if (invoice?.type !== "TI" || !invoice.contractId) continue;
     for (const line of invoice.lines ?? []) {
-      if (!line?.boqItemId) continue;
-      const term = line.termKey;
-      if (term !== SUPPLY_BILLING_TERM && term !== INSTALLATION_BILLING_TERM) {
-        continue;
-      }
+      if (!line?.boqItemId || !line.termKey) continue;
       const qty = Number(line.billedQty);
       if (!Number.isFinite(qty)) continue;
-      const key = `${invoice.contractId}\0${line.boqItemId}`;
-      const current = totals.get(key) ?? { supply: 0, installation: 0 };
-      if (term === SUPPLY_BILLING_TERM) current.supply += qty;
-      else current.installation += qty;
-      totals.set(key, current);
+      const key = `${invoice.contractId}\0${line.boqItemId}\0${line.termKey}`;
+      totals.set(key, (totals.get(key) ?? 0) + qty);
     }
   }
   return totals;
@@ -231,18 +233,20 @@ export function buildExecutionSummaryRows(
   data: FlowhubData,
   contractId?: string
 ): ExecutionSummaryRow[] {
-  const billedByLine = taxInvoiceBilledByLine(data);
+  const billedByTerm = taxInvoiceQtyByTerm(data);
   const rows: ExecutionSummaryRow[] = [];
   for (const c of data.contracts) {
     if (contractId && c.id !== contractId) continue;
+    const supplyTerm = standInTerm(c.billingTerms, SUPPLY_STAND_IN_TERMS);
+    const installTerm = standInTerm(c.billingTerms, INSTALL_STAND_IN_TERMS);
     for (const b of c.boq) {
       const boqQty = Number(b.quantity) || 0;
       const supplied = suppliedQty(c.id, b.id, data);
       const installed = installedQty(c.id, b.id, data);
-      const billed = billedByLine.get(`${c.id}\0${b.id}`) ?? {
-        supply: 0,
-        installation: 0,
-      };
+      const billedFor = (term: string | null) =>
+        term == null
+          ? 0
+          : (billedByTerm.get(`${c.id}\0${b.id}\0${term}`) ?? 0);
       rows.push({
         contractId: c.id,
         projectNo: c.projectNo,
@@ -255,8 +259,8 @@ export function buildExecutionSummaryRows(
         installed,
         leftToSupply: Math.max(0, boqQty - supplied),
         leftToInstall: Math.max(0, supplied - installed),
-        unbilledSupplyQty: unbilledQty(supplied, billed.supply),
-        unbilledInstallQty: unbilledQty(installed, billed.installation),
+        unbilledSupplyQty: unbilledQty(supplied, billedFor(supplyTerm)),
+        unbilledInstallQty: unbilledQty(installed, billedFor(installTerm)),
       });
     }
   }
