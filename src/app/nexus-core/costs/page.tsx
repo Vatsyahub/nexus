@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
+  hydrateWorkspace,
   useFlowhubData,
   useWorkspaceReady,
 } from "@/lib/store";
@@ -30,6 +31,10 @@ import { cn } from "@/lib/utils";
 export default function CostCentrePage() {
   const data = useFlowhubData();
   const ready = useWorkspaceReady();
+  useEffect(() => {
+    if (ready) return;
+    void hydrateWorkspace({ force: true });
+  }, [ready]);
   const [q, setQ] = useState("");
   const [lossesOnly, setLossesOnly] = useState(false);
   const today = todayIso();
@@ -135,7 +140,7 @@ export default function CostCentrePage() {
         />
       </div>
 
-      {!ready ? (
+      {!ready && allRows.length === 0 ? (
         <p className="rounded-xl border border-[var(--fh-line)] bg-white px-4 py-8 text-center text-sm text-[var(--fh-muted)]">
           Loading workspace from server…
         </p>
