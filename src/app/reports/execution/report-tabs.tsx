@@ -7,6 +7,7 @@ import { SCHEDULE_KIND_LABELS } from "@/lib/types";
 import { formatMoney } from "@/lib/format-money";
 import { formatDisplayDate, isDateInInclusiveRange } from "@/lib/dates";
 import {
+  DC_RECORDS_EXPORT_HEADERS,
   SCHEDULE_FULFILMENT_LABELS,
   WORKORDER_STATUS_LABELS,
   EXECUTION_SUMMARY_EXPORT_HEADERS,
@@ -17,7 +18,10 @@ import {
   buildSupplyDetailRows,
   buildWorkorderRows,
   executionSummaryExportRow,
+  filterExecutionSummaryRows,
+  filterSupplyDetailRows,
   formatQty,
+  supplyDetailExportRow,
   itemListCities,
   itemListExportRow,
   itemListHeaders,
@@ -256,13 +260,7 @@ export function SchedulesTab({ data }: { data: FlowhubData }) {
 export function SummaryTab({ data }: { data: FlowhubData }) {
   const [q, setQ] = useState("");
   const all = useMemo(() => buildExecutionSummaryRows(data), [data]);
-  const rows = useMemo(() => {
-    const needle = q.trim();
-    if (!needle) return all;
-    return all.filter((r) =>
-      matchesAny(needle, [r.projectNo, r.projectName, r.itemName, r.unit])
-    );
-  }, [all, q]);
+  const rows = useMemo(() => filterExecutionSummaryRows(all, q), [all, q]);
 
   return (
     <div className="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -270,7 +268,7 @@ export function SummaryTab({ data }: { data: FlowhubData }) {
         className="mt-0"
         value={q}
         onChange={setQ}
-        placeholder="Search project, item…"
+        placeholder="Search project, city, item…"
       />
       <ReportsTableScroll className="mt-4" scrollX>
         <table className="w-max min-w-full text-left text-sm">
@@ -982,21 +980,15 @@ function DcRecordsTable({
   const [dateTo, setDateTo] = useState("");
   const [msg, setMsg] = useState<Msg>(null);
   const all = useMemo(() => buildSupplyDetailRows(data), [data]);
-  const rows = useMemo(() => {
-    const needle = q.trim();
-    return all.filter((r) => {
-      if (!isDateInInclusiveRange(r.dcDate, dateFrom, dateTo)) return false;
-      return matchesAny(needle, [
-        r.projectNo,
-        r.projectName,
-        r.dcNo,
-        r.dcDate,
-        formatDisplayDate(r.dcDate),
-        r.itemName,
-        r.qty,
-      ]);
-    });
-  }, [all, q, dateFrom, dateTo]);
+  const rows = useMemo(
+    () =>
+      filterSupplyDetailRows(all, {
+        q,
+        dateFrom,
+        dateTo,
+      }),
+    [all, q, dateFrom, dateTo]
+  );
   /** Delete sits on the first visible line of each DC. */
   const firstLineKeys = useMemo(() => {
     const seen = new Set<string>();
@@ -1033,7 +1025,7 @@ function DcRecordsTable({
         className="mt-2"
         value={q}
         onChange={setQ}
-        placeholder="Search project, DC no., item…"
+        placeholder="Search project, city, DC no., item…"
         dateFrom={dateFrom}
         dateTo={dateTo}
         onDateFromChange={setDateFrom}
@@ -1123,15 +1115,8 @@ function DcRecordsTable({
           dateTo,
           dateLabel: "DC date",
         })}
-        headers={["Project", "Project no.", "DC no.", "DC date", "Item", "Qty supplied"]}
-        rows={rows.map((r) => [
-          r.projectName,
-          r.projectNo,
-          r.dcNo,
-          formatDisplayDate(r.dcDate),
-          r.itemName,
-          r.qty,
-        ])}
+        headers={[...DC_RECORDS_EXPORT_HEADERS]}
+        rows={rows.map(supplyDetailExportRow)}
       />
     </>
   );
