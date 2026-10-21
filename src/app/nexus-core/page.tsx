@@ -179,7 +179,7 @@ export default function NexusCorePage() {
           }}
         >
         <ChartCard
-          title="Contracts Profit Overview"
+          title="Profit Overview"
           controls={
             <div className="flex min-w-0 max-w-full flex-wrap rounded border border-[var(--fh-line)] p-0.5">
               <Toggle
@@ -633,11 +633,11 @@ function OutstandingChart({
       aria-label="Outstandings Overview: tax invoices by days until due, with overdue included in the total"
       className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
     >
-      <p className="mb-1 flex shrink-0 items-baseline justify-between gap-2">
-        <span className="text-[13px] leading-4 text-[var(--fh-muted)]">
+      <p className="mb-1 flex shrink-0 items-center gap-2.5">
+        <span className="text-lg leading-5 text-[var(--fh-ink)]">
           Total outstanding
         </span>
-        <span className="font-[family-name:var(--font-display)] text-lg font-semibold tabular-nums leading-none text-[var(--fh-steel)]">
+        <span className="shrink-0 text-xl font-bold tabular-nums leading-5 text-[var(--fh-ink)]">
           {formatCoreMoney(overview.total)}
         </span>
       </p>
