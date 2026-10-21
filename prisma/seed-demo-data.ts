@@ -1105,7 +1105,16 @@ function buildWorkspace(): FlowhubData {
     expenseCategories: [],
     deliveryChallans: [],
     installationProgress: [],
-    nexusCosts: { columns: [], contracts: {} },
+    nexusCosts: {
+      contracts: {
+        "demo-c-adv-gst": { spent: 180000, yetToSpend: 220000 },
+        "demo-c-nogst": { spent: 40000, yetToSpend: 70000 },
+        "demo-c-pastdue": { spent: 20000, yetToSpend: 55000 },
+        "demo-c-complete": { spent: 250000, yetToSpend: 10000 },
+        "demo-c-split": { spent: 300000, yetToSpend: 350000 },
+        "demo-c-min": { spent: 60000, yetToSpend: 40000 },
+      },
+    },
   };
 }
 

@@ -417,15 +417,8 @@ test("renaming onto an existing name keeps that item and folds same rates", () =
       },
     ],
     nexusCosts: {
-      columns: [{ id: "labour", header: "Labour" }],
       contracts: {
-        c1: {
-          directCost: null,
-          lineRates: {
-            panel: { labour: 1 },
-            "cable-same": { labour: 5 },
-          },
-        },
+        c1: { spent: null, yetToSpend: 80 },
       },
     },
   });
@@ -468,8 +461,8 @@ test("renaming onto an existing name keeps that item and folds same rates", () =
   assert.equal(result.data.installationProgress[0]?.installedQty, 3);
   assert.equal(result.data.schedules[0]?.boqItemId, "cable-same");
   assert.equal(result.data.schedules[0]?.quantity, 2);
-  assert.equal(result.data.nexusCosts?.contracts.c1?.lineRates.panel, undefined);
-  assert.equal(result.data.nexusCosts?.contracts.c1?.lineRates["cable-same"]?.labour, 5);
+  assert.equal(result.data.nexusCosts?.contracts.c1?.spent, null);
+  assert.equal(result.data.nexusCosts?.contracts.c1?.yetToSpend, 80);
 
   const catalog = result.data.itemCatalog.filter((entry) =>
     entry.name.toLowerCase().includes("cable") || entry.name.toLowerCase().includes("panel")

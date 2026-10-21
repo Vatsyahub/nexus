@@ -1,6 +1,6 @@
+import { normalizeNexusCosts } from "@/lib/nexus-core";
 import { mergeClearedNotices } from "@/lib/notification-ttl";
 import {
-  EMPTY_NEXUS_COSTS,
   type ClearedNotices,
   type Contract,
   type ContractExpense,
@@ -11,7 +11,6 @@ import {
   type Invoice,
   type ItemCatalogEntry,
   type NexusContractCost,
-  type NexusCostColumn,
   type NexusCosts,
   type Payment,
   type ScheduleChangeLogEntry,
@@ -51,7 +50,6 @@ export type WorkspaceChanges = {
   departmentRenames?: { set?: Record<string, string>; unset?: string[] };
   clearedNotices?: ClearedNotices;
   nexusCosts?: {
-    columns?: RecordChange<NexusCostColumn>;
     /** Null removes that contract's cost entry. Other contracts stay. */
     contracts?: Record<string, NexusContractCost | null>;
   };
@@ -263,41 +261,34 @@ function diffNexus(
   base: NexusCosts | undefined,
   next: NexusCosts | undefined
 ): WorkspaceChanges["nexusCosts"] | undefined {
-  const before = base ?? EMPTY_NEXUS_COSTS;
-  const after = next ?? EMPTY_NEXUS_COSTS;
-  const columns = diffRecords(before.columns, after.columns, (column) => column.id);
+  const before = normalizeNexusCosts(base);
+  const after = normalizeNexusCosts(next);
   const contracts: Record<string, NexusContractCost | null> = {};
   const ids = new Set([
-    ...Object.keys(before.contracts ?? {}),
-    ...Object.keys(after.contracts ?? {}),
+    ...Object.keys(before.contracts),
+    ...Object.keys(after.contracts),
   ]);
   for (const id of ids) {
-    const prev = before.contracts?.[id] ?? null;
-    const updated = after.contracts?.[id] ?? null;
+    const prev = before.contracts[id] ?? null;
+    const updated = after.contracts[id] ?? null;
     if (same(prev, updated)) continue;
     contracts[id] = updated;
   }
-  if (!columns && Object.keys(contracts).length === 0) return undefined;
-  const change: NonNullable<WorkspaceChanges["nexusCosts"]> = {};
-  if (columns) change.columns = columns;
-  if (Object.keys(contracts).length > 0) change.contracts = contracts;
-  return change;
+  if (Object.keys(contracts).length === 0) return undefined;
+  return { contracts };
 }
 
 function applyNexus(
   current: NexusCosts | undefined,
   change: NonNullable<WorkspaceChanges["nexusCosts"]>
 ): NexusCosts {
-  const base = current ?? EMPTY_NEXUS_COSTS;
-  const columns = change.columns
-    ? applyRecords(base.columns, change.columns, (column) => column.id)
-    : [...(base.columns ?? [])];
-  const contracts = { ...(base.contracts ?? {}) };
+  const base = normalizeNexusCosts(current);
+  const contracts = { ...base.contracts };
   for (const [id, value] of Object.entries(change.contracts ?? {})) {
     if (value == null) delete contracts[id];
     else contracts[id] = value;
   }
-  return { columns, contracts };
+  return normalizeNexusCosts({ contracts });
 }
 
 /** Records this browser added, edited, or removed since `base`. */

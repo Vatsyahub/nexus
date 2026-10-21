@@ -5,11 +5,11 @@
 
 import {
   EMPTY_NEXUS_COSTS,
-  type BoqItem,
+  GST_RATE,
   type Contract,
   type FlowhubData,
-  type NexusCostColumn,
   type NexusCosts,
+  type Payment,
 } from "@/lib/types";
 
 export function todayIso(d = new Date()): string {
@@ -107,56 +107,36 @@ export function profitPercentTone(
   return "red";
 }
 
+function rupeeOrNull(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Spent and Yet to spend only. A direct cost already saved becomes Yet to spend.
+ * Spent stays empty until it is saved. Cost columns and BOQ rates are dropped.
+ */
 export function normalizeNexusCosts(raw: unknown): NexusCosts {
   const src =
-    raw && typeof raw === "object" ? (raw as Partial<NexusCosts>) : {};
-  const columns: NexusCostColumn[] = [];
-  const seenIds = new Set<string>();
-  const seenHeaders = new Set<string>();
-  for (const col of Array.isArray(src.columns) ? src.columns : []) {
-    if (!col || typeof col !== "object") continue;
-    const id = String(col.id ?? "").trim();
-    const header = String(col.header ?? "")
-      .trim()
-      .replace(/\s+/g, " ");
-    if (!id || !header) continue;
-    const headerKey = header.toLowerCase();
-    if (seenIds.has(id) || seenHeaders.has(headerKey)) continue;
-    seenIds.add(id);
-    seenHeaders.add(headerKey);
-    columns.push({ id, header });
-  }
-  const columnIds = new Set(columns.map((c) => c.id));
-  const contracts: NexusCosts["contracts"] = {};
+    raw && typeof raw === "object" ? (raw as { contracts?: unknown }) : {};
   const rawContracts =
-    src.contracts && typeof src.contracts === "object" ? src.contracts : {};
+    src.contracts && typeof src.contracts === "object" && !Array.isArray(src.contracts)
+      ? (src.contracts as Record<string, unknown>)
+      : {};
+  const contracts: NexusCosts["contracts"] = {};
   for (const [contractId, entry] of Object.entries(rawContracts)) {
-    if (!entry || typeof entry !== "object") continue;
-    const directRaw = entry.directCost;
-    const directNum = directRaw == null ? null : Number(directRaw);
-    const lineRates: Record<string, Record<string, number>> = {};
-    const rawLines = entry.lineRates;
-    if (rawLines && typeof rawLines === "object") {
-      for (const [boqId, rates] of Object.entries(rawLines)) {
-        if (!rates || typeof rates !== "object") continue;
-        const clean: Record<string, number> = {};
-        for (const [colId, value] of Object.entries(rates)) {
-          if (!columnIds.has(colId)) continue;
-          const n = Number(value);
-          if (!Number.isFinite(n)) continue;
-          clean[colId] = n;
-        }
-        if (Object.keys(clean).length) lineRates[boqId] = clean;
-      }
-    }
-    contracts[contractId] = {
-      directCost:
-        directNum != null && Number.isFinite(directNum) ? directNum : null,
-      lineRates,
-    };
+    if (!contractId || !entry || typeof entry !== "object") continue;
+    const row = entry as Record<string, unknown>;
+    const spent = rupeeOrNull(row.spent);
+    const yetToSpend = Object.prototype.hasOwnProperty.call(row, "yetToSpend")
+      ? rupeeOrNull(row.yetToSpend)
+      : rupeeOrNull(row.directCost);
+    if (spent == null && yetToSpend == null) continue;
+    contracts[contractId] = { spent, yetToSpend };
   }
-  if (!columns.length && !Object.keys(contracts).length) return EMPTY_NEXUS_COSTS;
-  return { columns, contracts };
+  if (!Object.keys(contracts).length) return EMPTY_NEXUS_COSTS;
+  return { contracts };
 }
 
 /** A real calendar date, or null. Does not read a schedule line. */
@@ -294,52 +274,37 @@ export function contractExpenseTotal(contract: Contract): number {
     .reduce((s, e) => s + (Number(e.amount) || 0), 0);
 }
 
-export function boqLineCost(
-  line: Pick<BoqItem, "quantity">,
-  columns: NexusCostColumn[],
-  rates: Record<string, number> | undefined
-): { lineRate: number; lineTotal: number; filled: boolean } {
-  let lineRate = 0;
-  let filled = false;
-  for (const col of columns) {
-    const v = rates?.[col.id];
-    if (v == null || !Number.isFinite(v)) continue;
-    filled = true;
-    lineRate += v;
-  }
-  return {
-    lineRate,
-    lineTotal: lineRate * (Number(line.quantity) || 0),
-    filled,
-  };
+function amountOrZero(value: number | null | undefined): number {
+  return value != null && Number.isFinite(value) ? value : 0;
 }
 
-export function contractUsesBoqCost(
-  contract: Contract,
+/** Spent, Yet to spend, and their sum. That sum is the contract cost. */
+export function contractSpend(
+  contractId: string,
   costs: NexusCosts
-): boolean {
-  const entry = costs.contracts[contract.id];
-  if (!entry) return false;
-  return contract.boq.some(
-    (line) => boqLineCost(line, costs.columns, entry.lineRates[line.id]).filled
-  );
+): { spent: number; yetToSpend: number; contractCost: number } {
+  const entry = costs.contracts[contractId];
+  const spent = amountOrZero(entry?.spent);
+  const yetToSpend = amountOrZero(entry?.yetToSpend);
+  return { spent, yetToSpend, contractCost: spent + yetToSpend };
 }
 
+/** Contract cost: Spent + Yet to spend. Expenses are not included. */
 export function contractCostAmount(
-  contract: Contract,
+  contract: Pick<Contract, "id">,
   costs: NexusCosts
 ): number {
-  const entry = costs.contracts[contract.id];
-  if (contractUsesBoqCost(contract, costs)) {
-    return contract.boq.reduce((sum, line) => {
-      return (
-        sum +
-        boqLineCost(line, costs.columns, entry?.lineRates[line.id]).lineTotal
-      );
-    }, 0);
-  }
-  const direct = entry?.directCost;
-  return direct != null && Number.isFinite(direct) ? direct : 0;
+  return contractSpend(contract.id, costs).contractCost;
+}
+
+/** Profit or loss percent of the selling price. Null when selling is zero. */
+export function profitPercentOf(
+  profit: number,
+  selling: number
+): number | null {
+  if (!Number.isFinite(profit) || !Number.isFinite(selling)) return null;
+  if (Math.abs(selling) < 0.005) return null;
+  return (profit / selling) * 100;
 }
 
 export type ContractStatusLabel = "Active" | "On hold" | "Completed";
@@ -400,13 +365,14 @@ export type CostCentreRow = {
   city: string;
   status: ContractStatusLabel;
   workOrder: number;
+  spent: number;
+  yetToSpend: number;
   contractCost: number;
   expenses: number;
   cumulative: number;
   comparison: number;
   profit: number;
   profitPercent: number | null;
-  fromBoq: boolean;
 };
 
 export function buildCostCentreRows(
@@ -422,13 +388,11 @@ export function buildCostCentreRows(
         a.projectName.localeCompare(b.projectName)
     )
     .map((c) => {
-      const contractCost = contractCostAmount(c, costs);
+      const spend = contractSpend(c.id, costs);
       const expenses = contractExpenseTotal(c);
-      const cumulative = contractCost + expenses;
+      const cumulative = spend.contractCost + expenses;
       const comparison = comparisonValue(data, c, today);
       const profit = comparison - cumulative;
-      const profitPercent =
-        Math.abs(comparison) < 0.005 ? null : (profit / comparison) * 100;
       return {
         contractId: c.id,
         projectName: c.projectName,
@@ -436,13 +400,14 @@ export function buildCostCentreRows(
         city: c.city || "—",
         status: contractDisplayStatus(data, c, today),
         workOrder: Number(c.orderValue) || 0,
-        contractCost,
+        spent: spend.spent,
+        yetToSpend: spend.yetToSpend,
+        contractCost: spend.contractCost,
         expenses,
         cumulative,
         comparison,
         profit,
-        profitPercent,
-        fromBoq: contractUsesBoqCost(c, costs),
+        profitPercent: profitPercentOf(profit, comparison),
       };
     });
 }
@@ -500,16 +465,21 @@ export function contractCities(contracts: readonly Contract[]): string[] {
 
 /**
  * One bar per city: work-order value and billed tax-invoice nets,
- * summed across the contracts in that city. `city` empty means every city.
+ * summed across Active contracts in that city. On hold and Completed
+ * stay out of the cities, the scale, the work-order values, and the
+ * billed amounts. Status is the Cost centre label. `city` empty means
+ * every city that still has an Active contract.
  */
 export function billingCityBars(
   contracts: readonly Contract[],
   data: FlowhubData,
-  city = ""
+  city = "",
+  today = todayIso()
 ): BillingBar[] {
-  const selected = city
-    ? contracts.filter((c) => contractCityName(c) === city)
-    : contracts;
+  const selected = contracts.filter((c) => {
+    if (contractDisplayStatus(data, c, today) !== "Active") return false;
+    return !city || contractCityName(c) === city;
+  });
   const map = new Map<string, BillingBar>();
   for (const c of selected) {
     const label = contractCityName(c);
@@ -521,4 +491,195 @@ export function billingCityBars(
   return [...map.values()].sort(
     (a, b) => b.wo - a.wo || a.label.localeCompare(b.label)
   );
+}
+
+export type OutstandingOverviewBar = {
+  key: "d0" | "d8" | "d16" | "d24" | "overdue";
+  label: string;
+  amount: number;
+  count: number;
+};
+
+const OUTSTANDING_WINDOWS: readonly OutstandingOverviewBar[] = [
+  { key: "d0", label: "0–7", amount: 0, count: 0 },
+  { key: "d8", label: "8–15", amount: 0, count: 0 },
+  { key: "d16", label: "16–23", amount: 0, count: 0 },
+  { key: "d24", label: "24+", amount: 0, count: 0 },
+  { key: "overdue", label: "Overdue", amount: 0, count: 0 },
+];
+
+/** Day windows for Outstanding Overview. Due today is 0. Both ends of each window count. */
+export function outstandingWindowIndex(daysUntilDue: number): number {
+  if (daysUntilDue < 0) return 4;
+  if (daysUntilDue <= 7) return 0;
+  if (daysUntilDue <= 15) return 1;
+  if (daysUntilDue <= 23) return 2;
+  return 3;
+}
+
+/**
+ * Five bars from tax invoices that still have a balance.
+ * The caller passes only those rows. Total includes overdue.
+ */
+export function buildOutstandingOverview(
+  rows: readonly { daysUntilDue: number; outstanding: number }[]
+): { total: number; bars: OutstandingOverviewBar[] } {
+  const bars = OUTSTANDING_WINDOWS.map((bar) => ({ ...bar }));
+  let total = 0;
+  for (const row of rows) {
+    const amount = Number(row.outstanding);
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    const days = Number(row.daysUntilDue);
+    const index = outstandingWindowIndex(Number.isFinite(days) ? days : 0);
+    const bar = bars[index];
+    if (!bar) continue;
+    bar.amount += amount;
+    bar.count += 1;
+    total += amount;
+  }
+  return { total, bars };
+}
+
+/** Top of the billing scale: the largest city's work-order value. */
+export function billingScaleMax(workOrders: readonly number[]): number {
+  let max = 0;
+  for (const wo of workOrders) {
+    const n = Number(wo);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return max;
+}
+
+/**
+ * Percents of the pie slices. They add to 100 at two decimal places.
+ * A slice of zero stays 0 and is left out of that sum.
+ */
+export function piePercents(values: readonly number[]): number[] {
+  const positive = values.map((value) =>
+    Number.isFinite(value) && value > 0.005 ? value : 0
+  );
+  const total = positive.reduce((sum, value) => sum + value, 0);
+  const out = positive.map(() => 0);
+  if (total <= 0.005) return out;
+  const indexes = positive
+    .map((value, index) => (value > 0 ? index : -1))
+    .filter((index) => index >= 0);
+  let used = 0;
+  indexes.forEach((index, n) => {
+    if (n === indexes.length - 1) {
+      out[index] = Math.round((100 - used) * 100) / 100;
+      return;
+    }
+    const percent = Math.round((positive[index] / total) * 10000) / 100;
+    out[index] = percent;
+    used += percent;
+  });
+  return out;
+}
+
+export function wholeRupees(n: number): number {
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n);
+}
+
+const WHOLE_RUPEES = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  maximumFractionDigits: 0,
+  minimumFractionDigits: 0,
+});
+
+export function formatWholeRupees(n: number): string {
+  return WHOLE_RUPEES.format(wholeRupees(n));
+}
+
+/** Work-order value minus tax invoices already made. */
+export function yetToBillAmount(
+  workOrder: number,
+  taxInvoiceNets: number
+): number {
+  return (Number(workOrder) || 0) - (Number(taxInvoiceNets) || 0);
+}
+
+/**
+ * Cash still to come in. With GST, start from the work-order value plus 18%.
+ * Without GST, start from the work-order value alone.
+ * Retention and TDS stay percents of that net value.
+ * Then take off every payment's net, its GST when the contract has GST, and
+ * its other deductions.
+ */
+export function yetToCollectAmount(
+  contract: Pick<
+    Contract,
+    "orderValue" | "retentionPercent" | "tdsPercent" | "gstApplicable"
+  >,
+  payments: readonly Pick<Payment, "netAmount" | "gstAmount" | "otherDeductions">[]
+): number {
+  const workOrder = Number(contract.orderValue) || 0;
+  const start = contract.gstApplicable ? workOrder * (1 + GST_RATE) : workOrder;
+  const retention = (workOrder * (Number(contract.retentionPercent) || 0)) / 100;
+  const tds = (workOrder * (Number(contract.tdsPercent) || 0)) / 100;
+  let taken = retention + tds;
+  for (const payment of payments) {
+    taken += Number(payment.netAmount) || 0;
+    if (contract.gstApplicable) taken += Number(payment.gstAmount) || 0;
+    taken += Number(payment.otherDeductions) || 0;
+  }
+  return start - taken;
+}
+
+export type CoreReportRow = {
+  contractId: string;
+  projectName: string;
+  projectNo: string;
+  city: string;
+  status: ContractStatusLabel;
+  workOrder: number;
+  yetToBill: number;
+  yetToCollect: number;
+  spent: number;
+  yetToSpend: number;
+  profit: number;
+  profitPercent: number | null;
+  selling: number;
+};
+
+export function buildCoreReportRows(
+  data: FlowhubData,
+  today: string
+): CoreReportRow[] {
+  const costs = normalizeNexusCosts(data.nexusCosts);
+  return data.contracts
+    .slice()
+    .sort(
+      (a, b) =>
+        a.projectNo.localeCompare(b.projectNo) ||
+        a.projectName.localeCompare(b.projectName)
+    )
+    .map((contract) => {
+      const spend = contractSpend(contract.id, costs);
+      const expenses = contractExpenseTotal(contract);
+      const cumulative = spend.contractCost + expenses;
+      const selling = comparisonValue(data, contract, today);
+      const profit = selling - cumulative;
+      const workOrder = Number(contract.orderValue) || 0;
+      const payments = data.payments.filter(
+        (payment) => payment.contractId === contract.id
+      );
+      return {
+        contractId: contract.id,
+        projectName: contract.projectName,
+        projectNo: contract.projectNo,
+        city: contract.city || "—",
+        status: contractDisplayStatus(data, contract, today),
+        workOrder,
+        yetToBill: yetToBillAmount(workOrder, taxInvoiceNet(data, contract.id)),
+        yetToCollect: yetToCollectAmount(contract, payments),
+        spent: spend.spent,
+        yetToSpend: spend.yetToSpend,
+        profit,
+        profitPercent: profitPercentOf(profit, selling),
+        selling,
+      };
+    });
 }

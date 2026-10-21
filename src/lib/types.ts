@@ -610,33 +610,25 @@ export type FlowhubData = {
   /** Installation — cumulative installed qty per contract + BOQ item */
   installationProgress: InstallationProgress[];
   /**
-   * Nexus Core cost centre. Column headers are defined once for every
-   * contract. Absent on workspaces saved before Nexus Core.
+   * Nexus Core contract costs: Spent and Yet to spend.
+   * Absent on workspaces saved before Nexus Core.
    */
   nexusCosts?: NexusCosts;
 };
 
-/** One rate-per-unit column, reused on every contract's BOQ. */
-export type NexusCostColumn = {
-  id: string;
-  header: string;
-};
-
-/** Costs the Director typed for one contract. */
+/** Spent and Yet to spend typed for one contract. */
 export type NexusContractCost = {
-  /** Used only when no BOQ rate on this contract is filled. */
-  directCost: number | null;
-  /** boqItemId → columnId → rate per unit. */
-  lineRates: Record<string, Record<string, number>>;
+  /** Rupees already spent. Empty until typed. */
+  spent: number | null;
+  /** Rupees still to spend. A saved direct cost lands here. */
+  yetToSpend: number | null;
 };
 
 export type NexusCosts = {
-  columns: NexusCostColumn[];
   contracts: Record<string, NexusContractCost>;
 };
 
 export const EMPTY_NEXUS_COSTS: NexusCosts = {
-  columns: [],
   contracts: {},
 };
 

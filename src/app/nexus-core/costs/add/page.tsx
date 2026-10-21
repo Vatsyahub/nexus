@@ -4,29 +4,28 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import {
-  addNexusCostColumn,
   flushWorkspace,
-  removeNexusCostColumn,
-  setNexusBoqRate,
-  setNexusDirectCost,
+  leftToSupplyQty,
+  setNexusSpend,
+  suppliedQty,
   useFlowhubData,
   useWorkspaceReady,
 } from "@/lib/store";
 import { defaultAccess, levelForPath, mayMutate } from "@/lib/access";
-import {
-  boqLineCost,
-  contractCostAmount,
-  contractUsesBoqCost,
-  formatCoreMoney,
-  normalizeNexusCosts,
-} from "@/lib/nexus-core";
-import { confirmAction } from "@/components/confirm-panel";
+import { formatQty } from "@/lib/execution-reports";
+import { normalizeNexusCosts } from "@/lib/nexus-core";
 import { ContractTypeahead } from "@/components/contract-typeahead";
-import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { HubDataScroll, HubPage } from "@/components/hub-scroll";
+import type { BoqItem, FlowhubData } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+const entryRupees = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  maximumFractionDigits: 2,
+});
 
 export default function AddCostsPage() {
   const data = useFlowhubData();
@@ -36,10 +35,13 @@ export default function AddCostsPage() {
     session?.user?.access ?? defaultAccess(session?.user?.clearance ?? "user");
   const canEdit = mayMutate(levelForPath("/nexus-core/costs/add", access));
   const costs = useMemo(() => normalizeNexusCosts(data.nexusCosts), [data]);
-  const [header, setHeader] = useState("");
-  const [columnError, setColumnError] = useState<string | null>(null);
   const [contractId, setContractId] = useState("");
-  const [boqOpen, setBoqOpen] = useState(false);
+  const [draftSpent, setDraftSpent] = useState<number | null | undefined>(
+    undefined
+  );
+  const [draftYet, setDraftYet] = useState<number | null | undefined>(
+    undefined
+  );
 
   const contracts = useMemo(
     () =>
@@ -50,35 +52,11 @@ export default function AddCostsPage() {
   );
   const contract = contracts.find((c) => c.id === contractId) ?? null;
   const entry = contract ? costs.contracts[contract.id] : undefined;
-  const fromBoq = contract ? contractUsesBoqCost(contract, costs) : false;
-  const usedCost = contract ? contractCostAmount(contract, costs) : 0;
-
-  async function onAddColumn(e: React.FormEvent) {
-    e.preventDefault();
-    if (!canEdit) return;
-    const result = addNexusCostColumn(header);
-    if (!result.ok) {
-      setColumnError(result.error);
-      return;
-    }
-    setHeader("");
-    setColumnError(null);
-    await flushWorkspace();
-  }
-
-  async function onRemoveColumn(id: string, name: string) {
-    if (!canEdit) return;
-    if (
-      !(await confirmAction({
-        message: `Remove the “${name}” cost column from every contract?`,
-        action: "Remove",
-      }))
-    ) {
-      return;
-    }
-    removeNexusCostColumn(id);
-    await flushWorkspace();
-  }
+  const spentShown =
+    draftSpent !== undefined ? (draftSpent ?? 0) : (entry?.spent ?? 0);
+  const yetShown =
+    draftYet !== undefined ? (draftYet ?? 0) : (entry?.yetToSpend ?? 0);
+  const totalShown = spentShown + yetShown;
 
   return (
     <HubPage>
@@ -104,68 +82,7 @@ export default function AddCostsPage() {
           Loading workspace from server…
         </p>
       ) : (
-        <HubDataScroll className="space-y-6">
-          <section className="rounded-xl border border-[var(--fh-line)] bg-[var(--fh-panel)] p-4">
-            <h2 className="font-[family-name:var(--font-display)] text-lg text-[var(--fh-steel)]">
-              Cost columns
-            </h2>
-            {canEdit && (
-              <form
-                onSubmit={(e) => void onAddColumn(e)}
-                {...entryRootProps}
-                className="mt-3 flex flex-wrap items-center gap-2"
-              >
-                <Input
-                  value={header}
-                  onChange={(e) => setHeader(e.target.value)}
-                  placeholder="Column header"
-                  aria-label="New cost column header"
-                  className="max-w-xs bg-white"
-                  maxLength={40}
-                />
-                <Button
-                  type="submit"
-                  {...entrySaveProps}
-                  size="sm"
-                  className="bg-[var(--fh-steel)]"
-                >
-                  Add column
-                </Button>
-              </form>
-            )}
-            {columnError && (
-              <p className="mt-2 text-sm text-[var(--destructive)]" role="alert">
-                {columnError}
-              </p>
-            )}
-            {costs.columns.length > 0 ? (
-              <ul className="mt-3 flex flex-wrap gap-2">
-                {costs.columns.map((col) => (
-                  <li
-                    key={col.id}
-                    className="flex items-center gap-1 rounded-md border border-[var(--fh-line)] bg-white px-2 py-1 text-sm"
-                  >
-                    <span>{col.header}</span>
-                    {canEdit && (
-                      <button
-                        type="button"
-                        className="text-[var(--fh-muted)] hover:text-[var(--destructive)]"
-                        aria-label={`Remove ${col.header}`}
-                        onClick={() => void onRemoveColumn(col.id, col.header)}
-                      >
-                        ×
-                      </button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-3 text-sm text-[var(--fh-muted)]">
-                No cost columns yet.
-              </p>
-            )}
-          </section>
-
+        <HubDataScroll className="space-y-4">
           <section className="rounded-xl border border-[var(--fh-line)] bg-white p-4">
             <div className="max-w-xl">
               <ContractTypeahead
@@ -173,7 +90,8 @@ export default function AddCostsPage() {
                 value={contract?.id ?? ""}
                 onChange={(id) => {
                   setContractId(id);
-                  setBoqOpen(false);
+                  setDraftSpent(undefined);
+                  setDraftYet(undefined);
                 }}
                 label="Contract"
                 placeholder="Type project number, name, or city…"
@@ -189,64 +107,60 @@ export default function AddCostsPage() {
           </section>
 
           {contract && (
-            <section className="space-y-4 rounded-xl border border-[var(--fh-line)] bg-[var(--fh-panel)] p-4">
-              <div>
-                <h2 className="font-[family-name:var(--font-display)] text-lg text-[var(--fh-steel)]">
-                  Direct cost
-                </h2>
-              </div>
-              <div className="max-w-xs">
-                {canEdit ? (
-                  <RupeeInput
-                    key={contract.id}
-                    value={entry?.directCost ?? null}
-                    ariaLabel="Direct contract cost in rupees"
-                    onCommit={async (amount) => {
-                      setNexusDirectCost(contract.id, amount);
-                      await flushWorkspace();
-                    }}
-                  />
-                ) : (
-                  <p className="text-sm tabular-nums text-[var(--fh-steel)]">
-                    {entry?.directCost == null ? "—" : String(entry.directCost)}
-                  </p>
-                )}
-              </div>
-              <p className="text-sm text-[var(--fh-steel)]">
-                Contract cost used{" "}
-                <span className="font-semibold tabular-nums">
-                  {formatCoreMoney(usedCost)}
-                </span>
-                {fromBoq
-                  ? " from BOQ line totals. The typed cost is kept and not used."
-                  : ". No BOQ rate yet, so the typed cost is used."}
-              </p>
-
-              <div className="border-t border-[var(--fh-line)] pt-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h2 className="font-[family-name:var(--font-display)] text-lg text-[var(--fh-steel)]">
-                    BOQ items
-                  </h2>
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="bg-[var(--fh-steel)]"
-                    aria-expanded={boqOpen}
-                    onClick={() => setBoqOpen((open) => !open)}
-                  >
-                    {boqOpen ? "Hide BOQ items" : "Open BOQ items"}
-                  </Button>
+            <section className="overflow-hidden rounded-xl border border-[var(--fh-line)] bg-white">
+              <dl className="grid grid-cols-1 gap-px bg-[var(--fh-line)] sm:grid-cols-2 lg:grid-cols-5">
+                <Readout label="Project name" value={contract.projectName} />
+                <Readout label="Project number" value={contract.projectNo} />
+                <div className="bg-white px-3 py-3 sm:px-4">
+                  <dt className="text-[10px] font-medium uppercase tracking-wide text-[var(--fh-muted)]">
+                    Spent
+                  </dt>
+                  <dd className="mt-1">
+                    {canEdit ? (
+                      <RupeeInput
+                        key={`${contract.id}-spent`}
+                        value={entry?.spent ?? null}
+                        ariaLabel="Spent in rupees"
+                        onDraft={setDraftSpent}
+                        onCommit={async (amount) => {
+                          setDraftSpent(amount);
+                          setNexusSpend(contract.id, "spent", amount);
+                          await flushWorkspace();
+                        }}
+                      />
+                    ) : (
+                      <AmountText value={entry?.spent ?? null} />
+                    )}
+                  </dd>
                 </div>
-                {boqOpen && (
-                  <BoqLines
-                    contractId={contract.id}
-                    canEdit={canEdit}
-                    columns={costs.columns}
-                    lineRates={entry?.lineRates ?? {}}
-                    boq={contract.boq}
-                  />
-                )}
-              </div>
+                <div className="bg-white px-3 py-3 sm:px-4">
+                  <dt className="text-[10px] font-medium uppercase tracking-wide text-[var(--fh-muted)]">
+                    Yet to spend
+                  </dt>
+                  <dd className="mt-1">
+                    {canEdit ? (
+                      <RupeeInput
+                        key={`${contract.id}-yet`}
+                        value={entry?.yetToSpend ?? null}
+                        ariaLabel="Yet to spend in rupees"
+                        onDraft={setDraftYet}
+                        onCommit={async (amount) => {
+                          setDraftYet(amount);
+                          setNexusSpend(contract.id, "yetToSpend", amount);
+                          await flushWorkspace();
+                        }}
+                      />
+                    ) : (
+                      <AmountText value={entry?.yetToSpend ?? null} />
+                    )}
+                  </dd>
+                </div>
+                <Readout
+                  label="Total cost"
+                  value={entryRupees.format(totalShown)}
+                />
+              </dl>
+              <BoqList contractId={contract.id} items={contract.boq} data={data} />
             </section>
           )}
         </HubDataScroll>
@@ -255,135 +169,104 @@ export default function AddCostsPage() {
   );
 }
 
-function BoqLines({
+function BoqList({
   contractId,
-  canEdit,
-  columns,
-  lineRates,
-  boq,
+  items,
+  data,
 }: {
   contractId: string;
-  canEdit: boolean;
-  columns: { id: string; header: string }[];
-  lineRates: Record<string, Record<string, number>>;
-  boq: { id: string; name: string; unit: string; quantity: number }[];
+  items: BoqItem[];
+  data: FlowhubData;
 }) {
   return (
-    <div className="mt-3 space-y-3">
-      <p className="text-[11px] text-[var(--fh-muted)]">
-        Line rate is the sum of that line&apos;s column rates. Line total is
-        line rate × quantity. A filled rate replaces the typed contract cost.
-      </p>
-      {boq.length === 0 ? (
-        <p className="rounded-lg border border-[var(--fh-line)] bg-white px-3 py-6 text-center text-sm text-[var(--fh-muted)]">
-          No BOQ lines on this contract.
-        </p>
-      ) : columns.length === 0 ? (
-        <p className="rounded-lg border border-[var(--fh-line)] bg-white px-3 py-6 text-center text-sm text-[var(--fh-muted)]">
-          Add a cost column to enter rates per unit.
-        </p>
+    <div className="border-t border-[var(--fh-line)]">
+      {items.length === 0 ? (
+        <p className="px-4 py-6 text-sm text-[var(--fh-muted)]">No BOQ items.</p>
       ) : (
-        <ol className="space-y-4">
-          {boq.map((line, index) => {
-            const calc = boqLineCost(line, columns, lineRates[line.id]);
-            return (
-              <li
-                key={line.id}
-                className="overflow-hidden rounded-xl border border-[var(--fh-line)] bg-white"
-              >
-                <div className="flex min-w-0">
-                  <div
-                    className="w-1.5 shrink-0 bg-[var(--fh-accent)]"
-                    aria-hidden
-                  />
-                  <div className="min-w-0 flex-1 p-3 sm:p-4">
-                    <div className="flex items-start gap-3">
-                      <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-[var(--fh-steel)] font-[family-name:var(--font-display)] text-base font-semibold text-white">
-                        {index + 1}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="break-words font-medium text-[var(--fh-steel)]">
-                          {line.name}
-                        </p>
-                        {line.unit ? (
-                          <p className="text-xs text-[var(--fh-muted)]">
-                            {line.unit}
-                          </p>
-                        ) : null}
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--fh-muted)]">
-                          Qty
-                        </p>
-                        <p className="tabular-nums text-[var(--fh-steel)]">
-                          {line.quantity}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      {columns.map((col) => (
-                        <label key={col.id} className="block space-y-1">
-                          <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--fh-muted)]">
-                            {col.header}
-                          </span>
-                          {canEdit ? (
-                            <RupeeInput
-                              value={lineRates[line.id]?.[col.id] ?? null}
-                              ariaLabel={`${col.header} rate for ${line.name}`}
-                              onCommit={async (amount) => {
-                                setNexusBoqRate(
-                                  contractId,
-                                  line.id,
-                                  col.id,
-                                  amount
-                                );
-                                await flushWorkspace();
-                              }}
-                            />
-                          ) : (
-                            <p className="text-sm tabular-nums">
-                              {lineRates[line.id]?.[col.id] ?? "—"}
-                            </p>
-                          )}
-                        </label>
-                      ))}
-                    </div>
-                    <dl className="mt-3 grid grid-cols-2 gap-3 border-t border-[var(--fh-line)] pt-3">
-                      <div>
-                        <dt className="text-[10px] font-medium uppercase tracking-wide text-[var(--fh-muted)]">
-                          Line rate
-                        </dt>
-                        <dd className="mt-0.5 font-[family-name:var(--font-display)] text-lg tabular-nums text-[var(--fh-steel)]">
-                          {formatCoreMoney(calc.lineRate)}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-[10px] font-medium uppercase tracking-wide text-[var(--fh-muted)]">
-                          Line total
-                        </dt>
-                        <dd className="mt-0.5 font-[family-name:var(--font-display)] text-lg tabular-nums text-[var(--fh-steel)]">
-                          {formatCoreMoney(calc.lineTotal)}
-                        </dd>
-                      </div>
-                    </dl>
-                  </div>
-                </div>
-              </li>
-            );
-          })}
-        </ol>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[40rem] border-collapse text-left">
+            <thead>
+              <tr className="border-b border-[var(--fh-line)]">
+                <th className="px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--fh-muted)] sm:px-4">
+                  Item
+                </th>
+                <th className="px-3 py-2 text-right text-[10px] font-medium uppercase tracking-wide text-[var(--fh-muted)] sm:px-4">
+                  Rate
+                </th>
+                <th className="px-3 py-2 text-right text-[10px] font-medium uppercase tracking-wide text-[var(--fh-muted)] sm:px-4">
+                  BOQ qty
+                </th>
+                <th className="px-3 py-2 text-right text-[10px] font-medium uppercase tracking-wide text-[var(--fh-muted)] sm:px-4">
+                  Supplied qty
+                </th>
+                <th className="px-3 py-2 text-right text-[10px] font-medium uppercase tracking-wide text-[var(--fh-muted)] sm:px-4">
+                  Left to supply qty
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.id} className="border-b border-[var(--fh-line)] last:border-b-0">
+                  <td className="px-3 py-2 sm:px-4">
+                    <span className="font-medium text-[var(--fh-steel)]">
+                      {item.name}
+                    </span>
+                    <span className="block text-xs text-[var(--fh-muted)]">
+                      {item.unit}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums text-[var(--fh-ink)] sm:px-4">
+                    {entryRupees.format(Number(item.rate) || 0)}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums text-[var(--fh-ink)] sm:px-4">
+                    {formatQty(Number(item.quantity) || 0)}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums text-[var(--fh-ink)] sm:px-4">
+                    {formatQty(suppliedQty(contractId, item.id, data))}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums text-[var(--fh-ink)] sm:px-4">
+                    {formatQty(leftToSupplyQty(contractId, item.id, data))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
+  );
+}
+
+function Readout({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-white px-3 py-3 sm:px-4">
+      <dt className="text-[10px] font-medium uppercase tracking-wide text-[var(--fh-muted)]">
+        {label}
+      </dt>
+      <dd className="mt-1 break-words font-[family-name:var(--font-display)] text-lg text-[var(--fh-steel)]">
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function AmountText({ value }: { value: number | null }) {
+  return (
+    <p className="text-sm tabular-nums text-[var(--fh-steel)]">
+      {value == null ? "—" : entryRupees.format(value)}
+    </p>
   );
 }
 
 function RupeeInput({
   value,
   onCommit,
+  onDraft,
   ariaLabel,
 }: {
   value: number | null;
   onCommit: (amount: number | null) => Promise<void>;
+  onDraft: (amount: number | null | undefined) => void;
   ariaLabel: string;
 }) {
   const [text, setText] = useState(value == null ? "" : String(value));
@@ -398,7 +281,17 @@ function RupeeInput({
       inputMode="decimal"
       aria-label={ariaLabel}
       value={text}
-      onChange={(e) => setText(e.target.value)}
+      onChange={(e) => {
+        const next = e.target.value;
+        setText(next);
+        const trimmed = next.trim().replace(/,/g, "");
+        if (!trimmed) {
+          onDraft(null);
+          return;
+        }
+        const n = Number(trimmed);
+        if (Number.isFinite(n)) onDraft(n);
+      }}
       onFocus={() => setFocused(true)}
       onBlur={() => {
         setFocused(false);

@@ -28,6 +28,7 @@ const summaryData = {
       projectName: "North shed",
       city: "Pune",
       status: "active",
+      billingTerms: { supply: 60, installation: 40 },
       boq: [
         {
           id: "panel",

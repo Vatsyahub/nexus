@@ -240,36 +240,6 @@ function retargetSchedules(
   return changed ? next : schedules;
 }
 
-function retargetCosts(
-  costs: FlowhubData["nexusCosts"],
-  remap: Map<string, string>
-): FlowhubData["nexusCosts"] {
-  if (!costs || remap.size === 0) return costs;
-  let changed = false;
-  const contracts = { ...costs.contracts };
-  for (const [contractId, entry] of Object.entries(contracts)) {
-    let lineRates = entry.lineRates ?? {};
-    let entryChanged = false;
-    for (const [fromId, toId] of remap) {
-      const moved = lineRates[fromId];
-      if (!moved) continue;
-      entryChanged = true;
-      const nextRates = { ...lineRates };
-      const kept = { ...(nextRates[toId] ?? {}) };
-      for (const [columnId, rate] of Object.entries(moved)) {
-        if (kept[columnId] == null) kept[columnId] = rate;
-      }
-      delete nextRates[fromId];
-      if (Object.keys(kept).length > 0) nextRates[toId] = kept;
-      lineRates = nextRates;
-    }
-    if (!entryChanged) continue;
-    changed = true;
-    contracts[contractId] = { ...entry, lineRates };
-  }
-  return changed ? { ...costs, contracts } : costs;
-}
-
 /**
  * Rename one hub item, or combine it into an item that already has the
  * new name. The catalog row is updated, not copied. A new name only
@@ -428,11 +398,9 @@ export function renameItemRecords(
   const deliveryChallans = retargetChallans(data.deliveryChallans ?? [], remap);
   const installationProgress = retargetInstall(data.installationProgress ?? [], remap);
   const schedules = retargetSchedules(data.schedules ?? [], remap);
-  const nexusCosts = retargetCosts(data.nexusCosts, remap);
   if (deliveryChallans !== data.deliveryChallans) changed = true;
   if (installationProgress !== data.installationProgress) changed = true;
   if (schedules !== data.schedules) changed = true;
-  if (nexusCosts !== data.nexusCosts) changed = true;
 
   if (!changed) return { ok: true, data, from, to };
   return {
@@ -445,7 +413,6 @@ export function renameItemRecords(
       deliveryChallans,
       installationProgress,
       schedules,
-      nexusCosts,
     },
     from,
     to,

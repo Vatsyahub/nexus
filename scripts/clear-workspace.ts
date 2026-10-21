@@ -21,7 +21,7 @@ const empty = {
   expenseCategories: [],
   deliveryChallans: [],
   installationProgress: [],
-  nexusCosts: { columns: [], contracts: {} },
+  nexusCosts: { contracts: {} },
 };
 
 async function main() {

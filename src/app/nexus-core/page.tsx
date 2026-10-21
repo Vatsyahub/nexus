@@ -14,17 +14,22 @@ import { buildInvoiceOutstandingRows } from "@/lib/reports";
 import {
   bankGuaranteeTotal,
   billingCityBars,
+  billingScaleMax,
+  buildOutstandingOverview,
   comparisonValue,
   contractCities,
   contractCostAmount,
+  contractDisplayStatus,
   contractExpenseTotal,
   costSellingPie,
   financialYear,
   formatCoreDay,
   formatCoreMoney,
+  formatCorePercent,
   fyCollection,
   fyNetInvoiceValue,
   normalizeNexusCosts,
+  piePercents,
   todayIso,
   type BillingBar,
   type CostSellingPie,
@@ -59,7 +64,16 @@ export default function NexusCorePage() {
         .sort((a, b) => a.projectNo.localeCompare(b.projectNo)),
     [data.contracts]
   );
-  const cities = useMemo(() => contractCities(contracts), [contracts]);
+  const cities = useMemo(
+    () =>
+      contractCities(
+        contracts.filter(
+          (c) => contractDisplayStatus(data, c, today) === "Active"
+        )
+      ),
+    [contracts, data, today]
+  );
+  const billCityOnChart = cities.includes(billCity) ? billCity : "";
 
   const netInvoice = fyNetInvoiceValue(data, fy);
   const guarantees = bankGuaranteeTotal(data);
@@ -85,27 +99,15 @@ export default function NexusCorePage() {
   }, [contracts, data, today, costs, withRetention]);
 
   const bars = useMemo(
-    () => billingCityBars(contracts, data, billCity),
-    [contracts, billCity, data]
+    () => billingCityBars(contracts, data, billCityOnChart, today),
+    [contracts, data, billCityOnChart, today]
   );
 
   const outstanding = useMemo(() => {
-    const rows = buildInvoiceOutstandingRows(data);
-    let currentDue = 0;
-    let currentCount = 0;
-    let overdue = 0;
-    let overdueCount = 0;
-    for (const row of rows) {
-      if (!outstandingIsStillDue(row.outstanding)) continue;
-      if (row.status === "overdue") {
-        overdue += row.outstanding;
-        overdueCount += 1;
-      } else if (row.status === "due" || row.status === "partially paid") {
-        currentDue += row.outstanding;
-        currentCount += 1;
-      }
-    }
-    return { currentDue, currentCount, overdue, overdueCount };
+    const rows = buildInvoiceOutstandingRows(data).filter((row) =>
+      outstandingIsStillDue(row.outstanding)
+    );
+    return buildOutstandingOverview(rows);
   }, [data]);
 
   const departments = useMemo(() => {
@@ -133,15 +135,26 @@ export default function NexusCorePage() {
         <h1 className="font-[family-name:var(--font-display)] text-4xl font-semibold text-[var(--fh-steel)]">
           Nexus Core
         </h1>
-        <Link
-          href="/nexus-core/costs"
-          className={cn(
-            buttonVariants(),
-            "h-auto bg-[var(--fh-steel)] px-4 py-2 text-sm text-white hover:bg-[var(--fh-steel)]/90"
-          )}
-        >
-          Cost centre
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/nexus-core/costs"
+            className={cn(
+              buttonVariants(),
+              "h-auto bg-[var(--fh-steel)] px-4 py-2 text-sm text-white hover:bg-[var(--fh-steel)]/90"
+            )}
+          >
+            Cost centre
+          </Link>
+          <Link
+            href="/nexus-core/report"
+            className={cn(
+              buttonVariants(),
+              "h-auto bg-[var(--fh-steel)] px-4 py-2 text-sm text-white hover:bg-[var(--fh-steel)]/90"
+            )}
+          >
+            Core report
+          </Link>
+        </div>
       </header>
 
       <section
@@ -176,7 +189,7 @@ export default function NexusCorePage() {
           }}
         >
         <ChartCard
-          title="Cost and selling price"
+          title="Profit Overview"
           controls={
             <div className="flex min-w-0 max-w-full flex-wrap rounded border border-[var(--fh-line)] p-0.5">
               <Toggle
@@ -198,7 +211,7 @@ export default function NexusCorePage() {
         </ChartCard>
 
         <ChartCard
-          title="Billing progress"
+          title="Billing Progression"
           controls={
             <label className="flex items-center gap-1.5 text-[13px] text-[var(--fh-muted)]">
               City
@@ -207,7 +220,7 @@ export default function NexusCorePage() {
                 aria-label="City"
                 data-billing-filter="cities"
                 className={selectClass}
-                value={billCity}
+                value={billCityOnChart}
                 onChange={(e) => setBillCity(e.target.value)}
               >
                 <option value="">All cities</option>
@@ -223,16 +236,11 @@ export default function NexusCorePage() {
           <BillingChart bars={bars} />
         </ChartCard>
 
-        <ChartCard title="Outstanding tax invoices">
-          <OutstandingChart
-            currentDue={outstanding.currentDue}
-            currentCount={outstanding.currentCount}
-            overdue={outstanding.overdue}
-            overdueCount={outstanding.overdueCount}
-          />
+        <ChartCard title="Outstanding Overview">
+          <OutstandingChart overview={outstanding} />
         </ChartCard>
 
-        <ChartCard title="Open tasks">
+        <ChartCard title="Task Progression">
           <DepartmentChart rows={departments} />
         </ChartCard>
         </section>
@@ -360,7 +368,9 @@ function CostPie({
         { label: "Profit", value: Math.max(0, pie.profit), color: GOLD },
       ];
   const total = slices.reduce((sum, slice) => sum + slice.value, 0);
+  const percents = piePercents(slices.map((slice) => slice.value));
   const paths = piePaths(slices, total);
+  const labels = pieSliceLabels(slices, percents);
   const empty = total <= 0.005;
 
   return (
@@ -381,11 +391,25 @@ function CostPie({
         ) : (
           paths.map((path) => (
             <path key={path.label} d={path.d} fill={path.color}>
-              <title>{`${path.label} ${formatCoreMoney(path.value)}`}</title>
+              <title>{`${path.label} ${formatCoreMoney(path.value)} ${formatCorePercent(path.percent)}`}</title>
             </path>
           ))
         )}
         <circle cx="50" cy="50" r="24" fill={PANEL} />
+        {labels.map((label) => (
+          <text
+            key={label.label}
+            x={label.x.toFixed(2)}
+            y={label.y.toFixed(2)}
+            textAnchor="middle"
+            dominantBaseline="central"
+            fill={label.color === GOLD ? INK : "#ffffff"}
+            fontSize="4.6"
+            fontWeight="700"
+          >
+            {formatCorePercent(label.percent)}
+          </text>
+        ))}
       </svg>
       </div>
       <div className="flex min-w-0 flex-col justify-center gap-4">
@@ -425,8 +449,11 @@ function CostPie({
 function piePaths(
   slices: readonly { label: string; value: number; color: string }[],
   total: number
-): { label: string; value: number; color: string; d: string }[] {
-  const drawn = slices.filter((slice) => slice.value > 0.005);
+): { label: string; value: number; color: string; percent: number; d: string }[] {
+  const percents = piePercents(slices.map((slice) => slice.value));
+  const drawn = slices
+    .map((slice, index) => ({ ...slice, percent: percents[index] ?? 0 }))
+    .filter((slice) => slice.value > 0.005);
   if (drawn.length <= 1) {
     return drawn.map((slice) => ({ ...slice, d: "" }));
   }
@@ -447,132 +474,156 @@ function piePaths(
   });
 }
 
+function pieSliceLabels(
+  slices: readonly { label: string; value: number; color: string }[],
+  percents: readonly number[]
+): { label: string; percent: number; color: string; x: number; y: number }[] {
+  const drawn = slices
+    .map((slice, index) => ({ ...slice, percent: percents[index] ?? 0 }))
+    .filter((slice) => slice.value > 0.005);
+  if (!drawn.length) return [];
+  if (drawn.length === 1) return [{ ...drawn[0], x: 50, y: 15 }];
+  const total = drawn.reduce((sum, slice) => sum + slice.value, 0);
+  let angle = -Math.PI / 2;
+  return drawn.map((slice) => {
+    const sweep = total <= 0 ? 0 : (slice.value / total) * Math.PI * 2;
+    const mid = angle + sweep / 2;
+    angle += sweep;
+    const radius = 35;
+    return {
+      ...slice,
+      x: 50 + radius * Math.cos(mid),
+      y: 50 + radius * Math.sin(mid),
+    };
+  });
+}
+
 function BillingChart({ bars }: { bars: BillingBar[] }) {
   if (!bars.length) {
     return <p className="text-sm text-[var(--fh-muted)]">No contracts yet.</p>;
   }
-  const maxL = niceMax(
-    Math.max(...bars.map((bar) => Math.max(bar.wo, bar.billed))) / 100000
+  const max = billingScaleMax(bars.map((bar) => bar.wo));
+  return (
+    <UprightBarChart
+      ariaLabel="Billing progress: one upright bar per city, gold up to the amount billed. Cities is under 0.00L"
+      axisLabel="Cities"
+      legend={[
+        { color: STEEL, label: "Work-order value" },
+        { color: GOLD, label: "Amount billed" },
+      ]}
+      maxLabel={formatCoreMoney(max)}
+      midLabel={formatCoreMoney(max / 2)}
+      zeroLabel="0.00L"
+      bars={bars.map((bar) => {
+        const height = max <= 0 ? 0 : Math.min(1, Math.max(0, bar.wo) / max);
+        const goldShare =
+          bar.wo <= 0.005 ? 0 : Math.min(1, Math.max(0, bar.billed) / bar.wo);
+        return {
+          key: bar.key,
+          label: bar.label,
+          height,
+          steelShare: 1 - goldShare,
+          goldShare,
+          totalLabel: formatCoreMoney(bar.wo),
+          footLabel: formatCoreMoney(bar.billed),
+          showGold: bar.billed > 0.005 && goldShare > 0,
+        };
+      })}
+    />
   );
-  const ticks = [0, maxL / 2, maxL];
-  const twoColumns = bars.length > 5;
-  const mid = Math.ceil(bars.length / 2);
-  const columns = twoColumns
-    ? [bars.slice(0, mid), bars.slice(mid)]
-    : [bars];
-  const rows = columns[0].length;
+}
 
+function UprightBarChart({
+  ariaLabel,
+  axisLabel,
+  legend,
+  maxLabel,
+  midLabel,
+  zeroLabel,
+  bars,
+}: {
+  ariaLabel: string;
+  axisLabel: string;
+  legend: { color: string; label: string }[];
+  maxLabel: string;
+  midLabel: string;
+  zeroLabel: string;
+  bars: {
+    key: string;
+    label: string;
+    height: number;
+    steelShare: number;
+    goldShare: number;
+    totalLabel: string;
+    footLabel: string;
+    showGold: boolean;
+  }[];
+}) {
   return (
     <div
       role="img"
-      aria-label="Billing progress: work-order value and amount billed by city"
+      aria-label={ariaLabel}
       className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
     >
       <div className="mb-2 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1">
-        <LegendItem color={STEEL} label="Work-order value" />
-        <LegendItem color={GOLD} label="Amount billed" />
-        <span className="text-sm font-semibold leading-4 text-[var(--fh-ink)]">
-          Value (L)
-        </span>
+        {legend.map((item) => (
+          <LegendItem key={item.label} color={item.color} label={item.label} />
+        ))}
       </div>
-      <div
-        className="grid h-full min-h-0 min-w-0 flex-1 gap-x-5"
-        style={{
-          gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))`,
-          overflow: "hidden",
-        }}
-      >
-        {columns.map((column, index) => (
-          <div
-            key={column[0]?.key ?? index}
-            className="grid h-full min-h-0 min-w-0"
-            style={{
-              gridTemplateRows: `repeat(${rows}, minmax(2.4rem, 1fr))`,
-              rowGap: "6px",
-            }}
-          >
-            {column.map((bar) => (
-              <div
-                key={bar.key}
-                className="grid min-h-0 items-stretch gap-x-2"
-                style={{
-                  gridTemplateColumns: "5.6rem minmax(0, 1fr)",
-                  gridTemplateRows: "minmax(14px, 1fr) minmax(14px, 1fr)",
-                  rowGap: "3px",
-                }}
-              >
+      <div className="flex min-h-0 min-w-0 flex-1 gap-2">
+        <div className="flex w-max min-w-[4.4rem] shrink-0 flex-col">
+          <div className="h-5 shrink-0" />
+          <div className="flex min-h-0 flex-1 flex-col justify-between border-r border-[var(--fh-line)] pr-1 text-right text-[11px] font-semibold tabular-nums leading-none text-[var(--fh-ink)]">
+            <span>{maxLabel}</span>
+            <span>{midLabel}</span>
+            <span>{zeroLabel}</span>
+          </div>
+          <div className="mt-1 h-4 shrink-0" />
+          <div className="h-4 shrink-0 whitespace-nowrap border-r border-transparent pr-1 text-right text-[11px] font-semibold leading-4 text-[var(--fh-ink)]">
+            {axisLabel}
+          </div>
+        </div>
+        <div className="flex min-h-0 min-w-0 flex-1 gap-1 overflow-x-auto">
+          {bars.map((bar) => (
+            <div
+              key={bar.key}
+              className="flex h-full min-w-[3.6rem] flex-1 flex-col items-center"
+            >
+              <div className="h-5 shrink-0" />
+              <div className="relative min-h-0 w-full flex-1">
                 <div
-                  className="row-span-2 self-center truncate text-sm font-semibold leading-4 text-[var(--fh-ink)]"
-                  title={bar.label}
+                  className="absolute bottom-0 left-1/2 flex w-[68%] max-w-[46px] -translate-x-1/2 flex-col"
+                  style={{ height: `${(bar.height * 100).toFixed(2)}%` }}
                 >
-                  {bar.label}
+                  <div className="absolute bottom-full left-1/2 mb-0.5 -translate-x-1/2 whitespace-nowrap text-[11px] font-semibold tabular-nums leading-none text-[var(--fh-ink)]">
+                    {bar.totalLabel}
+                  </div>
+                  <div
+                    className="min-h-0"
+                    style={{ flex: `${bar.steelShare} 1 0`, background: STEEL }}
+                  />
+                  <div
+                    style={{
+                      flex: `${bar.goldShare} 1 0`,
+                      background: GOLD,
+                      minHeight: bar.showGold ? 2 : 0,
+                    }}
+                  />
                 </div>
-                <BillingPair amount={bar.wo} maxL={maxL} color={STEEL} />
-                <BillingPair amount={bar.billed} maxL={maxL} color={GOLD} />
               </div>
-            ))}
-          </div>
-        ))}
-      </div>
-      <div
-        className="mt-1 grid shrink-0 gap-x-5"
-        style={{
-          gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))`,
-        }}
-      >
-        {columns.map((column, index) => (
-          <div
-            key={column[0]?.key ?? index}
-            className="grid grid-cols-[5.6rem_minmax(0,1fr)] gap-x-2"
-          >
-            <span />
-            <div className="flex min-w-0 justify-between gap-1 overflow-hidden pr-14 text-xs font-semibold leading-4 text-[var(--fh-ink)]">
-              {ticks.map((tick) => (
-                <span key={tick}>{formatCoreMoney(tick * 100000)}</span>
-              ))}
+              <div className="mt-1 h-4 shrink-0 whitespace-nowrap text-[11px] font-semibold tabular-nums leading-none text-[var(--fh-ink)]">
+                {bar.footLabel}
+              </div>
+              <div
+                className="h-4 w-full truncate text-center text-[11px] font-semibold leading-4 text-[var(--fh-ink)]"
+                title={bar.label}
+              >
+                {bar.label}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
-    </div>
-  );
-}
-
-function BillingPair({
-  amount,
-  maxL,
-  color,
-}: {
-  amount: number;
-  maxL: number;
-  color: string;
-}) {
-  return (
-    <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5">
-      <BillingHBar amount={amount} maxL={maxL} color={color} />
-      <div className="flex items-center gap-1 whitespace-nowrap text-[13px] font-semibold leading-4 tabular-nums text-[var(--fh-ink)]">
-        <Swatch color={color} />
-        {formatCoreMoney(amount)}
-      </div>
-    </div>
-  );
-}
-
-function BillingHBar({
-  amount,
-  maxL,
-  color,
-}: {
-  amount: number;
-  maxL: number;
-  color: string;
-}) {
-  const ratio = maxL <= 0 ? 0 : Math.min(1, amount / 100000 / maxL);
-  const width =
-    amount <= 0.005 ? "0px" : `max(2px, ${(ratio * 100).toFixed(2)}%)`;
-  return (
-    <div className="h-full min-h-3.5 w-full min-w-0" style={{ background: TRACK }} title={formatCoreMoney(amount)}>
-      <div style={{ width, height: "100%", background: color }} />
     </div>
   );
 }
@@ -586,83 +637,73 @@ function LegendItem({ color, label }: { color: string; label: string }) {
   );
 }
 
-function niceMax(value: number): number {
-  if (value <= 0) return 1;
-  const pow = Math.pow(10, Math.floor(Math.log10(value)));
-  const n = value / pow;
-  const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
-  return step * pow;
-}
-
 function OutstandingChart({
-  currentDue,
-  currentCount,
-  overdue,
-  overdueCount,
+  overview,
 }: {
-  currentDue: number;
-  currentCount: number;
-  overdue: number;
-  overdueCount: number;
+  overview: ReturnType<typeof buildOutstandingOverview>;
 }) {
-  const maxL = niceMax(Math.max(currentDue, overdue) / 100000);
-  const bars = [
-    {
-      label: "Current due",
-      count: `${currentCount} TI due`,
-      amount: currentDue,
-      color: STEEL,
-    },
-    {
-      label: "Overdue",
-      count: `${overdueCount} TI overdue`,
-      amount: overdue,
-      color: LOSS,
-    },
-  ];
-
+  const max = billingScaleMax(overview.bars.map((bar) => bar.amount));
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="grid min-h-0 flex-1 grid-cols-2 items-end gap-9 px-4">
-        {bars.map((bar) => {
-          const ratio = maxL <= 0 ? 0 : Math.min(1, bar.amount / 100000 / maxL);
-          const height =
-            bar.amount > 0.005
-              ? `max(4px, ${(ratio * 100).toFixed(2)}%)`
-              : "2px";
-          return (
-            <div
-              key={bar.label}
-              className="flex h-full min-w-0 flex-col items-center"
-            >
+    <div
+      role="img"
+      aria-label="Outstanding Overview: tax invoices by days until due, with overdue included in the total. Due in days is under 0.00L"
+      className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+    >
+      <p className="mb-1 flex shrink-0 items-center gap-2.5">
+        <span className="text-lg leading-5 text-[var(--fh-ink)]">
+          Total outstanding
+        </span>
+        <span className="shrink-0 text-xl font-bold tabular-nums leading-5 text-[var(--fh-ink)]">
+          {formatCoreMoney(overview.total)}
+        </span>
+      </p>
+      <div className="flex min-h-0 min-w-0 flex-1 gap-2">
+        <div className="flex w-max min-w-[4.4rem] shrink-0 flex-col">
+          <div className="h-5 shrink-0" />
+          <div className="flex min-h-0 flex-1 flex-col justify-between border-r border-[var(--fh-line)] pr-1 text-right text-[11px] font-semibold tabular-nums leading-none text-[var(--fh-ink)]">
+            <span>{formatCoreMoney(max)}</span>
+            <span>{formatCoreMoney(max / 2)}</span>
+            <span>0.00L</span>
+          </div>
+          <div className="mt-1 h-4 shrink-0" />
+          <div className="h-4 shrink-0 whitespace-nowrap border-r border-transparent pr-1 text-right text-[11px] font-semibold leading-4 text-[var(--fh-ink)]">
+            Due in days
+          </div>
+        </div>
+        <div className="flex min-h-0 min-w-0 flex-1 gap-1">
+          {overview.bars.map((bar) => {
+            const height = max <= 0 ? 0 : Math.min(1, Math.max(0, bar.amount) / max);
+            const color = bar.key === "overdue" ? LOSS : STEEL;
+            return (
               <div
-                className="shrink-0 whitespace-nowrap font-[family-name:var(--font-display)] text-[32px] font-semibold tabular-nums leading-none"
-                style={{ color: bar.color }}
+                key={bar.key}
+                className="flex h-full min-w-0 flex-1 flex-col items-center"
               >
-                {formatCoreMoney(bar.amount)}
-              </div>
-              <div className="mt-2 flex min-h-[3rem] w-full flex-1 items-end justify-center">
+                <div className="h-5 shrink-0" />
+                <div className="relative min-h-0 w-full flex-1">
+                  <div
+                    className="absolute bottom-0 left-1/2 flex w-[70%] max-w-[42px] -translate-x-1/2 flex-col"
+                    style={{ height: `${(height * 100).toFixed(2)}%` }}
+                  >
+                    <div className="absolute bottom-full left-1/2 mb-0.5 -translate-x-1/2 whitespace-nowrap text-[11px] font-semibold tabular-nums leading-none text-[var(--fh-ink)]">
+                      {formatCoreMoney(bar.amount)}
+                    </div>
+                    <div className="min-h-0 flex-1" style={{ background: color }} />
+                  </div>
+                </div>
+                <div className="mt-1 h-4 shrink-0 whitespace-nowrap text-[11px] font-semibold tabular-nums leading-none text-[var(--fh-ink)]">
+                  {bar.count}
+                </div>
                 <div
-                  className="w-[38%] min-w-[84px] max-w-[140px]"
-                  style={{ height, background: bar.color }}
-                />
+                  className="h-4 w-full truncate text-center text-[11px] font-semibold leading-4 text-[var(--fh-ink)]"
+                  title={bar.label}
+                >
+                  {bar.label}
+                </div>
               </div>
-              <div className="mt-2 shrink-0 whitespace-nowrap text-lg font-semibold leading-tight text-[var(--fh-ink)]">
-                {bar.label}
-              </div>
-              <div
-                className="shrink-0 whitespace-nowrap text-sm leading-5"
-                style={{ color: bar.color }}
-              >
-                {bar.count}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className="flex shrink-0 justify-between px-8 pt-1.5 text-[13px] leading-4 text-[var(--fh-muted)]">
-        <span>0.00L</span>
-        <span>{formatCoreMoney(maxL * 100000)}</span>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -676,67 +717,34 @@ function DepartmentChart({
   if (!rows.length) {
     return <p className="text-sm text-[var(--fh-muted)]">No open tasks.</p>;
   }
-  const maxOpen = niceMax(Math.max(...rows.map((row) => row.open)));
+  const max = Math.max(...rows.map((row) => row.open));
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col overflow-auto">
-      <div className="mb-2 flex shrink-0 flex-wrap gap-4">
-        <LegendItem color={STEEL} label="Open, not overdue" />
-        <LegendItem color={GOLD} label="Overdue" />
-      </div>
-      <div className="grid shrink-0 grid-cols-[7.4rem_minmax(0,1fr)] items-center gap-x-3">
-        <div className="text-[13px] leading-4 text-[var(--fh-muted)]">
-          Department
-        </div>
-        <div className="text-[13px] leading-4 text-[var(--fh-muted)]">
-          Open tasks (count)
-        </div>
-      </div>
-      <div className="mt-2 flex min-h-0 flex-1 flex-col justify-between gap-3 overflow-auto">
-        {rows.map((row) => {
-          const resting = Math.max(0, row.open - row.overdue);
-          return (
-            <div
-              key={row.name}
-              className="grid shrink-0 grid-cols-[7.4rem_minmax(0,1fr)] items-center gap-x-3"
-            >
-              <div
-                className="truncate text-[15px] leading-5 text-[var(--fh-ink)]"
-                title={row.name}
-              >
-                {row.name}
-              </div>
-              <div>
-                <div className="flex h-7" style={{ background: TRACK }}>
-                  <div
-                    style={{
-                      width: `${(resting / maxOpen) * 100}%`,
-                      background: STEEL,
-                    }}
-                  />
-                  <div
-                    style={{
-                      width: `${(row.overdue / maxOpen) * 100}%`,
-                      background: GOLD,
-                    }}
-                  />
-                </div>
-                <div className="mt-0.5 text-[13px] tabular-nums leading-4 text-[var(--fh-muted)]">
-                  {row.open} open, {row.overdue} overdue
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className="mt-1.5 grid grid-cols-[7.4rem_minmax(0,1fr)]">
-        <span />
-        <div className="flex justify-between text-[13px] leading-4 text-[var(--fh-muted)]">
-          <span>0</span>
-          <span>{formatCountTick(maxOpen / 2)}</span>
-          <span>{formatCountTick(maxOpen)}</span>
-        </div>
-      </div>
-    </div>
+    <UprightBarChart
+      ariaLabel="Open tasks: one upright bar per department, gold up to the overdue count. Departments is under 0"
+      axisLabel="Departments"
+      legend={[
+        { color: STEEL, label: "Open, not overdue" },
+        { color: GOLD, label: "Overdue" },
+      ]}
+      maxLabel={formatCountTick(max)}
+      midLabel={formatCountTick(max / 2)}
+      zeroLabel="0"
+      bars={rows.map((row) => {
+        const height = max <= 0 ? 0 : Math.min(1, row.open / max);
+        const goldShare =
+          row.open <= 0 ? 0 : Math.min(1, Math.max(0, row.overdue) / row.open);
+        return {
+          key: row.name,
+          label: row.name,
+          height,
+          steelShare: 1 - goldShare,
+          goldShare,
+          totalLabel: formatCountTick(row.open),
+          footLabel: formatCountTick(row.overdue),
+          showGold: row.overdue > 0 && goldShare > 0,
+        };
+      })}
+    />
   );
 }
 
