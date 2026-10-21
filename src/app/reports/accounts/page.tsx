@@ -11,14 +11,24 @@ import {
   useWorkspaceReady,
 } from "@/lib/store";
 import { formatMoney } from "@/lib/format-money";
-import { formatDisplayDate, isDateInInclusiveRange } from "@/lib/dates";
+import { formatDisplayDate } from "@/lib/dates";
 import {
+  BANK_GUARANTEE_EXPORT_HEADERS,
+  COLLECTION_EXPORT_HEADERS,
+  EXPENSE_REPORT_EXPORT_HEADERS,
+  RETENTION_EXPORT_HEADERS,
+  bankGuaranteeExportRow,
   buildBankGuaranteeRows,
   buildCollectionRows,
   buildExpenseReportRows,
   buildRetentionHeldRows,
+  collectionExportRow,
+  expenseReportExportRow,
+  filterBankGuaranteeRows,
   filterCollectionRows,
-  formatRetentionStatusLabel,
+  filterExpenseReportRows,
+  filterRetentionHeldRows,
+  retentionExportRow,
   sumCollectionColumns,
   type BankGuaranteeRow,
   type CollectionColumnTotals,
@@ -26,7 +36,6 @@ import {
   type ExpenseReportRow,
   type RetentionHeldRow,
 } from "@/lib/reports";
-import { matchesAny } from "@/lib/list-search";
 import { ListSearchWithDateRange } from "@/components/list-date-range";
 import { ListSearchBar } from "@/components/list-search";
 import { ProjectIdentity } from "@/components/project-identity";
@@ -117,57 +126,25 @@ function AccountsReportInner() {
     [allCollectionRows, q, collectionFrom, collectionTo]
   );
 
-  const bgRows = useMemo(() => {
-    const needle = q.trim();
-    if (!needle) return allBgRows;
-    return allBgRows.filter((r) =>
-      matchesAny(needle, [
-        r.projectNo,
-        r.projectName,
-        r.type,
-        r.number,
-        r.bankName,
-        r.status,
-        r.value,
-        formatDisplayDate(r.date),
-        formatDisplayDate(r.expiry),
-        r.retrievalDate ? formatDisplayDate(r.retrievalDate) : "",
-      ])
-    );
-  }, [allBgRows, q]);
+  const bgRows = useMemo(
+    () => filterBankGuaranteeRows(allBgRows, q),
+    [allBgRows, q]
+  );
 
-  const retentionRows = useMemo(() => {
-    const needle = q.trim();
-    if (!needle) return allRetentionRows;
-    return allRetentionRows.filter((r) =>
-      matchesAny(needle, [
-        r.projectNo,
-        r.projectName,
-        r.retentionHeld,
-        formatRetentionStatusLabel(r.status),
-        r.status.kind === "recovered"
-          ? formatDisplayDate(r.status.recoveredAt)
-          : "",
-        r.handoverDate ? formatDisplayDate(r.handoverDate) : "",
-      ])
-    );
-  }, [allRetentionRows, q]);
+  const retentionRows = useMemo(
+    () => filterRetentionHeldRows(allRetentionRows, q),
+    [allRetentionRows, q]
+  );
 
-  const expenseRows = useMemo(() => {
-    const needle = q.trim();
-    return allExpenseRows.filter((r) => {
-      if (!isDateInInclusiveRange(r.date, dateFrom, dateTo)) return false;
-      if (!needle) return true;
-      return matchesAny(needle, [
-        r.projectNo,
-        r.projectName,
-        r.category,
-        r.personPaid,
-        r.amount,
-        formatDisplayDate(r.date),
-      ]);
-    });
-  }, [allExpenseRows, q, dateFrom, dateTo]);
+  const expenseRows = useMemo(
+    () =>
+      filterExpenseReportRows(allExpenseRows, {
+        q,
+        dateFrom,
+        dateTo,
+      }),
+    [allExpenseRows, q, dateFrom, dateTo]
+  );
 
   const expenseTotal = useMemo(
     () => expenseRows.reduce((s, r) => s + r.amount, 0),
@@ -279,8 +256,8 @@ function AccountsReportInner() {
               onChange={setQ}
               placeholder={
                 tab === "collections"
-                  ? "Search date, contract, against, amounts…"
-                  : "Search project, type, person, amount…"
+                  ? "Search date, contract, city, against, amounts…"
+                  : "Search project, city, type, person, amount…"
               }
               dateFrom={tab === "collections" ? collectionFrom : dateFrom}
               dateTo={tab === "collections" ? collectionTo : dateTo}
@@ -298,8 +275,8 @@ function AccountsReportInner() {
               onChange={setQ}
               placeholder={
                 tab === "guarantees"
-                  ? "Search project, type, number, bank, status…"
-                  : "Search project, status, amounts…"
+                  ? "Search project, city, type, number, bank, status…"
+                  : "Search project, city, status, amounts…"
               }
             />
           )}
@@ -428,18 +405,7 @@ function CollectionsTable({
   totals: CollectionColumnTotals;
   filters: string;
 }) {
-  const exportRows = rows.map((r) => [
-    formatDisplayDate(r.date),
-    r.projectName,
-    r.projectNo,
-    r.against,
-    r.cashReceivedNet,
-    r.cashReceivedGst,
-    r.cashReceived,
-    r.retention,
-    r.tds,
-    r.otherDeductions,
-  ]);
+  const exportRows = rows.map(collectionExportRow);
   return (
     <>
       <ReportsTableScroll className="mt-4">
@@ -546,18 +512,7 @@ function CollectionsTable({
         filename="collections"
         title="Accounts Report — Collections"
         filters={filters}
-        headers={[
-          "DATE",
-          "CONTRACT",
-          "PROJECT NO.",
-          "AGAINST",
-          "CASH RECEIVED NET",
-          "CASH RECEIVED GST",
-          "CASH RECEIVED TOTAL",
-          "RETENTION",
-          "TDS",
-          "OTHER DEDUCTIONS",
-        ]}
+        headers={[...COLLECTION_EXPORT_HEADERS]}
         rows={
           rows.length > 0
             ? [
@@ -665,34 +620,8 @@ function GuaranteesTable({
         filename="bank-guarantees"
         title="Accounts Report — Bank guarantees"
         filters={filters}
-        headers={[
-          "PROJECT",
-          "PROJECT NO.",
-          "TYPE",
-          "GUARANTEE #",
-          "DATE",
-          "VALUE",
-          "BANK",
-          "EXPIRY",
-          "STATUS",
-          "RETRIEVAL",
-        ]}
-        rows={rows.map((r) => [
-          r.projectName,
-          r.projectNo,
-          r.type,
-          r.number,
-          formatDisplayDate(r.date),
-          r.value,
-          r.bankName,
-          formatDisplayDate(r.expiry),
-          r.status === "active"
-            ? "Active"
-            : r.status === "retrieved"
-              ? "Retrieved"
-              : "Expired",
-          r.retrievalDate ? formatDisplayDate(r.retrievalDate) : "",
-        ])}
+        headers={[...BANK_GUARANTEE_EXPORT_HEADERS]}
+        rows={rows.map(bankGuaranteeExportRow)}
       />
     </>
   );
@@ -855,22 +784,8 @@ function RetentionsTable({
         filename="retentions"
         title="Accounts Report — Retentions held"
         filters={filters}
-        headers={[
-          "PROJECT",
-          "PROJECT NO.",
-          "RETENTION HELD",
-          "STATUS",
-          "RECOVERED ON",
-        ]}
-        rows={rows.map((r) => [
-          r.projectName,
-          r.projectNo,
-          r.retentionHeld,
-          formatRetentionStatusLabel(r.status),
-          r.status.kind === "recovered"
-            ? formatDisplayDate(r.status.recoveredAt)
-            : "",
-        ])}
+        headers={[...RETENTION_EXPORT_HEADERS]}
+        rows={rows.map(retentionExportRow)}
       />
     </>
   );
@@ -969,22 +884,8 @@ function ExpensesTable({
         filename="expenses"
         title="Accounts Report — Expenses"
         filters={filters}
-        headers={[
-          "PROJECT",
-          "PROJECT NO.",
-          "DATE",
-          "EXPENSE TYPE",
-          "EXPENSE PERSON",
-          "AMOUNT",
-        ]}
-        rows={rows.map((r) => [
-          r.projectName,
-          r.projectNo,
-          formatDisplayDate(r.date),
-          r.category,
-          r.personPaid,
-          r.amount,
-        ])}
+        headers={[...EXPENSE_REPORT_EXPORT_HEADERS]}
+        rows={rows.map(expenseReportExportRow)}
       />
     </>
   );

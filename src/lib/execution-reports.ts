@@ -5,6 +5,8 @@
 
 import type { Contract, FlowhubData, ScheduleLine } from "@/lib/types";
 import { isScheduleDateNa } from "@/lib/types";
+import { formatDisplayDate, isDateInInclusiveRange } from "@/lib/dates";
+import { matchesAny } from "@/lib/list-search";
 import {
   contractDisplayStatus,
   handoverDateForContract,
@@ -167,6 +169,8 @@ export type ExecutionSummaryRow = {
   contractId: string;
   projectNo: string;
   projectName: string;
+  /** Contract city. Not shown or exported. */
+  city: string;
   boqItemId: string;
   itemName: string;
   unit: string;
@@ -251,6 +255,7 @@ export function buildExecutionSummaryRows(
         contractId: c.id,
         projectNo: c.projectNo,
         projectName: c.projectName,
+        city: c.city ?? "",
         boqItemId: b.id,
         itemName: b.name,
         unit: b.unit,
@@ -302,6 +307,17 @@ export function executionSummaryExportRow(
     row.unbilledSupplyQty,
     row.unbilledInstallQty,
   ];
+}
+
+export function filterExecutionSummaryRows(
+  rows: ExecutionSummaryRow[],
+  q?: string
+): ExecutionSummaryRow[] {
+  const needle = (q ?? "").trim();
+  if (!needle) return rows;
+  return rows.filter((r) =>
+    matchesAny(needle, [r.projectNo, r.projectName, r.city, r.itemName, r.unit])
+  );
 }
 
 export type WorkorderStatus = "active" | "on_hold" | "completed";
@@ -406,6 +422,8 @@ export type SupplyDetailRow = {
   contractId: string;
   projectNo: string;
   projectName: string;
+  /** Contract city. Empty when the contract is missing. Not shown or exported. */
+  city: string;
   dcNo: string;
   dcDate: string;
   boqItemId: string;
@@ -429,6 +447,7 @@ export function buildSupplyDetailRows(
         contractId: dc.contractId,
         projectNo: contract?.projectNo ?? "—",
         projectName: contract?.projectName ?? "Deleted contract",
+        city: contract?.city ?? "",
         dcNo: dc.dcNo,
         dcDate: dc.date,
         boqItemId: l.boqItemId,
@@ -443,6 +462,52 @@ export function buildSupplyDetailRows(
       a.projectNo.localeCompare(b.projectNo) ||
       a.dcNo.localeCompare(b.dcNo)
   );
+}
+
+/** Excel / PDF columns for Operations → DC records. City stays off this sheet. */
+export const DC_RECORDS_EXPORT_HEADERS = [
+  "Project",
+  "Project no.",
+  "DC no.",
+  "DC date",
+  "Item",
+  "Qty supplied",
+] as const;
+
+export function supplyDetailExportRow(
+  row: SupplyDetailRow
+): (string | number)[] {
+  return [
+    row.projectName,
+    row.projectNo,
+    row.dcNo,
+    formatDisplayDate(row.dcDate),
+    row.itemName,
+    row.qty,
+  ];
+}
+
+/** DC date is inclusive. Text search is AND with that range. */
+export function filterSupplyDetailRows(
+  rows: SupplyDetailRow[],
+  opts?: { q?: string; dateFrom?: string; dateTo?: string }
+): SupplyDetailRow[] {
+  const needle = (opts?.q ?? "").trim();
+  const dateFrom = opts?.dateFrom ?? "";
+  const dateTo = opts?.dateTo ?? "";
+  return rows.filter((r) => {
+    if (!isDateInInclusiveRange(r.dcDate, dateFrom, dateTo)) return false;
+    return matchesAny(needle, [
+      r.projectNo,
+      r.projectName,
+      r.city,
+      r.dcNo,
+      r.dcDate,
+      formatDisplayDate(r.dcDate),
+      r.itemName,
+      r.qty,
+    ]);
+  });
 }
 
 export function formatQty(n: number): string {

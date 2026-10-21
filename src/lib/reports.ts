@@ -16,7 +16,11 @@
 import type { Contract, FlowhubData, Invoice, Payment } from "@/lib/types";
 import { matchesAny } from "@/lib/list-search";
 import { handoverDateForContract } from "@/lib/nexus-core";
-import { dateSearchForms, isDateInInclusiveRange } from "@/lib/dates";
+import {
+  dateSearchForms,
+  formatDisplayDate,
+  isDateInInclusiveRange,
+} from "@/lib/dates";
 import { formatMoney } from "@/lib/format-money";
 import {
   contractActualRetentionHold,
@@ -487,6 +491,8 @@ export type SalesInvoiceRow = {
   contractId: string;
   projectNo: string;
   projectName: string;
+  /** Contract city. Empty when the contract is missing. Not shown or exported. */
+  city: string;
   number: string;
   date: string;
   net: number;
@@ -521,6 +527,7 @@ export function buildSalesInvoiceRows(data: FlowhubData): SalesInvoiceRow[] {
         contractId: ti.contractId,
         projectNo: c?.projectNo ?? "—",
         projectName: c?.projectName ?? "—",
+        city: c?.city ?? "",
         number: ti.number,
         date: ti.date,
         net: ti.netAmount,
@@ -533,6 +540,62 @@ export function buildSalesInvoiceRows(data: FlowhubData): SalesInvoiceRow[] {
 
 export function sumSalesInvoiceNet(rows: SalesInvoiceRow[]): number {
   return rows.reduce((s, r) => s + r.net, 0);
+}
+
+/** Excel / PDF columns for Sales → Invoices. City is searchable and stays off this sheet. */
+export const SALES_INVOICE_EXPORT_HEADERS = [
+  "Project",
+  "Project no.",
+  "Invoice no.",
+  "Invoice date",
+  "Net amount",
+  "GST amount",
+  "Other amount",
+  "Total amount",
+] as const;
+
+export function salesInvoiceExportRow(
+  row: SalesInvoiceRow
+): (string | number)[] {
+  return [
+    row.projectName,
+    row.projectNo,
+    row.number,
+    formatDisplayDate(row.date),
+    row.net,
+    row.gst,
+    row.other,
+    row.total,
+  ];
+}
+
+/**
+ * Invoice date is inclusive. Text search is AND with that range.
+ * City is the contract city; a missing contract has none.
+ */
+export function filterSalesInvoiceRows(
+  rows: SalesInvoiceRow[],
+  opts?: { q?: string; dateFrom?: string; dateTo?: string }
+): SalesInvoiceRow[] {
+  const needle = (opts?.q ?? "").trim();
+  const dateFrom = opts?.dateFrom ?? "";
+  const dateTo = opts?.dateTo ?? "";
+  return rows.filter((r) => {
+    if (!isDateInInclusiveRange(r.date, dateFrom, dateTo)) return false;
+    if (!needle) return true;
+    return matchesAny(needle, [
+      r.projectNo,
+      r.projectName,
+      r.city,
+      r.number,
+      `TI ${r.number}`,
+      r.net,
+      r.gst,
+      r.other,
+      r.total,
+      formatDisplayDate(r.date),
+    ]);
+  });
 }
 
 export type SalesContractRow = {
@@ -671,6 +734,8 @@ export type BankGuaranteeRow = {
   contractId: string;
   projectNo: string;
   projectName: string;
+  /** Contract city. Not shown or exported. */
+  city: string;
   type: "ABG" | "PBG";
   number: string;
   date: string;
@@ -714,6 +779,7 @@ export function buildBankGuaranteeRows(data: FlowhubData): BankGuaranteeRow[] {
         contractId: c.id,
         projectNo: c.projectNo,
         projectName: c.projectName,
+        city: c.city ?? "",
         type: "ABG",
         number: c.abgNumber!,
         date: c.abgDate!,
@@ -737,6 +803,7 @@ export function buildBankGuaranteeRows(data: FlowhubData): BankGuaranteeRow[] {
         contractId: c.id,
         projectNo: c.projectNo,
         projectName: c.projectName,
+        city: c.city ?? "",
         type: "PBG",
         number: c.pbgNumber!,
         date: c.pbgDate!,
@@ -761,6 +828,64 @@ export function buildBankGuaranteeRows(data: FlowhubData): BankGuaranteeRow[] {
   );
 }
 
+/** Excel / PDF columns for Accounts → Bank guarantees. City stays off this sheet. */
+export const BANK_GUARANTEE_EXPORT_HEADERS = [
+  "PROJECT",
+  "PROJECT NO.",
+  "TYPE",
+  "GUARANTEE #",
+  "DATE",
+  "VALUE",
+  "BANK",
+  "EXPIRY",
+  "STATUS",
+  "RETRIEVAL",
+] as const;
+
+export function bankGuaranteeExportRow(
+  row: BankGuaranteeRow
+): (string | number)[] {
+  return [
+    row.projectName,
+    row.projectNo,
+    row.type,
+    row.number,
+    formatDisplayDate(row.date),
+    row.value,
+    row.bankName,
+    formatDisplayDate(row.expiry),
+    row.status === "active"
+      ? "Active"
+      : row.status === "retrieved"
+        ? "Retrieved"
+        : "Expired",
+    row.retrievalDate ? formatDisplayDate(row.retrievalDate) : "",
+  ];
+}
+
+export function filterBankGuaranteeRows(
+  rows: BankGuaranteeRow[],
+  q?: string
+): BankGuaranteeRow[] {
+  const needle = (q ?? "").trim();
+  if (!needle) return rows;
+  return rows.filter((r) =>
+    matchesAny(needle, [
+      r.projectNo,
+      r.projectName,
+      r.city,
+      r.type,
+      r.number,
+      r.bankName,
+      r.status,
+      r.value,
+      formatDisplayDate(r.date),
+      formatDisplayDate(r.expiry),
+      r.retrievalDate ? formatDisplayDate(r.retrievalDate) : "",
+    ])
+  );
+}
+
 export type RetentionReportStatus =
   | { kind: "recovered"; recoveredAt: string }
   | { kind: "undue" }
@@ -770,6 +895,8 @@ export type RetentionHeldRow = {
   contractId: string;
   projectNo: string;
   projectName: string;
+  /** Contract city. Not shown or exported. */
+  city: string;
   /** Actual retention held from payments (locked money rules) */
   retentionHeld: number;
   handoverDate: string | null;
@@ -821,6 +948,7 @@ export function buildRetentionHeldRows(data: FlowhubData): RetentionHeldRow[] {
         contractId: c.id,
         projectNo: c.projectNo,
         projectName: c.projectName,
+        city: c.city ?? "",
         retentionHeld,
         handoverDate,
         dlpEnd,
@@ -830,11 +958,57 @@ export function buildRetentionHeldRows(data: FlowhubData): RetentionHeldRow[] {
     .sort((a, b) => a.projectNo.localeCompare(b.projectNo));
 }
 
+/** Excel / PDF columns for Accounts → Retentions. City stays off this sheet. */
+export const RETENTION_EXPORT_HEADERS = [
+  "PROJECT",
+  "PROJECT NO.",
+  "RETENTION HELD",
+  "STATUS",
+  "RECOVERED ON",
+] as const;
+
+export function retentionExportRow(
+  row: RetentionHeldRow
+): (string | number)[] {
+  return [
+    row.projectName,
+    row.projectNo,
+    row.retentionHeld,
+    formatRetentionStatusLabel(row.status),
+    row.status.kind === "recovered"
+      ? formatDisplayDate(row.status.recoveredAt)
+      : "",
+  ];
+}
+
+export function filterRetentionHeldRows(
+  rows: RetentionHeldRow[],
+  q?: string
+): RetentionHeldRow[] {
+  const needle = (q ?? "").trim();
+  if (!needle) return rows;
+  return rows.filter((r) =>
+    matchesAny(needle, [
+      r.projectNo,
+      r.projectName,
+      r.city,
+      r.retentionHeld,
+      formatRetentionStatusLabel(r.status),
+      r.status.kind === "recovered"
+        ? formatDisplayDate(r.status.recoveredAt)
+        : "",
+      r.handoverDate ? formatDisplayDate(r.handoverDate) : "",
+    ])
+  );
+}
+
 export type ExpenseReportRow = {
   expenseId: string;
   contractId: string;
   projectNo: string;
   projectName: string;
+  /** Contract city. Not shown or exported. */
+  city: string;
   date: string;
   category: string;
   personPaid: string;
@@ -852,6 +1026,7 @@ export function buildExpenseReportRows(data: FlowhubData): ExpenseReportRow[] {
         contractId: c.id,
         projectNo: c.projectNo,
         projectName: c.projectName,
+        city: c.city ?? "",
         date: e.date,
         category: e.category || "Miscellaneous",
         personPaid: e.personPaid || "—",
@@ -867,6 +1042,52 @@ export function buildExpenseReportRows(data: FlowhubData): ExpenseReportRow[] {
   );
 }
 
+/** Excel / PDF columns for Accounts → Expenses. City stays off this sheet. */
+export const EXPENSE_REPORT_EXPORT_HEADERS = [
+  "PROJECT",
+  "PROJECT NO.",
+  "DATE",
+  "EXPENSE TYPE",
+  "EXPENSE PERSON",
+  "AMOUNT",
+] as const;
+
+export function expenseReportExportRow(
+  row: ExpenseReportRow
+): (string | number)[] {
+  return [
+    row.projectName,
+    row.projectNo,
+    formatDisplayDate(row.date),
+    row.category,
+    row.personPaid,
+    row.amount,
+  ];
+}
+
+/** Expense date is inclusive. Text search is AND with that range. */
+export function filterExpenseReportRows(
+  rows: ExpenseReportRow[],
+  opts?: { q?: string; dateFrom?: string; dateTo?: string }
+): ExpenseReportRow[] {
+  const needle = (opts?.q ?? "").trim();
+  const dateFrom = opts?.dateFrom ?? "";
+  const dateTo = opts?.dateTo ?? "";
+  return rows.filter((r) => {
+    if (!isDateInInclusiveRange(r.date, dateFrom, dateTo)) return false;
+    if (!needle) return true;
+    return matchesAny(needle, [
+      r.projectNo,
+      r.projectName,
+      r.city,
+      r.category,
+      r.personPaid,
+      r.amount,
+      formatDisplayDate(r.date),
+    ]);
+  });
+}
+
 export type CollectionReportRow = {
   paymentId: string;
   contractId: string;
@@ -874,6 +1095,8 @@ export type CollectionReportRow = {
   invoiceId: string | null;
   projectNo: string;
   projectName: string;
+  /** Contract city. Empty when the contract is missing. Not shown or exported. */
+  city: string;
   date: string;
   /** Tax invoice number, proforma number, “Recoverable”, or “Unlinked”. */
   against: string;
@@ -963,6 +1186,7 @@ export function buildCollectionRows(data: FlowhubData): CollectionReportRow[] {
         invoiceId: linkedInvoice,
         projectNo: contract?.projectNo ?? "—",
         projectName: contract?.projectName ?? "—",
+        city: contract?.city ?? "",
         date: p.date,
         against,
         cashReceivedNet: collectionCashReceivedNet(p),
@@ -989,6 +1213,7 @@ export function filterCollectionRows(
     return matchesAny(needle, [
       r.projectNo,
       r.projectName,
+      r.city,
       r.against,
       r.cashReceivedNet,
       r.cashReceivedGst,
@@ -1005,6 +1230,37 @@ export function filterCollectionRows(
       ...dateSearchForms(r.date),
     ]);
   });
+}
+
+/** Excel / PDF columns for Accounts → Collections. City stays off this sheet. */
+export const COLLECTION_EXPORT_HEADERS = [
+  "DATE",
+  "CONTRACT",
+  "PROJECT NO.",
+  "AGAINST",
+  "CASH RECEIVED NET",
+  "CASH RECEIVED GST",
+  "CASH RECEIVED TOTAL",
+  "RETENTION",
+  "TDS",
+  "OTHER DEDUCTIONS",
+] as const;
+
+export function collectionExportRow(
+  row: CollectionReportRow
+): (string | number)[] {
+  return [
+    formatDisplayDate(row.date),
+    row.projectName,
+    row.projectNo,
+    row.against,
+    row.cashReceivedNet,
+    row.cashReceivedGst,
+    row.cashReceived,
+    row.retention,
+    row.tds,
+    row.otherDeductions,
+  ];
 }
 
 /** Sum of cash received on the rows still in the list. Holds and deductions stay out. */

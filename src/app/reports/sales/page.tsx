@@ -5,10 +5,13 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useFlowhubData, useWorkspaceReady } from "@/lib/store";
 import { formatMoney } from "@/lib/format-money";
-import { formatDisplayDate, isDateInInclusiveRange } from "@/lib/dates";
+import { formatDisplayDate } from "@/lib/dates";
 import {
+  SALES_INVOICE_EXPORT_HEADERS,
   buildSalesContractRows,
   buildSalesInvoiceRows,
+  filterSalesInvoiceRows,
+  salesInvoiceExportRow,
   sumSalesInvoiceNet,
 } from "@/lib/reports";
 import { matchesAny } from "@/lib/list-search";
@@ -73,24 +76,15 @@ function SalesReportInner() {
   const allInvoiceRows = useMemo(() => buildSalesInvoiceRows(data), [data]);
   const allContractRows = useMemo(() => buildSalesContractRows(data), [data]);
 
-  const invoiceRows = useMemo(() => {
-    const needle = q.trim();
-    return allInvoiceRows.filter((r) => {
-      if (!isDateInInclusiveRange(r.date, dateFrom, dateTo)) return false;
-      if (!needle) return true;
-      return matchesAny(needle, [
-        r.projectNo,
-        r.projectName,
-        r.number,
-        `TI ${r.number}`,
-        r.net,
-        r.gst,
-        r.other,
-        r.total,
-        formatDisplayDate(r.date),
-      ]);
-    });
-  }, [allInvoiceRows, q, dateFrom, dateTo]);
+  const invoiceRows = useMemo(
+    () =>
+      filterSalesInvoiceRows(allInvoiceRows, {
+        q,
+        dateFrom,
+        dateTo,
+      }),
+    [allInvoiceRows, q, dateFrom, dateTo]
+  );
 
   const contractRows = useMemo(() => {
     const needle = q.trim();
@@ -201,7 +195,7 @@ function SalesReportInner() {
             placeholder={
               showContracts
                 ? "Search project, city, amounts…"
-                : "Search project, invoice no., amounts…"
+                : "Search project, city, invoice no., amounts…"
             }
             dateFrom={dateFrom}
             dateTo={dateTo}
@@ -338,26 +332,8 @@ function InvoicesTable({
         filename="sales-invoices"
         title="Sales Report — Invoices"
         filters={filters}
-        headers={[
-          "Project",
-          "Project no.",
-          "Invoice no.",
-          "Invoice date",
-          "Net amount",
-          "GST amount",
-          "Other amount",
-          "Total amount",
-        ]}
-        rows={rows.map((r) => [
-          r.projectName,
-          r.projectNo,
-          r.number,
-          formatDisplayDate(r.date),
-          r.net,
-          r.gst,
-          r.other,
-          r.total,
-        ])}
+        headers={[...SALES_INVOICE_EXPORT_HEADERS]}
+        rows={rows.map(salesInvoiceExportRow)}
       />
     </>
   );
