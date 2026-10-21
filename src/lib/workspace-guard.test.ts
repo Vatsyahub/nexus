@@ -42,8 +42,7 @@ function file(partial: Partial<FlowhubData> = {}): FlowhubData {
     deliveryChallans: [],
     installationProgress: [],
     nexusCosts: {
-      columns: [{ id: "col", header: "Labour" }],
-      contracts: { c1: { directCost: 10, lineRates: {} } },
+      contracts: { c1: { spent: null, yetToSpend: 10 } },
     },
     ...partial,
   };
@@ -488,9 +487,10 @@ test("nexus core follows its own door", () => {
   const current = file();
   const incoming = file({ nexusCosts: EMPTY_NEXUS_COSTS });
   const kept = save(current, incoming, access({ nexus_core: "block" }));
-  assert.equal(kept.nexusCosts?.contracts.c1?.directCost, 10);
+  assert.equal(kept.nexusCosts?.contracts.c1?.yetToSpend, 10);
+  assert.equal(kept.nexusCosts?.contracts.c1?.spent, null);
   const cleared = save(current, incoming, access({ nexus_core: "edit" }));
-  assert.equal(cleared.nexusCosts?.columns.length, 0);
+  assert.equal(Object.keys(cleared.nexusCosts?.contracts ?? {}).length, 0);
   assert.equal(cleared.contracts.length, 0);
 });
 
@@ -943,7 +943,7 @@ test("a blocked door is omitted unless its report is open", () => {
   assert.equal(hidden.scheduleChangeLog.length, 0);
   assert.equal(hidden.expenseCategories.length, 0);
   assert.equal(hidden.itemCatalog.length, 0);
-  assert.equal(hidden.nexusCosts?.columns.length, 0);
+  assert.equal(Object.keys(hidden.nexusCosts?.contracts ?? {}).length, 0);
 
   const sales = workspaceForAccount(stored, {
     ...blocked,

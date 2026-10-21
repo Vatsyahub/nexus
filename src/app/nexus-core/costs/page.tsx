@@ -10,6 +10,7 @@ import {
   buildCostCentreRows,
   formatCoreMoney,
   formatCorePercent,
+  profitPercentOf,
   profitPercentTone,
   todayIso,
   type CostCentreRow,
@@ -51,16 +52,17 @@ export default function CostCentrePage() {
     [allRows, q, lossesOnly]
   );
   const totals = useMemo(() => {
-    const comparison = rows.reduce((s, r) => s + r.comparison, 0);
+    const selling = rows.reduce((s, r) => s + r.comparison, 0);
     const profit = rows.reduce((s, r) => s + r.profit, 0);
     return {
       workOrder: rows.reduce((s, r) => s + r.workOrder, 0),
-      contractCost: rows.reduce((s, r) => s + r.contractCost, 0),
+      spent: rows.reduce((s, r) => s + r.spent, 0),
+      yetToSpend: rows.reduce((s, r) => s + r.yetToSpend, 0),
       expenses: rows.reduce((s, r) => s + r.expenses, 0),
       cumulative: rows.reduce((s, r) => s + r.cumulative, 0),
+      selling,
       profit,
-      profitPercent:
-        Math.abs(comparison) < 0.005 ? null : (profit / comparison) * 100,
+      profitPercent: profitPercentOf(profit, selling),
     };
   }, [rows]);
 
@@ -70,7 +72,8 @@ export default function CostCentrePage() {
     r.city,
     r.status,
     r.workOrder,
-    r.contractCost,
+    r.spent,
+    r.yetToSpend,
     r.expenses,
     r.cumulative,
     r.profit,
@@ -83,7 +86,8 @@ export default function CostCentrePage() {
       "",
       "",
       totals.workOrder,
-      totals.contractCost,
+      totals.spent,
+      totals.yetToSpend,
       totals.expenses,
       totals.cumulative,
       totals.profit,
@@ -141,22 +145,27 @@ export default function CostCentrePage() {
         </p>
       ) : (
         <>
-          <div className="flex shrink-0 items-end justify-between gap-3 rounded-xl border border-[var(--fh-line)] bg-white px-4 py-3">
-            <div>
-              <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--fh-muted)]">
-                Total profit
-              </p>
-              <p
-                className={cn(
-                  "font-[family-name:var(--font-display)] text-3xl font-semibold tabular-nums leading-none",
-                  totals.profit < -0.005
-                    ? "text-[var(--destructive)]"
-                    : "text-[var(--fh-steel)]"
-                )}
-              >
-                {formatCoreMoney(totals.profit)}
-              </p>
-            </div>
+          <div className="flex shrink-0 flex-wrap items-end justify-between gap-3 rounded-xl border border-[var(--fh-line)] bg-white px-4 py-3">
+            <dl className="grid flex-1 grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
+              <TopFigure
+                label="Total selling price"
+                value={formatCoreMoney(totals.selling)}
+              />
+              <TopFigure
+                label="Total cost"
+                value={formatCoreMoney(totals.cumulative)}
+              />
+              <TopFigure
+                label="Total profit"
+                value={formatCoreMoney(totals.profit)}
+                loss={totals.profit < -0.005}
+              />
+              <TopFigure
+                label="Profit %"
+                value={formatCorePercent(totals.profitPercent)}
+                tone={profitPercentTone(totals.profit, totals.profitPercent)}
+              />
+            </dl>
             <div className="flex items-center gap-2">
               <p className="text-sm tabular-nums text-[var(--fh-muted)]">
                 {rows.length} {rows.length === 1 ? "project" : "projects"}
@@ -224,7 +233,8 @@ export default function CostCentrePage() {
               "City",
               "Status",
               "Work-order value",
-              "Contract costs",
+              "Cost covered",
+              "Cost to be covered",
               "Expenses",
               "Cumulative cost",
               "Profit or loss",
@@ -264,16 +274,12 @@ function ProjectCostCard({ row }: { row: CostCentreRow }) {
                 </span>
                 {row.status}
               </p>
-              {row.fromBoq ? (
-                <span className="rounded-md bg-[var(--fh-accent)]/25 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--fh-ink)]">
-                  From BOQ
-                </span>
-              ) : null}
             </div>
           </div>
-          <dl className="grid grid-cols-2 gap-px bg-[var(--fh-line)] sm:grid-cols-3 lg:grid-cols-6">
+          <dl className="grid grid-cols-2 gap-px bg-[var(--fh-line)] sm:grid-cols-4 lg:grid-cols-7">
             <Metric label="Work-order value" value={formatCoreMoney(row.workOrder)} />
-            <Metric label="Contract costs" value={formatCoreMoney(row.contractCost)} />
+            <Metric label="Cost covered" value={formatCoreMoney(row.spent)} />
+            <Metric label="Cost to be covered" value={formatCoreMoney(row.yetToSpend)} />
             <Metric label="Expenses" value={formatCoreMoney(row.expenses)} />
             <Metric label="Cumulative cost" value={formatCoreMoney(row.cumulative)} />
             <Metric
@@ -298,7 +304,8 @@ function TotalCard({
 }: {
   totals: {
     workOrder: number;
-    contractCost: number;
+    spent: number;
+    yetToSpend: number;
     expenses: number;
     cumulative: number;
     profit: number;
@@ -313,15 +320,20 @@ function TotalCard({
           Total
         </h2>
       </div>
-      <dl className="grid grid-cols-2 gap-px bg-white/20 sm:grid-cols-3 lg:grid-cols-6">
+      <dl className="grid grid-cols-2 gap-px bg-white/20 sm:grid-cols-4 lg:grid-cols-7">
         <Metric
           label="Work-order value"
           value={formatCoreMoney(totals.workOrder)}
           onSteel
         />
         <Metric
-          label="Contract costs"
-          value={formatCoreMoney(totals.contractCost)}
+          label="Cost covered"
+          value={formatCoreMoney(totals.spent)}
+          onSteel
+        />
+        <Metric
+          label="Cost to be covered"
+          value={formatCoreMoney(totals.yetToSpend)}
           onSteel
         />
         <Metric
@@ -348,6 +360,51 @@ function TotalCard({
         />
       </dl>
     </section>
+  );
+}
+
+function TopFigure({
+  label,
+  value,
+  loss,
+  tone,
+}: {
+  label: string;
+  value: string;
+  loss?: boolean;
+  tone?: ProfitPercentTone | null;
+}) {
+  return (
+    <div>
+      <dt className="text-[10px] font-medium uppercase tracking-wide text-[var(--fh-muted)]">
+        {label}
+      </dt>
+      <dd
+        className={cn(
+          "mt-1 font-[family-name:var(--font-display)] text-2xl font-semibold tabular-nums leading-none sm:text-3xl",
+          loss ? "text-[var(--destructive)]" : "text-[var(--fh-steel)]"
+        )}
+      >
+        {tone ? (
+          <span
+            data-profit-tone={tone}
+            className={cn(
+              "inline-block rounded-md px-1.5 py-0.5 text-xl sm:text-2xl",
+              tone === "green" &&
+                "bg-[var(--fh-profit-green-tint)] text-[var(--fh-profit-green)]",
+              tone === "yellow" &&
+                "bg-[var(--fh-profit-yellow-tint)] text-[var(--fh-profit-yellow)]",
+              tone === "red" &&
+                "bg-[var(--fh-profit-red-tint)] text-[var(--fh-profit-red)]"
+            )}
+          >
+            {value}
+          </span>
+        ) : (
+          value
+        )}
+      </dd>
+    </div>
   );
 }
 

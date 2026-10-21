@@ -177,7 +177,7 @@ async function main() {
     expenseCategories: data.expenseCategories ?? [],
     deliveryChallans: data.deliveryChallans ?? [],
     installationProgress: data.installationProgress ?? [],
-    nexusCosts: data.nexusCosts ?? { columns: [], contracts: {} },
+    nexusCosts: data.nexusCosts ?? { contracts: {} },
   };
 
   await prisma.workspaceStore.upsert({

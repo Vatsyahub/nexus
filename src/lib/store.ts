@@ -6023,108 +6023,26 @@ export function recordInstallationTotal(
   return { ok: true, value: updated };
 }
 
-export function addNexusCostColumn(
-  header: string
-): { ok: true } | { ok: false; error: string } {
-  const trimmed = header.trim().replace(/\s+/g, " ");
-  if (!trimmed) return { ok: false, error: "Enter a column header." };
-  if (trimmed.length > 40) {
-    return { ok: false, error: "Use 40 characters or fewer." };
-  }
-  const data = read();
-  const costs = normalizeNexusCosts(data.nexusCosts);
-  if (
-    costs.columns.some((c) => c.header.toLowerCase() === trimmed.toLowerCase())
-  ) {
-    return { ok: false, error: "That column header is already used." };
-  }
-  write({
-    ...data,
-    nexusCosts: {
-      ...costs,
-      columns: [...costs.columns, { id: crypto.randomUUID(), header: trimmed }],
-    },
-  });
-  return { ok: true };
-}
-
-export function removeNexusCostColumn(id: string) {
-  const data = read();
-  const costs = normalizeNexusCosts(data.nexusCosts);
-  if (!costs.columns.some((c) => c.id === id)) return;
-  const contracts: NexusCosts["contracts"] = {};
-  for (const [contractId, entry] of Object.entries(costs.contracts)) {
-    const lineRates: NexusCosts["contracts"][string]["lineRates"] = {};
-    for (const [boqId, rates] of Object.entries(entry.lineRates)) {
-      const next = { ...rates };
-      delete next[id];
-      if (Object.keys(next).length) lineRates[boqId] = next;
-    }
-    contracts[contractId] = { directCost: entry.directCost, lineRates };
-  }
-  write({
-    ...data,
-    nexusCosts: {
-      columns: costs.columns.filter((c) => c.id !== id),
-      contracts,
-    },
-  });
-}
-
-export function setNexusDirectCost(contractId: string, amount: number | null) {
+export function setNexusSpend(
+  contractId: string,
+  field: "spent" | "yetToSpend",
+  amount: number | null
+) {
   const data = read();
   if (!data.contracts.some((c) => c.id === contractId)) return;
   const costs = normalizeNexusCosts(data.nexusCosts);
-  const prev = costs.contracts[contractId] ?? {
-    directCost: null,
-    lineRates: {},
-  };
-  const directCost =
-    amount != null && Number.isFinite(amount) ? amount : null;
-  const nextEntry = { ...prev, directCost };
+  const prev = costs.contracts[contractId] ?? { spent: null, yetToSpend: null };
+  const value = amount != null && Number.isFinite(amount) ? amount : null;
+  const nextEntry = { ...prev, [field]: value };
   const contracts = { ...costs.contracts };
-  if (directCost == null && Object.keys(nextEntry.lineRates).length === 0) {
+  if (nextEntry.spent == null && nextEntry.yetToSpend == null) {
     delete contracts[contractId];
   } else {
     contracts[contractId] = nextEntry;
   }
   write({
     ...data,
-    nexusCosts: { ...costs, contracts },
-  });
-}
-
-export function setNexusBoqRate(
-  contractId: string,
-  boqItemId: string,
-  columnId: string,
-  rate: number | null
-) {
-  const data = read();
-  const costs = normalizeNexusCosts(data.nexusCosts);
-  if (!costs.columns.some((c) => c.id === columnId)) return;
-  const contract = data.contracts.find((c) => c.id === contractId);
-  if (!contract?.boq.some((b) => b.id === boqItemId)) return;
-  const prev = costs.contracts[contractId] ?? {
-    directCost: null,
-    lineRates: {},
-  };
-  const line = { ...(prev.lineRates[boqItemId] ?? {}) };
-  if (rate == null || !Number.isFinite(rate)) delete line[columnId];
-  else line[columnId] = rate;
-  const lineRates = { ...prev.lineRates };
-  if (Object.keys(line).length === 0) delete lineRates[boqItemId];
-  else lineRates[boqItemId] = line;
-  const nextEntry = { ...prev, lineRates };
-  const contracts = { ...costs.contracts };
-  if (nextEntry.directCost == null && Object.keys(lineRates).length === 0) {
-    delete contracts[contractId];
-  } else {
-    contracts[contractId] = nextEntry;
-  }
-  write({
-    ...data,
-    nexusCosts: { ...costs, contracts },
+    nexusCosts: { contracts },
   });
 }
 
