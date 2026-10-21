@@ -509,73 +509,119 @@ function BillingChart({ bars }: { bars: BillingBar[] }) {
     return <p className="text-sm text-[var(--fh-muted)]">No contracts yet.</p>;
   }
   const max = billingScaleMax(bars.map((bar) => bar.wo));
-  const mid = max / 2;
+  return (
+    <UprightBarChart
+      ariaLabel="Billing progress: one upright bar per city, gold up to the amount billed"
+      legend={[
+        { color: STEEL, label: "Work-order value" },
+        { color: GOLD, label: "Amount billed" },
+      ]}
+      maxLabel={formatCoreMoney(max)}
+      midLabel={formatCoreMoney(max / 2)}
+      zeroLabel="0.00L"
+      bars={bars.map((bar) => {
+        const height = max <= 0 ? 0 : Math.min(1, Math.max(0, bar.wo) / max);
+        const goldShare =
+          bar.wo <= 0.005 ? 0 : Math.min(1, Math.max(0, bar.billed) / bar.wo);
+        return {
+          key: bar.key,
+          label: bar.label,
+          height,
+          steelShare: 1 - goldShare,
+          goldShare,
+          totalLabel: formatCoreMoney(bar.wo),
+          footLabel: formatCoreMoney(bar.billed),
+          showGold: bar.billed > 0.005 && goldShare > 0,
+        };
+      })}
+    />
+  );
+}
 
+function UprightBarChart({
+  ariaLabel,
+  legend,
+  maxLabel,
+  midLabel,
+  zeroLabel,
+  bars,
+}: {
+  ariaLabel: string;
+  legend: { color: string; label: string }[];
+  maxLabel: string;
+  midLabel: string;
+  zeroLabel: string;
+  bars: {
+    key: string;
+    label: string;
+    height: number;
+    steelShare: number;
+    goldShare: number;
+    totalLabel: string;
+    footLabel: string;
+    showGold: boolean;
+  }[];
+}) {
   return (
     <div
       role="img"
-      aria-label="Billing progress: one upright bar per city, gold up to the amount billed"
+      aria-label={ariaLabel}
       className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
     >
       <div className="mb-2 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1">
-        <LegendItem color={STEEL} label="Work-order value" />
-        <LegendItem color={GOLD} label="Amount billed" />
+        {legend.map((item) => (
+          <LegendItem key={item.label} color={item.color} label={item.label} />
+        ))}
       </div>
       <div className="flex min-h-0 min-w-0 flex-1 gap-2">
         <div className="flex w-[4.4rem] shrink-0 flex-col">
           <div className="h-5 shrink-0" />
           <div className="flex min-h-0 flex-1 flex-col justify-between border-r border-[var(--fh-line)] pr-1 text-right text-[11px] font-semibold tabular-nums leading-none text-[var(--fh-ink)]">
-            <span>{formatCoreMoney(max)}</span>
-            <span>{formatCoreMoney(mid)}</span>
-            <span>0.00L</span>
+            <span>{maxLabel}</span>
+            <span>{midLabel}</span>
+            <span>{zeroLabel}</span>
           </div>
           <div className="h-9 shrink-0" />
         </div>
         <div className="flex min-h-0 min-w-0 flex-1 gap-1 overflow-x-auto">
-          {bars.map((bar) => {
-            const height = max <= 0 ? 0 : Math.min(1, Math.max(0, bar.wo) / max);
-            const billedShare =
-              bar.wo <= 0.005 ? 0 : Math.min(1, Math.max(0, bar.billed) / bar.wo);
-            const steelShare = 1 - billedShare;
-            return (
-              <div
-                key={bar.key}
-                className="flex h-full min-w-[3.6rem] flex-1 flex-col items-center"
-              >
-                <div className="h-5 shrink-0" />
-                <div className="relative min-h-0 w-full flex-1">
-                  <div
-                    className="absolute bottom-0 left-1/2 flex w-[68%] max-w-[46px] -translate-x-1/2 flex-col"
-                    style={{ height: `${(height * 100).toFixed(2)}%` }}
-                  >
-                    <div className="absolute bottom-full left-1/2 mb-0.5 -translate-x-1/2 whitespace-nowrap text-[11px] font-semibold tabular-nums leading-none text-[var(--fh-ink)]">
-                      {formatCoreMoney(bar.wo)}
-                    </div>
-                    <div
-                      className="min-h-0"
-                      style={{ flex: `${steelShare} 1 0`, background: STEEL }}
-                    />
-                    <div
-                      style={{
-                        flex: `${billedShare} 1 0`,
-                        background: GOLD,
-                        minHeight: bar.billed > 0.005 && billedShare > 0 ? 2 : 0,
-                      }}
-                    />
-                  </div>
-                </div>
-                <div className="mt-1 h-4 shrink-0 whitespace-nowrap text-[11px] font-semibold tabular-nums leading-none text-[var(--fh-ink)]">
-                  {formatCoreMoney(bar.billed)}
-                </div>
+          {bars.map((bar) => (
+            <div
+              key={bar.key}
+              className="flex h-full min-w-[3.6rem] flex-1 flex-col items-center"
+            >
+              <div className="h-5 shrink-0" />
+              <div className="relative min-h-0 w-full flex-1">
                 <div
-                  className="h-4 w-full truncate text-center text-[11px] font-semibold leading-4 text-[var(--fh-ink)]"
-                  title={bar.label}
+                  className="absolute bottom-0 left-1/2 flex w-[68%] max-w-[46px] -translate-x-1/2 flex-col"
+                  style={{ height: `${(bar.height * 100).toFixed(2)}%` }}
                 >
-                  {bar.label}
+                  <div className="absolute bottom-full left-1/2 mb-0.5 -translate-x-1/2 whitespace-nowrap text-[11px] font-semibold tabular-nums leading-none text-[var(--fh-ink)]">
+                    {bar.totalLabel}
+                  </div>
+                  <div
+                    className="min-h-0"
+                    style={{ flex: `${bar.steelShare} 1 0`, background: STEEL }}
+                  />
+                  <div
+                    style={{
+                      flex: `${bar.goldShare} 1 0`,
+                      background: GOLD,
+                      minHeight: bar.showGold ? 2 : 0,
+                    }}
+                  />
                 </div>
               </div>
-            );
-          })}
+              <div className="mt-1 h-4 shrink-0 whitespace-nowrap text-[11px] font-semibold tabular-nums leading-none text-[var(--fh-ink)]">
+                {bar.footLabel}
+              </div>
+              <div
+                className="h-4 w-full truncate text-center text-[11px] font-semibold leading-4 text-[var(--fh-ink)]"
+                title={bar.label}
+              >
+                {bar.label}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -681,67 +727,33 @@ function DepartmentChart({
   if (!rows.length) {
     return <p className="text-sm text-[var(--fh-muted)]">No open tasks.</p>;
   }
-  const maxOpen = niceMax(Math.max(...rows.map((row) => row.open)));
+  const max = Math.max(...rows.map((row) => row.open));
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col overflow-auto">
-      <div className="mb-2 flex shrink-0 flex-wrap gap-4">
-        <LegendItem color={STEEL} label="Open, not overdue" />
-        <LegendItem color={GOLD} label="Overdue" />
-      </div>
-      <div className="grid shrink-0 grid-cols-[7.4rem_minmax(0,1fr)] items-center gap-x-3">
-        <div className="text-[13px] leading-4 text-[var(--fh-muted)]">
-          Department
-        </div>
-        <div className="text-[13px] leading-4 text-[var(--fh-muted)]">
-          Open tasks (count)
-        </div>
-      </div>
-      <div className="mt-2 flex min-h-0 flex-1 flex-col justify-between gap-3 overflow-auto">
-        {rows.map((row) => {
-          const resting = Math.max(0, row.open - row.overdue);
-          return (
-            <div
-              key={row.name}
-              className="grid shrink-0 grid-cols-[7.4rem_minmax(0,1fr)] items-center gap-x-3"
-            >
-              <div
-                className="truncate text-[15px] leading-5 text-[var(--fh-ink)]"
-                title={row.name}
-              >
-                {row.name}
-              </div>
-              <div>
-                <div className="flex h-7" style={{ background: TRACK }}>
-                  <div
-                    style={{
-                      width: `${(resting / maxOpen) * 100}%`,
-                      background: STEEL,
-                    }}
-                  />
-                  <div
-                    style={{
-                      width: `${(row.overdue / maxOpen) * 100}%`,
-                      background: GOLD,
-                    }}
-                  />
-                </div>
-                <div className="mt-0.5 text-[13px] tabular-nums leading-4 text-[var(--fh-muted)]">
-                  {row.open} open, {row.overdue} overdue
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className="mt-1.5 grid grid-cols-[7.4rem_minmax(0,1fr)]">
-        <span />
-        <div className="flex justify-between text-[13px] leading-4 text-[var(--fh-muted)]">
-          <span>0</span>
-          <span>{formatCountTick(maxOpen / 2)}</span>
-          <span>{formatCountTick(maxOpen)}</span>
-        </div>
-      </div>
-    </div>
+    <UprightBarChart
+      ariaLabel="Open tasks: one upright bar per department, gold up to the overdue count"
+      legend={[
+        { color: STEEL, label: "Open, not overdue" },
+        { color: GOLD, label: "Overdue" },
+      ]}
+      maxLabel={formatCountTick(max)}
+      midLabel={formatCountTick(max / 2)}
+      zeroLabel="0"
+      bars={rows.map((row) => {
+        const height = max <= 0 ? 0 : Math.min(1, row.open / max);
+        const goldShare =
+          row.open <= 0 ? 0 : Math.min(1, Math.max(0, row.overdue) / row.open);
+        return {
+          key: row.name,
+          label: row.name,
+          height,
+          steelShare: 1 - goldShare,
+          goldShare,
+          totalLabel: formatCountTick(row.open),
+          footLabel: formatCountTick(row.overdue),
+          showGold: row.overdue > 0 && goldShare > 0,
+        };
+      })}
+    />
   );
 }
 
