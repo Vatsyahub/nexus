@@ -382,6 +382,10 @@ function CostPie({
         aria-label="Cost against selling price"
         className="h-full w-full"
       >
+        <style>
+          {`.core-pie-percent { fill: #ffffff; stroke: #14232e; }
+            html.dark .core-pie-percent { fill: #14232e; stroke: #ffffff; }`}
+        </style>
         {empty ? (
           <circle cx="50" cy="50" r="46" fill={TRACK} />
         ) : paths.length === 1 ? (
@@ -403,9 +407,17 @@ function CostPie({
             y={label.y.toFixed(2)}
             textAnchor="middle"
             dominantBaseline="central"
-            fill={label.color === GOLD ? INK : "#ffffff"}
-            fontSize="4.6"
+            className={label.color === GOLD ? undefined : "core-pie-percent"}
+            fill={label.color === GOLD ? "#14232e" : undefined}
+            stroke={label.color === GOLD ? "#ffffff" : undefined}
+            strokeWidth="0.55"
+            strokeLinejoin="round"
+            fontSize="7"
             fontWeight="700"
+            style={{
+              fontFamily: "var(--font-display), sans-serif",
+              paintOrder: "stroke fill",
+            }}
           >
             {formatCorePercent(label.percent)}
           </text>

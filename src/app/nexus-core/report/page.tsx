@@ -156,7 +156,7 @@ export default function CoreReportPage() {
                   <th className={cn(reportTh, "text-right")}>Spent</th>
                   <th className={cn(reportTh, "text-right")}>Yet to spend</th>
                   <th className={cn(reportTh, "text-right")}>Profit</th>
-                  <th className={cn(reportTh, "text-right")}>Profit or loss %</th>
+                  <th className={cn(reportTh, "text-right")}>Profit %</th>
                 </tr>
               </thead>
               <tbody>
@@ -221,7 +221,7 @@ export default function CoreReportPage() {
               "Spent",
               "Yet to spend",
               "Profit",
-              "Profit or loss %",
+              "Profit %",
             ]}
             rows={exportRows}
           />
