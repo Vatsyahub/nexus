@@ -5,6 +5,7 @@
 
 import {
   EMPTY_NEXUS_COSTS,
+  GST_RATE,
   type Contract,
   type FlowhubData,
   type NexusCosts,
@@ -601,9 +602,11 @@ export function yetToBillAmount(
 }
 
 /**
- * Work-order value, minus retention and TDS as percents of that value,
- * minus each payment's net, GST, and other deductions.
- * A contract with no GST does not take GST off its payments.
+ * Cash still to come in. With GST, start from the work-order value plus 18%.
+ * Without GST, start from the work-order value alone.
+ * Retention and TDS stay percents of that net value.
+ * Then take off every payment's net, its GST when the contract has GST, and
+ * its other deductions.
  */
 export function yetToCollectAmount(
   contract: Pick<
@@ -613,6 +616,7 @@ export function yetToCollectAmount(
   payments: readonly Pick<Payment, "netAmount" | "gstAmount" | "otherDeductions">[]
 ): number {
   const workOrder = Number(contract.orderValue) || 0;
+  const start = contract.gstApplicable ? workOrder * (1 + GST_RATE) : workOrder;
   const retention = (workOrder * (Number(contract.retentionPercent) || 0)) / 100;
   const tds = (workOrder * (Number(contract.tdsPercent) || 0)) / 100;
   let taken = retention + tds;
@@ -621,7 +625,7 @@ export function yetToCollectAmount(
     if (contract.gstApplicable) taken += Number(payment.gstAmount) || 0;
     taken += Number(payment.otherDeductions) || 0;
   }
-  return workOrder - taken;
+  return start - taken;
 }
 
 export type CoreReportRow = {

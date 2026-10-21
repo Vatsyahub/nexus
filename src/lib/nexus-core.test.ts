@@ -189,7 +189,7 @@ test("yet to collect takes retention, TDS, and payment net, GST, and other deduc
       tdsAmount: 999,
     },
   ] as unknown as Pick<Payment, "netAmount" | "gstAmount" | "otherDeductions">[];
-  assert.equal(yetToCollectAmount(deal, payments), 80700);
+  assert.equal(yetToCollectAmount(deal, payments), 98700);
   assert.equal(
     yetToCollectAmount({ ...deal, gstApplicable: false }, payments),
     82500
