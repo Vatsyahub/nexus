@@ -6,7 +6,9 @@ import {
   buildCoreReportRows,
   buildOutstandingOverview,
   buildCostCentreRows,
+  contractCities,
   contractCostAmount,
+  contractDisplayStatus,
   normalizeNexusCosts,
   piePercents,
   profitPercentOf,
@@ -261,10 +263,10 @@ test("outstanding windows include both ends and the total includes overdue", () 
   assert.deepEqual(
     overview.bars.map((bar) => [bar.label, bar.amount, bar.count]),
     [
-      ["0–7 days", 300, 2],
-      ["8–15 days", 700, 2],
-      ["16–23 days", 1100, 2],
-      ["24+ days", 700, 1],
+      ["Due in 0–7 days", 300, 2],
+      ["Due in 8–15 days", 700, 2],
+      ["Due in 16–23 days", 1100, 2],
+      ["Due in 24+ days", 700, 1],
       ["Overdue", 800, 1],
     ]
   );
@@ -299,4 +301,100 @@ test("pie percents add to 100 and the billing scale is the largest work order", 
   );
   assert.equal(billingScaleMax(one.map((bar) => bar.wo)), 150000);
   assert.equal(wholeRupees(10.6), 11);
+});
+
+test("billing bars keep Active contracts and leave out On hold and Completed", () => {
+  const today = "2026-10-21";
+  const active = contract({
+    id: "live",
+    city: "Pune",
+    orderValue: 150000,
+    status: "active",
+  });
+  const onHold = contract({
+    id: "held",
+    city: "Pune",
+    orderValue: 500000,
+    status: "on_hold",
+  });
+  const handed = contract({
+    id: "done",
+    city: "Jamshedpur",
+    orderValue: 800000,
+    status: "active",
+    handoverDate: "2026-10-01",
+  });
+  const storedDone = contract({
+    id: "word",
+    city: "Kochi",
+    orderValue: 100000,
+    status: "complete",
+    handoverDate: null,
+  });
+  const onlyHeld = contract({
+    id: "held-city",
+    city: "Bengaluru",
+    orderValue: 900000,
+    status: "on_hold",
+  });
+  const rows = [active, onHold, handed, storedDone, onlyHeld];
+  const data = hub({
+    contracts: rows,
+    invoices: [
+      {
+        id: "ti-live",
+        type: "TI",
+        contractId: "live",
+        netAmount: 40000,
+      } as Invoice,
+      {
+        id: "ti-held",
+        type: "TI",
+        contractId: "held",
+        netAmount: 250000,
+      } as Invoice,
+      {
+        id: "ti-done",
+        type: "TI",
+        contractId: "done",
+        netAmount: 800000,
+      } as Invoice,
+      {
+        id: "ti-word",
+        type: "TI",
+        contractId: "word",
+        netAmount: 10000,
+      } as Invoice,
+    ],
+  });
+  const bars = billingCityBars(rows, data, "", today);
+  assert.deepEqual(
+    bars.map((bar) => [bar.label, bar.wo, bar.billed]),
+    [
+      ["Pune", 150000, 40000],
+      ["Kochi", 100000, 10000],
+    ]
+  );
+  assert.equal(billingScaleMax(bars.map((bar) => bar.wo)), 150000);
+  assert.deepEqual(
+    buildCostCentreRows(data, today)
+      .filter((row) => row.status === "Active")
+      .map((row) => row.contractId)
+      .sort(),
+    ["live", "word"]
+  );
+  const pune = billingCityBars(rows, data, "Pune", today);
+  assert.deepEqual(
+    pune.map((bar) => [bar.label, bar.wo, bar.billed]),
+    [["Pune", 150000, 40000]]
+  );
+  assert.equal(billingScaleMax(pune.map((bar) => bar.wo)), 150000);
+  const dropped = billingCityBars(rows, data, "Bengaluru", today);
+  assert.deepEqual(dropped, []);
+  assert.deepEqual(
+    contractCities(
+      rows.filter((row) => contractDisplayStatus(data, row, today) === "Active")
+    ),
+    ["Kochi", "Pune"]
+  );
 });

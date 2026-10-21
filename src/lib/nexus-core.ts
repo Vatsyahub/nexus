@@ -464,16 +464,21 @@ export function contractCities(contracts: readonly Contract[]): string[] {
 
 /**
  * One bar per city: work-order value and billed tax-invoice nets,
- * summed across the contracts in that city. `city` empty means every city.
+ * summed across Active contracts in that city. On hold and Completed
+ * stay out of the cities, the scale, the work-order values, and the
+ * billed amounts. Status is the Cost centre label. `city` empty means
+ * every city that still has an Active contract.
  */
 export function billingCityBars(
   contracts: readonly Contract[],
   data: FlowhubData,
-  city = ""
+  city = "",
+  today = todayIso()
 ): BillingBar[] {
-  const selected = city
-    ? contracts.filter((c) => contractCityName(c) === city)
-    : contracts;
+  const selected = contracts.filter((c) => {
+    if (contractDisplayStatus(data, c, today) !== "Active") return false;
+    return !city || contractCityName(c) === city;
+  });
   const map = new Map<string, BillingBar>();
   for (const c of selected) {
     const label = contractCityName(c);
@@ -495,10 +500,10 @@ export type OutstandingOverviewBar = {
 };
 
 const OUTSTANDING_WINDOWS: readonly OutstandingOverviewBar[] = [
-  { key: "d0", label: "0–7 days", amount: 0, count: 0 },
-  { key: "d8", label: "8–15 days", amount: 0, count: 0 },
-  { key: "d16", label: "16–23 days", amount: 0, count: 0 },
-  { key: "d24", label: "24+ days", amount: 0, count: 0 },
+  { key: "d0", label: "Due in 0–7 days", amount: 0, count: 0 },
+  { key: "d8", label: "Due in 8–15 days", amount: 0, count: 0 },
+  { key: "d16", label: "Due in 16–23 days", amount: 0, count: 0 },
+  { key: "d24", label: "Due in 24+ days", amount: 0, count: 0 },
   { key: "overdue", label: "Overdue", amount: 0, count: 0 },
 ];
 
