@@ -236,7 +236,7 @@ export default function NexusCorePage() {
           <BillingChart bars={bars} />
         </ChartCard>
 
-        <ChartCard title="Outstandings Overview">
+        <ChartCard title="Outstanding Overview">
           <OutstandingChart overview={outstanding} />
         </ChartCard>
 
@@ -505,7 +505,7 @@ function BillingChart({ bars }: { bars: BillingBar[] }) {
   const max = billingScaleMax(bars.map((bar) => bar.wo));
   return (
     <UprightBarChart
-      ariaLabel="Billing progress: one upright bar per city, gold up to the amount billed. X axis: Cities"
+      ariaLabel="Billing progress: one upright bar per city, gold up to the amount billed. Cities is under 0.00L"
       axisLabel="Cities"
       legend={[
         { color: STEEL, label: "Work-order value" },
@@ -571,14 +571,17 @@ function UprightBarChart({
         ))}
       </div>
       <div className="flex min-h-0 min-w-0 flex-1 gap-2">
-        <div className="flex w-[4.4rem] shrink-0 flex-col">
+        <div className="flex w-max min-w-[4.4rem] shrink-0 flex-col">
           <div className="h-5 shrink-0" />
           <div className="flex min-h-0 flex-1 flex-col justify-between border-r border-[var(--fh-line)] pr-1 text-right text-[11px] font-semibold tabular-nums leading-none text-[var(--fh-ink)]">
             <span>{maxLabel}</span>
             <span>{midLabel}</span>
             <span>{zeroLabel}</span>
           </div>
-          <div className="h-9 shrink-0" />
+          <div className="mt-1 h-4 shrink-0" />
+          <div className="h-4 shrink-0 whitespace-nowrap border-r border-transparent pr-1 text-right text-[11px] font-semibold leading-4 text-[var(--fh-ink)]">
+            {axisLabel}
+          </div>
         </div>
         <div className="flex min-h-0 min-w-0 flex-1 gap-1 overflow-x-auto">
           {bars.map((bar) => (
@@ -621,12 +624,6 @@ function UprightBarChart({
           ))}
         </div>
       </div>
-      <div className="mt-0.5 flex shrink-0 gap-2">
-        <div className="w-[4.4rem] shrink-0" />
-        <p className="min-w-0 flex-1 text-center text-[11px] font-medium leading-4 text-[var(--fh-muted)]">
-          {axisLabel}
-        </p>
-      </div>
     </div>
   );
 }
@@ -649,7 +646,7 @@ function OutstandingChart({
   return (
     <div
       role="img"
-      aria-label="Outstandings Overview: tax invoices by days until due, with overdue included in the total. X axis: Payment due"
+      aria-label="Outstanding Overview: tax invoices by days until due, with overdue included in the total. Due in days is under 0.00L"
       className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
     >
       <p className="mb-1 flex shrink-0 items-center gap-2.5">
@@ -661,14 +658,17 @@ function OutstandingChart({
         </span>
       </p>
       <div className="flex min-h-0 min-w-0 flex-1 gap-2">
-        <div className="flex w-[3.4rem] shrink-0 flex-col">
+        <div className="flex w-max min-w-[4.4rem] shrink-0 flex-col">
           <div className="h-5 shrink-0" />
           <div className="flex min-h-0 flex-1 flex-col justify-between border-r border-[var(--fh-line)] pr-1 text-right text-[11px] font-semibold tabular-nums leading-none text-[var(--fh-ink)]">
             <span>{formatCoreMoney(max)}</span>
             <span>{formatCoreMoney(max / 2)}</span>
             <span>0.00L</span>
           </div>
-          <div className="h-[3.25rem] shrink-0" />
+          <div className="mt-1 h-4 shrink-0" />
+          <div className="h-4 shrink-0 whitespace-nowrap border-r border-transparent pr-1 text-right text-[11px] font-semibold leading-4 text-[var(--fh-ink)]">
+            Due in days
+          </div>
         </div>
         <div className="flex min-h-0 min-w-0 flex-1 gap-1">
           {overview.bars.map((bar) => {
@@ -694,39 +694,17 @@ function OutstandingChart({
                 <div className="mt-1 h-4 shrink-0 whitespace-nowrap text-[11px] font-semibold tabular-nums leading-none text-[var(--fh-ink)]">
                   {bar.count}
                 </div>
-                <OutstandingBarLabel label={bar.label} />
+                <div
+                  className="h-4 w-full truncate text-center text-[11px] font-semibold leading-4 text-[var(--fh-ink)]"
+                  title={bar.label}
+                >
+                  {bar.label}
+                </div>
               </div>
             );
           })}
         </div>
       </div>
-      <div className="mt-0.5 flex shrink-0 gap-2">
-        <div className="w-[3.4rem] shrink-0" />
-        <p className="min-w-0 flex-1 text-center text-[11px] font-medium leading-4 text-[var(--fh-muted)]">
-          Payment due
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function OutstandingBarLabel({ label }: { label: string }) {
-  const wrapped = label.startsWith("Due in ")
-    ? { first: "Due in", second: label.slice("Due in ".length) }
-    : null;
-  return (
-    <div
-      className="flex h-8 w-full flex-col items-center justify-start text-center text-[11px] font-semibold leading-4 text-[var(--fh-ink)]"
-      title={label}
-    >
-      {wrapped ? (
-        <>
-          <span>{wrapped.first}</span>
-          <span>{wrapped.second}</span>
-        </>
-      ) : (
-        <span>{label}</span>
-      )}
     </div>
   );
 }
@@ -742,7 +720,7 @@ function DepartmentChart({
   const max = Math.max(...rows.map((row) => row.open));
   return (
     <UprightBarChart
-      ariaLabel="Open tasks: one upright bar per department, gold up to the overdue count. X axis: Departments"
+      ariaLabel="Open tasks: one upright bar per department, gold up to the overdue count. Departments is under 0"
       axisLabel="Departments"
       legend={[
         { color: STEEL, label: "Open, not overdue" },

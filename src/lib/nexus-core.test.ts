@@ -263,10 +263,10 @@ test("outstanding windows include both ends and the total includes overdue", () 
   assert.deepEqual(
     overview.bars.map((bar) => [bar.label, bar.amount, bar.count]),
     [
-      ["Due in 0–7 days", 300, 2],
-      ["Due in 8–15 days", 700, 2],
-      ["Due in 16–23 days", 1100, 2],
-      ["Due in 24+ days", 700, 1],
+      ["0–7", 300, 2],
+      ["8–15", 700, 2],
+      ["16–23", 1100, 2],
+      ["24+", 700, 1],
       ["Overdue", 800, 1],
     ]
   );

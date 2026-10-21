@@ -500,14 +500,14 @@ export type OutstandingOverviewBar = {
 };
 
 const OUTSTANDING_WINDOWS: readonly OutstandingOverviewBar[] = [
-  { key: "d0", label: "Due in 0–7 days", amount: 0, count: 0 },
-  { key: "d8", label: "Due in 8–15 days", amount: 0, count: 0 },
-  { key: "d16", label: "Due in 16–23 days", amount: 0, count: 0 },
-  { key: "d24", label: "Due in 24+ days", amount: 0, count: 0 },
+  { key: "d0", label: "0–7", amount: 0, count: 0 },
+  { key: "d8", label: "8–15", amount: 0, count: 0 },
+  { key: "d16", label: "16–23", amount: 0, count: 0 },
+  { key: "d24", label: "24+", amount: 0, count: 0 },
   { key: "overdue", label: "Overdue", amount: 0, count: 0 },
 ];
 
-/** Day windows for Outstandings Overview. Due today is 0. Both ends of each window count. */
+/** Day windows for Outstanding Overview. Due today is 0. Both ends of each window count. */
 export function outstandingWindowIndex(daysUntilDue: number): number {
   if (daysUntilDue < 0) return 4;
   if (daysUntilDue <= 7) return 0;
