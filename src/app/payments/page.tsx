@@ -16,6 +16,8 @@ import { ListSearchBar } from "@/components/list-search";
 import { paymentMatchesQuery } from "@/lib/list-search";
 import { paymentLinkLabel } from "@/lib/payment-display";
 import { formatDisplayDate } from "@/lib/dates";
+import { ListWindowNote } from "@/components/list-window-note";
+import { LIST_WINDOW_ORDER, listIsFiltered, windowList } from "@/lib/list-window";
 import { HubDataScroll, HubPage } from "@/components/hub-scroll";
 import { cn } from "@/lib/utils";
 
@@ -34,7 +36,12 @@ export default function PaymentsPage() {
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
 
-  const payments = useMemo(() => {
+  const filtered = listIsFiltered({
+    search: q,
+    from: filterFrom,
+    to: filterTo,
+  });
+  const matched = useMemo(() => {
     return data.payments
       .filter((p) => {
         const c = data.contracts.find((x) => x.id === p.contractId);
@@ -52,6 +59,17 @@ export default function PaymentsPage() {
           b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)
       );
   }, [data.payments, data.contracts, data.invoices, q, filterFrom, filterTo]);
+  const listedWindow = useMemo(
+    () =>
+      windowList(matched, {
+        filtered,
+        order: LIST_WINDOW_ORDER.payments,
+        date: (p) => p.date,
+        createdAt: (p) => p.createdAt,
+      }),
+    [matched, filtered]
+  );
+  const payments = listedWindow.rows;
 
   return (
     <HubPage className="max-w-5xl">
@@ -102,6 +120,11 @@ export default function PaymentsPage() {
             </div>
           </div>
         </div>
+
+        <ListWindowNote
+          capped={listedWindow.capped}
+          order={LIST_WINDOW_ORDER.payments}
+        />
 
         <HubDataScroll className="space-y-4 overflow-x-auto">
           <table className="w-full min-w-[640px] border border-[var(--fh-line)] text-left text-sm">

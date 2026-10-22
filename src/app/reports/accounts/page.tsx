@@ -38,6 +38,13 @@ import {
 } from "@/lib/reports";
 import { ListSearchWithDateRange } from "@/components/list-date-range";
 import { ListSearchBar } from "@/components/list-search";
+import { ListWindowNote } from "@/components/list-window-note";
+import {
+  LIST_WINDOW_ORDER,
+  listIsFiltered,
+  wholeUntilFiltered,
+  windowList,
+} from "@/lib/list-window";
 import { ProjectIdentity } from "@/components/project-identity";
 import {
   ReportExportIcons,
@@ -116,7 +123,12 @@ function AccountsReportInner() {
   const allRetentionRows = useMemo(() => buildRetentionHeldRows(data), [data]);
   const allExpenseRows = useMemo(() => buildExpenseReportRows(data), [data]);
 
-  const collectionRows = useMemo(
+  const collectionFiltered = listIsFiltered({
+    search: q,
+    from: collectionFrom,
+    to: collectionTo,
+  });
+  const collectionMatched = useMemo(
     () =>
       filterCollectionRows(allCollectionRows, {
         q,
@@ -125,6 +137,16 @@ function AccountsReportInner() {
       }),
     [allCollectionRows, q, collectionFrom, collectionTo]
   );
+  const collectionWindow = useMemo(
+    () =>
+      windowList(collectionMatched, {
+        filtered: collectionFiltered,
+        order: LIST_WINDOW_ORDER.collections,
+        date: (row) => row.date,
+      }),
+    [collectionMatched, collectionFiltered]
+  );
+  const collectionRows = collectionWindow.rows;
 
   const bgRows = useMemo(
     () => filterBankGuaranteeRows(allBgRows, q),
@@ -136,7 +158,12 @@ function AccountsReportInner() {
     [allRetentionRows, q]
   );
 
-  const expenseRows = useMemo(
+  const expenseFiltered = listIsFiltered({
+    search: q,
+    from: dateFrom,
+    to: dateTo,
+  });
+  const expenseMatched = useMemo(
     () =>
       filterExpenseReportRows(allExpenseRows, {
         q,
@@ -145,14 +172,26 @@ function AccountsReportInner() {
       }),
     [allExpenseRows, q, dateFrom, dateTo]
   );
-
-  const expenseTotal = useMemo(
-    () => expenseRows.reduce((s, r) => s + r.amount, 0),
-    [expenseRows]
+  const expenseWindow = useMemo(
+    () =>
+      windowList(expenseMatched, {
+        filtered: expenseFiltered,
+        order: LIST_WINDOW_ORDER.accountExpenses,
+        date: (row) => row.date,
+      }),
+    [expenseMatched, expenseFiltered]
   );
-  const collectionTotals = useMemo(
-    () => sumCollectionColumns(collectionRows),
-    [collectionRows]
+  const expenseRows = expenseWindow.rows;
+
+  const expenseTotal = wholeUntilFiltered(
+    allExpenseRows.reduce((s, r) => s + r.amount, 0),
+    expenseRows.reduce((s, r) => s + r.amount, 0),
+    expenseFiltered
+  );
+  const collectionTotals = wholeUntilFiltered(
+    sumCollectionColumns(allCollectionRows),
+    sumCollectionColumns(collectionRows),
+    collectionFiltered
   );
   const retentionTotal = useMemo(
     () => retentionRows.reduce((s, r) => s + r.retentionHeld, 0),
@@ -282,17 +321,24 @@ function AccountsReportInner() {
           )}
 
           {tab === "collections" ? (
-            <CollectionsTable
-              rows={collectionRows}
-              totals={collectionTotals}
-              filters={reportFilterSummary({
-                tab: "Collections",
-                search: q,
-                dateFrom: collectionFrom,
-                dateTo: collectionTo,
-                dateLabel: "Payment date",
-              })}
-            />
+            <>
+              <ListWindowNote
+                capped={collectionWindow.capped}
+                order={LIST_WINDOW_ORDER.collections}
+                className="mt-3"
+              />
+              <CollectionsTable
+                rows={collectionRows}
+                totals={collectionTotals}
+                filters={reportFilterSummary({
+                  tab: "Collections",
+                  search: q,
+                  dateFrom: collectionFrom,
+                  dateTo: collectionTo,
+                  dateLabel: "Payment date",
+                })}
+              />
+            </>
           ) : tab === "guarantees" ? (
             <GuaranteesTable
               rows={bgRows}
@@ -315,16 +361,23 @@ function AccountsReportInner() {
               onSubmitRecover={markRetentionRecovered}
             />
           ) : (
-            <ExpensesTable
-              rows={expenseRows}
-              filters={reportFilterSummary({
-                tab: "Expenses",
-                search: q,
-                dateFrom,
-                dateTo,
-                dateLabel: "Expense date",
-              })}
-            />
+            <>
+              <ListWindowNote
+                capped={expenseWindow.capped}
+                order={LIST_WINDOW_ORDER.accountExpenses}
+                className="mt-3"
+              />
+              <ExpensesTable
+                rows={expenseRows}
+                filters={reportFilterSummary({
+                  tab: "Expenses",
+                  search: q,
+                  dateFrom,
+                  dateTo,
+                  dateLabel: "Expense date",
+                })}
+              />
+            </>
           )}
         </section>
       )}
@@ -406,6 +459,7 @@ function CollectionsTable({
   filters: string;
 }) {
   const exportRows = rows.map(collectionExportRow);
+  const exportTotals = sumCollectionColumns(rows);
   return (
     <>
       <ReportsTableScroll className="mt-4">
@@ -521,12 +575,12 @@ function CollectionsTable({
                   "Total",
                   "",
                   "",
-                  totals.cashReceivedNet,
-                  totals.cashReceivedGst,
-                  totals.cashReceived,
-                  totals.retention,
-                  totals.tds,
-                  totals.otherDeductions,
+                  exportTotals.cashReceivedNet,
+                  exportTotals.cashReceivedGst,
+                  exportTotals.cashReceived,
+                  exportTotals.retention,
+                  exportTotals.tds,
+                  exportTotals.otherDeductions,
                 ],
               ]
             : exportRows
