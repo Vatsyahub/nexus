@@ -3839,9 +3839,10 @@ export function paymentRecovered(p: Payment): number {
 
 /**
  * Cash-like amount: net + GST + deduction + recovered on a tax-invoice payment.
- * Retention and TDS stay out. Unlinked FIFO and the paid column use this.
- * Outstanding on a linked invoice uses paymentAccounted (this, plus the
- * retention and TDS stored on the payment).
+ * Retention and TDS stay out. Unlinked FIFO uses this, and so does outstanding
+ * on an invoice with no linked payment. Outstanding on a linked invoice uses
+ * paymentAccounted (this, plus the retention and TDS stored on the payment).
+ * Displayed Paid amount is that accounted total, not this figure alone.
  */
 export function paymentTowardOutstanding(p: Payment) {
   return (
@@ -4309,6 +4310,25 @@ export function paymentReceivedTotal(invoiceId: string, data?: FlowhubData) {
       ? (unlinkedTowardOutstandingAllocations(d).get(invoiceId) ?? 0)
       : 0;
   return linked + unlinked;
+}
+
+/**
+ * Paid amount shown for one tax invoice.
+ * Once a payment is linked, this is the accounted total invoiceOutstanding
+ * already subtracts: Σ paymentAccounted (net + GST + retention + TDS +
+ * deduction + recovered) plus the same FIFO slice of unlinked net + GST +
+ * deduction. Unlinked retention and TDS are not in that slice. With no
+ * linked payment this is that FIFO slice only, or 0 when nothing is
+ * unlinked. Recoverable-link cash stays out. Does not change outstanding,
+ * expected cash, or paymentTowardOutstanding.
+ */
+export function invoicePaidAmount(invoice: Invoice, data?: FlowhubData) {
+  const d = data ?? read();
+  return (
+    paymentReceivedTotal(invoice.id, d) +
+    invoiceActualRetentionHold(invoice, d) +
+    invoiceActualTdsHold(invoice, d)
+  );
 }
 
 function tiLinkedPayments(invoiceId: string, data: FlowhubData): Payment[] {

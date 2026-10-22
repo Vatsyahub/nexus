@@ -39,7 +39,7 @@ const TI_NOTE =
 const PAYMENTS_NOTE =
   "TI-linked and unlinked payments. Unlinked net+GST+deduction allocate FIFO toward outstanding; unlinked ret/TDS count in contract actual held. Proforma-linked and recoverable payments are excluded.";
 const TOTALS_NOTE =
-  "Paid amount is net + GST + deduction + recovered (incl. FIFO unlinked), not cash received. Outstanding compares the full accounted sum to the invoice final once a payment is linked, and stays expected cash when nothing is linked. Recoverable-link cash is not included. Retention and TDS include unlinked payment holds for this contract.";
+  "Paid amount is the accounted total on each tax invoice: net + GST + retention + TDS + deduction + recovered on payments linked to that invoice, plus the same FIFO slice of unlinked net + GST + deduction that outstanding counts. Unlinked retention and TDS stay in Actual retention and Actual TDS. Recoverable-link cash is not included. Outstanding is unchanged: once a payment is linked it compares that full accounted sum to the invoice final, and stays expected cash when nothing is linked.";
 
 export default function ReconciliationReportPage() {
   const data = useFlowhubData();

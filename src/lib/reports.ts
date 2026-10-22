@@ -10,6 +10,9 @@
  *   + retention held + TDS held + recovered). Within half a paisa, that is 0.
  *   Extra is only the excess above the final. No linked payment: expected cash
  *   minus FIFO unlinked net+GST+deduction. Recoverable-link cash does not count.
+ * - Paid amount / Paid / Total paid = that same accounted total per TI
+ *   (linked paymentAccounted plus the FIFO slice outstanding already uses).
+ *   The display change does not alter outstanding.
  * - Sales “Total outstanding net” = Σ (TI net − ret%×net − tds%×net − net received).
  *   Net received is linked payment netAmount plus FIFO of unlinked netAmount only.
  *   GST, extras, other deductions, retention cash, and TDS cash stay out.
@@ -35,11 +38,11 @@ import {
   invoiceExpectedCash,
   invoiceExtraTotal,
   invoiceOutstanding,
+  invoicePaidAmount,
   invoiceRetentionHold,
   invoiceTdsHold,
   outstandingIsStillDue,
   paymentAccounted,
-  paymentReceivedTotal,
   paymentRecovered,
 } from "@/lib/store";
 
@@ -113,7 +116,10 @@ export type ReconciliationTotals = {
   tdsExpected: number;
   tdsActual: number;
   expected: number;
-  /** Σ(net + GST + other + recovered) toward outstanding, incl. FIFO-allocated unlinked */
+  /**
+   * Σ accounted on each TI: linked net + GST + retention + TDS + deduction +
+   * recovered, plus the FIFO unlinked slice outstanding already counts.
+   */
   paid: number;
   outstanding: number;
 };
@@ -136,7 +142,7 @@ export type ReconciliationSummaryRow = {
   retentionActual: number;
   /** Actual TDS held from payment entries (contract-level, incl. unlinked) */
   tdsActual: number;
-  /** Σ(net + GST + other + recovered) toward outstanding */
+  /** Σ invoicePaidAmount — same accounted total as reconciliation Paid amount */
   paid: number;
   expected: number;
   outstanding: number;
@@ -232,7 +238,7 @@ function totalsForContract(
     retentionExpected += invoiceRetentionHold(ti, data);
     tdsExpected += invoiceTdsHold(ti, data);
     expected += invoiceExpectedCash(ti, data);
-    paid += paymentReceivedTotal(ti.id, data);
+    paid += invoicePaidAmount(ti, data);
     outstanding += invoiceOutstanding(ti, data);
   }
   // Contract-level actual held includes unlinked payment ret/TDS in full.
@@ -325,7 +331,7 @@ export type InvoiceOutstandingRow = {
   /** TI final amount */
   finalAmount: number;
   expected: number;
-  /** net + GST + other + recovered toward outstanding (0 if none) */
+  /** invoicePaidAmount: accounted total, including the FIFO slice (0 if none) */
   paid: number;
   outstanding: number;
   /** Days until due: positive = future, 0 = today, negative = past due */
@@ -390,7 +396,7 @@ export function buildInvoiceOutstandingRows(
     .map((ti) => {
       const c = byContract.get(ti.contractId);
       const expected = invoiceExpectedCash(ti, data);
-      const paid = paymentReceivedTotal(ti.id, data);
+      const paid = invoicePaidAmount(ti, data);
       const outstanding = invoiceOutstanding(ti, data);
       const dueDate = invoiceDueDate(ti, data);
       return {
@@ -614,7 +620,7 @@ export type SalesContractRow = {
   totalInvoiceNet: number;
   /** WO − total invoice (net) */
   leftoverBilling: number;
-  /** Σ(net + GST + other + recovered) toward outstanding — same as I&O / reconciliation */
+  /** Σ invoicePaidAmount — same accounted total as I&O / reconciliation */
   totalPaid: number;
   /**
    * Σ per TI of (billed net − ret%×net − tds%×net − net received).
