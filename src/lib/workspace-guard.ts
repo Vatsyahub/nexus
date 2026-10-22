@@ -10,6 +10,7 @@ import {
 import { normalizeNexusCosts } from "@/lib/nexus-core";
 import { departmentCatalogOnSave } from "@/lib/departments";
 import { keepInUseItemNames } from "@/lib/item-rename";
+import { applyMasterBoqSwapGuard } from "@/lib/boq-item-swap";
 import {
   mergeClearedNotices,
   pruneClearedNotices,
@@ -478,6 +479,16 @@ export function mergeWorkspaceSave(
 
   if (!master) {
     const kept = keepInUseItemNames(current, contracts, invoices, itemCatalog);
+    contracts = kept.contracts;
+    invoices = kept.invoices;
+    itemCatalog = kept.itemCatalog;
+  } else {
+    const kept = applyMasterBoqSwapGuard(
+      current,
+      contracts,
+      invoices,
+      itemCatalog
+    );
     contracts = kept.contracts;
     invoices = kept.invoices;
     itemCatalog = kept.itemCatalog;

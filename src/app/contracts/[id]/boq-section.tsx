@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, type FormEvent } from "react";
+import { useSession } from "next-auth/react";
 import { amendmentDeleteError } from "@/lib/amendment-callback";
 import { DeleteIconButton, EditIconButton } from "@/components/icon-actions";
 import {
@@ -12,7 +13,9 @@ import {
   describeBoqLineUse,
   editContractBoq,
   editLatestAmendment,
+  getData,
   nextAmendmentSeq,
+  replaceContractBoqItem,
   useFlowhubData,
 } from "@/lib/store";
 import { confirmAction } from "@/components/confirm-panel";
@@ -102,6 +105,8 @@ export function BoqSection({
   actorName: string;
   onMessage: (msg: string) => void;
 }) {
+  const { data: session } = useSession();
+  const isMaster = session?.user?.clearance === "master";
   const data = useFlowhubData();
   const itemChoices = useMemo(() => itemNameChoices(data), [data]);
   const c = contract;
@@ -124,6 +129,17 @@ export function BoqSection({
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [replacePick, setReplacePick] = useState<Record<string, string>>({});
+  const [replacing, setReplacing] = useState(false);
+  const canReplaceLockedName = isMaster && amendments.length === 0;
+  const replaceChoices = useMemo(() => {
+    const taken = new Set(
+      rows
+        .filter((row) => !row.removed)
+        .map((row) => row.name.trim().toLowerCase())
+    );
+    return itemChoices.filter((choice) => !taken.has(choice.name.trim().toLowerCase()));
+  }, [itemChoices, rows]);
 
   const proposed = useMemo(() => rowsToBoq(rows), [rows]);
   const diffs = useMemo(
@@ -160,6 +176,7 @@ export function BoqSection({
     setNewUnit("Nos");
     setNewRate("");
     setNewQty("");
+    setReplacePick({});
     setError(null);
     setStep("plain");
   }
@@ -314,6 +331,31 @@ export function BoqSection({
     setStep("closed");
   }
 
+  async function replaceLockedItem(lineId: string) {
+    const itemKey = (replacePick[lineId] ?? "").trim();
+    if (!itemKey) return;
+    setError(null);
+    setReplacing(true);
+    const res = replaceContractBoqItem({
+      contractId: c.id,
+      boqItemId: lineId,
+      itemKey,
+      clearance: session?.user?.clearance,
+    });
+    if (!res.ok) {
+      setReplacing(false);
+      setError(res.error);
+      return;
+    }
+    const saved = await confirmWorkspaceSave();
+    setReplacing(false);
+    if (!saved) return;
+    const fresh = getData().contracts.find((row) => row.id === c.id);
+    const line = fresh?.boq.find((row) => row.id === lineId);
+    if (line) patchRow(lineId, { name: line.name, catalogKey: line.catalogKey });
+    setReplacePick((prev) => ({ ...prev, [lineId]: "" }));
+  }
+
   async function confirm(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -422,6 +464,9 @@ export function BoqSection({
               billed, scheduled, or delivered. Saving sets the contract value
               to this total. It does not create an amendment, and bank
               guarantee amounts stay as saved.
+              {canReplaceLockedName
+                ? " On a line already in use, Master can replace the name with another existing item. Rate, quantity, and unit on that line stay, and the catalog entry is left as saved."
+                : ""}
             </p>
           </div>
 
@@ -453,6 +498,37 @@ export function BoqSection({
                               <span className="mt-0.5 block text-xs font-normal text-[var(--fh-muted)]">
                                 On {useText} — name and unit locked
                               </span>
+                            )}
+                            {canReplaceLockedName && replaceChoices.length > 0 && (
+                              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                                <select
+                                  aria-label={`Replace ${r.name} with an existing item`}
+                                  className="h-8 max-w-[14rem] rounded-lg border border-[var(--fh-line)] bg-white px-2 text-xs"
+                                  value={replacePick[r.id] ?? ""}
+                                  onChange={(e) =>
+                                    setReplacePick((prev) => ({
+                                      ...prev,
+                                      [r.id]: e.target.value,
+                                    }))
+                                  }
+                                >
+                                  <option value="">Existing item</option>
+                                  {replaceChoices.map((choice) => (
+                                    <option key={choice.key} value={choice.key}>
+                                      {choice.name}
+                                    </option>
+                                  ))}
+                                </select>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={replacing || !(replacePick[r.id] ?? "").trim()}
+                                  onClick={() => void replaceLockedItem(r.id)}
+                                >
+                                  Replace item
+                                </Button>
+                              </div>
                             )}
                           </div>
                         ) : (
