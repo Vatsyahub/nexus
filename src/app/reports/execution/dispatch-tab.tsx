@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import type { FlowhubData } from "@/lib/types";
 import {
   addDeliveryChallan,
@@ -47,55 +47,66 @@ export function DispatchTab({
     );
   }, [contract, data]);
 
+  const contractField = (
+    <ContractTypeahead
+      contracts={data.contracts}
+      value={contractId}
+      onChange={(id) => {
+        setMsg(null);
+        onContractChange(id);
+      }}
+      optionSuffix={(c) => {
+        const n = data.deliveryChallans.filter((dc) => dc.contractId === c.id)
+          .length;
+        return n ? `${n} DC${n === 1 ? "" : "s"}` : null;
+      }}
+    />
+  );
+
+  const showForm = Boolean(canEdit && contract && hasLeftToSupply);
+
   return (
     <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-      <div className="max-w-xl shrink-0">
-        <ContractTypeahead
-          contracts={data.contracts}
-          value={contractId}
-          onChange={(id) => {
-            setMsg(null);
-            onContractChange(id);
-          }}
-          optionSuffix={(c) => {
-            const n = data.deliveryChallans.filter(
-              (dc) => dc.contractId === c.id
-            ).length;
-            return n ? `${n} DC${n === 1 ? "" : "s"}` : null;
-          }}
-        />
-      </div>
-
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
-      <FormMessage msg={msg} />
-
-      {!contract && (
-        <p className="rounded-lg border border-[var(--fh-line)] px-4 py-3 text-sm text-[var(--fh-muted)]">
-          Select a contract to provide Delivery Challan details.
-        </p>
-      )}
-
-      {canEdit && contract && hasLeftToSupply && (
+      {showForm && contract ? (
         <AddDcForm
           key={contract.id}
           data={data}
           contractId={contract.id}
           actorName={actorName}
+          msg={msg}
           onResult={setMsg}
+          contractField={
+            <div className="min-w-0" data-entry-ignore="">
+              {contractField}
+            </div>
+          }
         />
+      ) : (
+        <>
+          <div className="max-w-xl shrink-0">{contractField}</div>
+          {msg ? (
+            <div className="shrink-0">
+              <FormMessage msg={msg} />
+            </div>
+          ) : null}
+          {!contract && (
+            <p className="shrink-0 rounded-lg border border-[var(--fh-line)] px-4 py-3 text-sm text-[var(--fh-muted)]">
+              Select a contract to provide Delivery Challan details.
+            </p>
+          )}
+          {canEdit && contract && !hasLeftToSupply && contract.boq.length > 0 && (
+            <p className="shrink-0 rounded-lg border border-[var(--fh-line)] px-4 py-3 text-sm text-[var(--fh-muted)]">
+              All BOQ qty for this contract is already on DCs — nothing left to
+              supply.
+            </p>
+          )}
+          {canEdit && contract && contract.boq.length === 0 && (
+            <p className="shrink-0 rounded-lg border border-[var(--fh-line)] px-4 py-3 text-sm text-[var(--fh-muted)]">
+              This contract has no BOQ items — add BOQ before recording a DC.
+            </p>
+          )}
+        </>
       )}
-      {canEdit && contract && !hasLeftToSupply && contract.boq.length > 0 && (
-        <p className="rounded-lg border border-[var(--fh-line)] px-4 py-3 text-sm text-[var(--fh-muted)]">
-          All BOQ qty for this contract is already on DCs — nothing left to
-          supply.
-        </p>
-      )}
-      {canEdit && contract && contract.boq.length === 0 && (
-        <p className="rounded-lg border border-[var(--fh-line)] px-4 py-3 text-sm text-[var(--fh-muted)]">
-          This contract has no BOQ items — add BOQ before recording a DC.
-        </p>
-      )}
-      </div>
     </div>
   );
 }
@@ -104,12 +115,16 @@ function AddDcForm({
   data,
   contractId,
   actorName,
+  msg,
   onResult,
+  contractField,
 }: {
   data: FlowhubData;
   contractId: string;
   actorName: string;
+  msg: Msg;
   onResult: (m: Msg) => void;
+  contractField: ReactNode;
 }) {
   const contract = data.contracts.find((c) => c.id === contractId)!;
   const [dcNo, setDcNo] = useState("");
@@ -154,105 +169,120 @@ function AddDcForm({
     <form
       onSubmit={onSubmit}
       {...entryRootProps}
-      className="space-y-4 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)]/50 p-4"
+      className={cn(
+        "grid min-h-0 flex-1 grid-cols-[minmax(0,36rem)_auto_auto_auto] justify-start gap-x-3 gap-y-4 overflow-hidden",
+        msg
+          ? "grid-rows-[auto_auto_minmax(0,1fr)]"
+          : "grid-rows-[auto_minmax(0,1fr)]"
+      )}
     >
-      <h3 className="font-[family-name:var(--font-display)] text-lg text-[var(--fh-steel)]">
-        Add delivery challan
-      </h3>
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="space-y-1">
-          <Label htmlFor="dc-no">DC no.</Label>
-          <Input
-            id="dc-no"
-            value={dcNo}
-            onChange={(e) => setDcNo(e.target.value)}
-            placeholder="e.g. DC/2026/014"
-            className="w-56 bg-white"
-            required
-          />
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor="dc-date">DC date</Label>
-          <Input
-            id="dc-date"
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="w-[10.5rem] bg-white"
-            required
-          />
-        </div>
+      <div className="col-start-1 row-start-1 min-w-0 self-end">{contractField}</div>
+      <div className="col-start-2 row-start-1 space-y-1 self-end">
+        <Label htmlFor="dc-no">DC no.</Label>
+        <Input
+          id="dc-no"
+          value={dcNo}
+          onChange={(e) => setDcNo(e.target.value)}
+          placeholder="e.g. DC/2026/014"
+          className="w-56 bg-white"
+          required
+        />
       </div>
+      <div className="col-start-3 row-start-1 space-y-1 self-end">
+        <Label htmlFor="dc-date">DC date</Label>
+        <Input
+          id="dc-date"
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          className="w-[10.5rem] bg-white"
+          required
+        />
+      </div>
+      {/* Last in the DOM so Enter still walks the qty fields before Save. */}
+      <Button
+        type="submit"
+        {...entrySaveProps}
+        disabled={saving}
+        className="col-start-4 row-start-1 self-end bg-[var(--fh-accent)] text-[var(--fh-ink)] hover:bg-[#f0b01a]"
+      >
+        {saving ? "Saving…" : "Save DC"}
+      </Button>
 
-      <ReportsTableScroll className="max-h-72 flex-none bg-white">
-        <table className="w-full table-fixed text-left text-sm">
-          <colgroup>
-            <col className="w-[34%]" />
-            <col className="w-[10%]" />
-            <col className="w-[13%]" />
-            <col className="w-[13%]" />
-            <col className="w-[13%]" />
-            <col className="w-[17%]" />
-          </colgroup>
-          <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] uppercase tracking-wide text-[var(--fh-muted)]">
-            <tr>
-              <th className={reportTh}>Item</th>
-              <th className={reportTh}>Unit</th>
-              <th className={cn(reportTh, "text-right")}>BOQ qty</th>
-              <th className={cn(reportTh, "text-right")}>Supplied</th>
-              <th className={cn(reportTh, "text-right")}>Left to supply</th>
-              <th className={cn(reportTh, "text-right")}>Qty this DC</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[var(--fh-line)]">
-            {contract.boq.map((b) => {
-              const supplied = suppliedQty(contract.id, b.id, data);
-              const left = leftToSupplyQty(contract.id, b.id, data);
-              const entered = Number(qty[b.id] || 0);
-              const over = entered > left + 1e-9;
-              return (
-                <tr key={b.id}>
-                  <td className={reportTd}>{b.name}</td>
-                  <td className={reportTd}>{b.unit || "—"}</td>
-                  <td className={qtyCell}>{formatQty(b.quantity)}</td>
-                  <td className={qtyCell}>{formatQty(supplied)}</td>
-                  <td className={qtyCell}>{formatQty(left)}</td>
-                  <td className="px-1 py-1.5 sm:px-1.5">
-                    <Input
-                      type="number"
-                      inputMode="decimal"
-                      min={0}
-                      step="any"
-                      value={qty[b.id] ?? ""}
-                      disabled={left <= 0}
-                      placeholder={left <= 0 ? "Done" : "0"}
-                      onChange={(e) =>
-                        setQty((prev) => ({ ...prev, [b.id]: e.target.value }))
-                      }
-                      aria-label={`Qty for ${b.name}`}
-                      aria-invalid={over || undefined}
-                      className={cn(
-                        "h-8 bg-white text-right tabular-nums",
-                        over && "border-[var(--destructive)]"
-                      )}
-                    />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </ReportsTableScroll>
+      {msg ? (
+        <div className="col-span-4 row-start-2">
+          <FormMessage msg={msg} />
+        </div>
+      ) : null}
 
-      <div className="flex justify-end">
-        <Button
-          type="submit"
-          {...entrySaveProps}
-          disabled={saving}
-          className="bg-[var(--fh-accent)] text-[var(--fh-ink)] hover:bg-[#f0b01a]"
-        >
-          {saving ? "Saving…" : "Save DC"}
-        </Button>
+      <div
+        className={cn(
+          "col-span-4 flex min-h-0 flex-col gap-4 self-stretch overflow-hidden rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)]/50 p-4",
+          msg ? "row-start-3" : "row-start-2"
+        )}
+      >
+        <h3 className="shrink-0 font-[family-name:var(--font-display)] text-lg text-[var(--fh-steel)]">
+          Add delivery challan
+        </h3>
+        <ReportsTableScroll className="min-h-0 bg-white">
+          <table className="w-full table-fixed text-left text-sm">
+            <colgroup>
+              <col className="w-[34%]" />
+              <col className="w-[10%]" />
+              <col className="w-[13%]" />
+              <col className="w-[13%]" />
+              <col className="w-[13%]" />
+              <col className="w-[17%]" />
+            </colgroup>
+            <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] uppercase tracking-wide text-[var(--fh-muted)]">
+              <tr>
+                <th className={reportTh}>Item</th>
+                <th className={reportTh}>Unit</th>
+                <th className={cn(reportTh, "text-right")}>BOQ qty</th>
+                <th className={cn(reportTh, "text-right")}>Supplied</th>
+                <th className={cn(reportTh, "text-right")}>Left to supply</th>
+                <th className={cn(reportTh, "text-right")}>Qty this DC</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--fh-line)]">
+              {contract.boq.map((b) => {
+                const supplied = suppliedQty(contract.id, b.id, data);
+                const left = leftToSupplyQty(contract.id, b.id, data);
+                const entered = Number(qty[b.id] || 0);
+                const over = entered > left + 1e-9;
+                return (
+                  <tr key={b.id}>
+                    <td className={reportTd}>{b.name}</td>
+                    <td className={reportTd}>{b.unit || "—"}</td>
+                    <td className={qtyCell}>{formatQty(b.quantity)}</td>
+                    <td className={qtyCell}>{formatQty(supplied)}</td>
+                    <td className={qtyCell}>{formatQty(left)}</td>
+                    <td className="px-1 py-1.5 sm:px-1.5">
+                      <Input
+                        type="number"
+                        inputMode="decimal"
+                        min={0}
+                        step="any"
+                        value={qty[b.id] ?? ""}
+                        disabled={left <= 0}
+                        placeholder={left <= 0 ? "Done" : "0"}
+                        onChange={(e) =>
+                          setQty((prev) => ({ ...prev, [b.id]: e.target.value }))
+                        }
+                        aria-label={`Qty for ${b.name}`}
+                        aria-invalid={over || undefined}
+                        className={cn(
+                          "h-8 bg-white text-right tabular-nums",
+                          over && "border-[var(--destructive)]"
+                        )}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </ReportsTableScroll>
       </div>
     </form>
   );
