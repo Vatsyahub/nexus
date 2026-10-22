@@ -23,6 +23,8 @@ import {
   HistoryIconButton,
 } from "@/components/icon-actions";
 import { matchesAny } from "@/lib/list-search";
+import { ListWindowNote } from "@/components/list-window-note";
+import { LIST_WINDOW_ORDER, listIsFiltered, windowList } from "@/lib/list-window";
 import { formatDisplayDate, formatDisplayDateTime } from "@/lib/dates";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -91,7 +93,8 @@ export function ExpensesClient({
     [data.contracts]
   );
 
-  const rows = useMemo(() => {
+  const filtered = listIsFiltered({ search: q, showDeleted });
+  const matched = useMemo(() => {
     const out: {
       contractId: string;
       projectNo: string;
@@ -136,6 +139,17 @@ export function ExpensesClient({
       return b.expense.createdAt.localeCompare(a.expense.createdAt);
     });
   }, [data.contracts, showDeleted, q, canViewHistory]);
+  const listedWindow = useMemo(
+    () =>
+      windowList(matched, {
+        filtered,
+        order: LIST_WINDOW_ORDER.expenses,
+        date: (row) => row.expense.date,
+        createdAt: (row) => row.expense.createdAt,
+      }),
+    [matched, filtered]
+  );
+  const rows = listedWindow.rows;
 
   const listedTotal = useMemo(
     () => rows.reduce((s, r) => s + r.expense.amount, 0),
@@ -467,6 +481,11 @@ export function ExpensesClient({
       )}
 
       <section className="rounded-xl border border-[var(--fh-line)] bg-white">
+        <ListWindowNote
+          capped={listedWindow.capped}
+          order={LIST_WINDOW_ORDER.expenses}
+          className="px-3 pt-3"
+        />
         <table className="w-full min-w-[720px] text-left text-sm">
           <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-xs uppercase tracking-wide text-[var(--fh-muted)]">
             <tr>

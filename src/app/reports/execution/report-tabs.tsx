@@ -32,6 +32,8 @@ import {
   matchesAny,
   matchesAnyRespectingCommitment,
 } from "@/lib/list-search";
+import { ListWindowNote } from "@/components/list-window-note";
+import { LIST_WINDOW_ORDER, listIsFiltered, windowList } from "@/lib/list-window";
 import { confirmAction } from "@/components/confirm-panel";
 import { EditIconButton } from "@/components/icon-actions";
 import { currentItemUnits } from "@/lib/item-rename";
@@ -980,7 +982,8 @@ function DcRecordsTable({
   const [dateTo, setDateTo] = useState("");
   const [msg, setMsg] = useState<Msg>(null);
   const all = useMemo(() => buildSupplyDetailRows(data), [data]);
-  const rows = useMemo(
+  const filtered = listIsFiltered({ search: q, from: dateFrom, to: dateTo });
+  const matched = useMemo(
     () =>
       filterSupplyDetailRows(all, {
         q,
@@ -989,6 +992,16 @@ function DcRecordsTable({
       }),
     [all, q, dateFrom, dateTo]
   );
+  const listedWindow = useMemo(
+    () =>
+      windowList(matched, {
+        filtered,
+        order: LIST_WINDOW_ORDER.dcRecords,
+        date: (row) => row.dcDate,
+      }),
+    [matched, filtered]
+  );
+  const rows = listedWindow.rows;
   /** Delete sits on the first visible line of each DC. */
   const firstLineKeys = useMemo(() => {
     const seen = new Set<string>();
@@ -1036,6 +1049,11 @@ function DcRecordsTable({
           <FormMessage msg={msg} />
         </div>
       )}
+      <ListWindowNote
+        capped={listedWindow.capped}
+        order={LIST_WINDOW_ORDER.dcRecords}
+        className="mt-3"
+      />
       <ReportsTableScroll className="mt-4">
         <table className="w-full table-fixed text-left text-sm">
           <colgroup>

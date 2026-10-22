@@ -15,6 +15,13 @@ import {
   sumSalesInvoiceNet,
 } from "@/lib/reports";
 import { matchesAny } from "@/lib/list-search";
+import { ListWindowNote } from "@/components/list-window-note";
+import {
+  LIST_WINDOW_ORDER,
+  listIsFiltered,
+  wholeUntilFiltered,
+  windowList,
+} from "@/lib/list-window";
 import { ListSearchWithDateRange } from "@/components/list-date-range";
 import { ProjectIdentity } from "@/components/project-identity";
 import {
@@ -76,7 +83,12 @@ function SalesReportInner() {
   const allInvoiceRows = useMemo(() => buildSalesInvoiceRows(data), [data]);
   const allContractRows = useMemo(() => buildSalesContractRows(data), [data]);
 
-  const invoiceRows = useMemo(
+  const invoiceFiltered = listIsFiltered({
+    search: q,
+    from: dateFrom,
+    to: dateTo,
+  });
+  const invoiceMatched = useMemo(
     () =>
       filterSalesInvoiceRows(allInvoiceRows, {
         q,
@@ -85,6 +97,16 @@ function SalesReportInner() {
       }),
     [allInvoiceRows, q, dateFrom, dateTo]
   );
+  const invoiceWindow = useMemo(
+    () =>
+      windowList(invoiceMatched, {
+        filtered: invoiceFiltered,
+        order: LIST_WINDOW_ORDER.salesInvoices,
+        date: (row) => row.date,
+      }),
+    [invoiceMatched, invoiceFiltered]
+  );
+  const invoiceRows = invoiceWindow.rows;
 
   const contractRows = useMemo(() => {
     const needle = q.trim();
@@ -104,7 +126,11 @@ function SalesReportInner() {
     );
   }, [allContractRows, q]);
 
-  const netTotal = useMemo(() => sumSalesInvoiceNet(invoiceRows), [invoiceRows]);
+  const netTotal = wholeUntilFiltered(
+    sumSalesInvoiceNet(allInvoiceRows),
+    sumSalesInvoiceNet(invoiceRows),
+    invoiceFiltered
+  );
 
   const contractOutstandingNetTotal = useMemo(
     () => contractRows.reduce((s, r) => s + r.totalOutstandingNet, 0),
@@ -210,16 +236,23 @@ function SalesReportInner() {
               filters={reportFilterSummary({ tab: "Contracts", search: q })}
             />
           ) : (
-            <InvoicesTable
-              rows={invoiceRows}
-              filters={reportFilterSummary({
-                tab: "Invoices",
-                search: q,
-                dateFrom,
-                dateTo,
-                dateLabel: "Invoice date",
-              })}
-            />
+            <>
+              <ListWindowNote
+                capped={invoiceWindow.capped}
+                order={LIST_WINDOW_ORDER.salesInvoices}
+                className="mt-3"
+              />
+              <InvoicesTable
+                rows={invoiceRows}
+                filters={reportFilterSummary({
+                  tab: "Invoices",
+                  search: q,
+                  dateFrom,
+                  dateTo,
+                  dateLabel: "Invoice date",
+                })}
+              />
+            </>
           )}
         </section>
       )}
