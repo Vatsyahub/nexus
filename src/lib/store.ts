@@ -122,6 +122,7 @@ import {
   renameCustomBillingTerm,
 } from "@/lib/billing-terms";
 import { renameItemRecords } from "@/lib/item-rename";
+import { swapContractBoqItem } from "@/lib/boq-item-swap";
 import {
   applyWorkspaceChanges,
   diffWorkspace,
@@ -3384,6 +3385,29 @@ export function editContractBoq(input: {
     contracts: next.contracts.map((c) => (c.id === current.id ? updated : c)),
   });
   return { ok: true, contract: updated };
+}
+
+/**
+ * Master replaces one BOQ line with an item that already exists.
+ * The plain edit stays locked. This does not write the line's rate or
+ * unit onto the shared catalog entry.
+ */
+export function replaceContractBoqItem(input: {
+  contractId: string;
+  boqItemId: string;
+  itemKey: string;
+  clearance: string | null | undefined;
+}): EditBoqResult {
+  if (workspaceWritesLocked) {
+    return { ok: false, error: "This login cannot save changes." };
+  }
+  const current = read();
+  const result = swapContractBoqItem(current, input);
+  if (!result.ok) return result;
+  if (result.data !== current) write(result.data);
+  const contract = result.data.contracts.find((row) => row.id === input.contractId);
+  if (!contract) return { ok: false, error: "Contract not found." };
+  return { ok: true, contract };
 }
 
 export function listExpenseCategories(data?: FlowhubData): string[] {
