@@ -109,8 +109,8 @@ export default function BillingHomePage() {
           <table className="w-full min-w-[720px] text-left text-sm">
             <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-xs uppercase tracking-wide text-[var(--fh-muted)]">
               <tr>
-                <th className="px-3 py-2 font-medium">Invoice</th>
                 <th className="px-3 py-2 font-medium">Project</th>
+                <th className="px-3 py-2 font-medium">Invoice</th>
                 <th className="px-3 py-2 font-medium">Date</th>
                 <th className="px-3 py-2 font-medium text-right">Total</th>
                 <th className="px-3 py-2 font-medium text-right">Expected payment</th>
@@ -134,14 +134,6 @@ export default function BillingHomePage() {
                   return (
                     <tr key={inv.id}>
                       <td className="px-3 py-2">
-                        <Link
-                          href={`/billing/${inv.id}`}
-                          className="font-medium text-[var(--fh-steel)] hover:underline"
-                        >
-                          {inv.type} {inv.number}
-                        </Link>
-                      </td>
-                      <td className="px-3 py-2">
                         {c ? (
                           <>
                             <span className="font-medium">{c.projectName}</span>
@@ -152,6 +144,14 @@ export default function BillingHomePage() {
                         ) : (
                           <span className="text-[var(--fh-muted)]">—</span>
                         )}
+                      </td>
+                      <td className="px-3 py-2">
+                        <Link
+                          href={`/billing/${inv.id}`}
+                          className="font-medium text-[var(--fh-steel)] hover:underline"
+                        >
+                          {inv.type} {inv.number}
+                        </Link>
                       </td>
                       <td className="px-3 py-2 tabular-nums">
                         {formatDisplayDate(inv.date)}

@@ -411,8 +411,8 @@ function CollectionsTable({
       <ReportsTableScroll className="mt-4">
         <table className="w-full table-fixed text-left text-sm">
           <colgroup>
-            <col className="w-[9%]" />
             <col className="w-[16%]" />
+            <col className="w-[9%]" />
             <col className="w-[12%]" />
             <col className="w-[12%]" />
             <col className="w-[11%]" />
@@ -423,8 +423,8 @@ function CollectionsTable({
           </colgroup>
           <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] uppercase tracking-wide text-[var(--fh-muted)]">
             <tr>
+              <th className={reportTh}>Project</th>
               <th className={reportTh}>DATE</th>
-              <th className={reportTh}>CONTRACT</th>
               <th className={reportTh}>AGAINST</th>
               <th className={cn(reportTh, "text-right")}>CASH RECEIVED NET</th>
               <th className={cn(reportTh, "text-right")}>CASH RECEIVED GST</th>
@@ -447,9 +447,6 @@ function CollectionsTable({
             ) : (
               rows.map((r) => (
                 <tr key={r.paymentId}>
-                  <td className={cn(reportTd, "tabular-nums")}>
-                    {formatDisplayDate(r.date)}
-                  </td>
                   <td className={reportTd}>
                     <ProjectIdentity
                       projectNo={r.projectNo}
@@ -458,6 +455,9 @@ function CollectionsTable({
                         r.contractId ? `/contracts/${r.contractId}` : undefined
                       }
                     />
+                  </td>
+                  <td className={cn(reportTd, "tabular-nums")}>
+                    {formatDisplayDate(r.date)}
                   </td>
                   <td className={cn(reportTd, "break-all")}>
                     {r.invoiceId ? (
@@ -519,7 +519,6 @@ function CollectionsTable({
                 ...exportRows,
                 [
                   "Total",
-                  "",
                   "",
                   "",
                   totals.cashReceivedNet,
