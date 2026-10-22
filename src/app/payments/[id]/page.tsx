@@ -195,8 +195,8 @@ export default function PaymentDetailPage() {
             <span className="tabular-nums">{formatMoney(accounted)}</span>
           </div>
           <p className="pt-2 text-xs text-[var(--fh-muted)]">
-            Accounted = cash + retention + TDS + other. Retention and TDS are
-            not due as cash.
+            Accounted = cash + retention + TDS + deduction + recovered. Cash
+            received is net + GST. Retention and TDS are not due as cash.
           </p>
           {invoice && (
             <>
