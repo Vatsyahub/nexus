@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { formatMoney } from "@/lib/format-money";
 import {
+  entryAccountedTowardInvoice,
   invoiceBalanceLabel,
   invoiceExtraTotal,
   invoiceOutstanding,
@@ -10,6 +12,8 @@ import {
   invoiceTdsHold,
   recoverablePoolViolation,
   recoverableRunningLineFigures,
+  savedTaxInvoiceAccounted,
+  taxInvoiceAccountedStatus,
   useFlowhubData,
 } from "@/lib/store";
 import { formatRecoverableRunningLine } from "@/lib/payment-display";
@@ -117,6 +121,27 @@ export function PaymentForm({
   }, [data.invoices, contractId, link]);
 
   const selected = data.invoices.find((i) => i.id === invoiceId);
+  const accountedBox =
+    link === "TI" && selected && selected.type === "TI"
+      ? {
+          invoiceValue: selected.finalAmount,
+          accounted:
+            savedTaxInvoiceAccounted(
+              data.payments,
+              selected.id,
+              initial?.id
+            ) +
+            entryAccountedTowardInvoice({
+              netAmount: Number(netAmount) || 0,
+              gstAmount: Number(gstAmount) || 0,
+              retentionAmount: Number(retention) || 0,
+              tdsAmount: Number(tds) || 0,
+              otherDeductions: Number(other) || 0,
+              recovered: Number(recovered) || 0,
+              showRecovered,
+            }),
+        }
+      : null;
 
   useEffect(() => {
     if (link === "unlinked" || link === "recoverable") {
@@ -294,6 +319,12 @@ export function PaymentForm({
             </select>
           </div>
         )}
+        {accountedBox && (
+          <TaxInvoiceAccountedBox
+            invoiceValue={accountedBox.invoiceValue}
+            accounted={accountedBox.accounted}
+          />
+        )}
         <div className="space-y-1">
           <Label>Payment date</Label>
           <Input
@@ -364,6 +395,32 @@ export function PaymentForm({
         ) : null}
       </div>
     </form>
+  );
+}
+
+function TaxInvoiceAccountedBox({
+  invoiceValue,
+  accounted,
+}: {
+  invoiceValue: number;
+  accounted: number;
+}) {
+  return (
+    <div className="space-y-2 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)] px-3 py-3 text-sm sm:col-span-2">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[var(--fh-muted)]">Tax invoice value</span>
+        <span className="tabular-nums font-medium">
+          {formatMoney(invoiceValue)}
+        </span>
+      </div>
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[var(--fh-muted)]">Accounted towards invoice</span>
+        <span className="tabular-nums font-medium">{formatMoney(accounted)}</span>
+      </div>
+      <p className="border-t border-[var(--fh-line)] pt-2 font-medium text-[var(--fh-steel)]">
+        {taxInvoiceAccountedStatus(invoiceValue, accounted)}
+      </p>
+    </div>
   );
 }
 
