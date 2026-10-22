@@ -35,11 +35,11 @@ import {
 type Scope = "all" | "one";
 
 const TI_NOTE =
-  "Retention expected / TDS expected = contract % × net. Retention / TDS = payment entry sums on that TI. Net paid, GST paid, and deductions are linked payments only; unlinked net+GST+other still reduce outstanding via FIFO. Recovered on a tax invoice reduces that invoice the same way. Recoverable-link cash does not.";
+  "Retention expected / TDS expected = contract % × net. Retention / TDS = payment entry sums on that TI. Once a payment is linked, outstanding is the invoice final minus cash (net + GST), deduction, retention held, TDS held, and recovered. Unlinked net, GST, and deduction still fill any remainder FIFO. With no payment, outstanding stays expected cash. A match within half a paisa is zero; Extra is only the amount above the invoice final. Recoverable-link cash does not count.";
 const PAYMENTS_NOTE =
-  "TI-linked and unlinked payments. Unlinked net+GST+other allocate FIFO toward outstanding; unlinked ret/TDS count in contract actual held. Proforma-linked and recoverable payments are excluded.";
+  "TI-linked and unlinked payments. Unlinked net+GST+deduction allocate FIFO toward outstanding; unlinked ret/TDS count in contract actual held. Proforma-linked and recoverable payments are excluded.";
 const TOTALS_NOTE =
-  "Paid amount is net + GST + other + recovered toward outstanding (incl. FIFO unlinked). Recoverable-link cash is not included. Retention and TDS include unlinked payment holds for this contract.";
+  "Paid amount is net + GST + deduction + recovered (incl. FIFO unlinked), not cash received. Outstanding compares the full accounted sum to the invoice final once a payment is linked, and stays expected cash when nothing is linked. Recoverable-link cash is not included. Retention and TDS include unlinked payment holds for this contract.";
 
 export default function ReconciliationReportPage() {
   const data = useFlowhubData();

@@ -15,6 +15,7 @@ import {
   editContractBoq,
   getData,
   invoiceOutstanding,
+  paymentAccounted,
   invoiceRetentionHold,
   invoiceTdsHold,
   lineNet,
@@ -301,10 +302,15 @@ function assertMoney(
   assert.equal(invoice.finalAmount, total);
   assert.equal(invoiceRetentionHold(invoice, data), retention);
   assert.equal(invoiceTdsHold(invoice, data), tds);
-  assert.equal(
-    invoiceOutstanding(invoice, data),
-    total - retention - tds - paidTowardOutstanding
+  const linked = data.payments.filter(
+    (p) => p.invoiceId === invoice.id && (p.link === "TI" || !p.link)
   );
+  const outstanding =
+    linked.length === 0
+      ? total - retention - tds - paidTowardOutstanding
+      : total -
+        linked.reduce((sum, payment) => sum + paymentAccounted(payment), 0);
+  assert.equal(invoiceOutstanding(invoice, data), outstanding);
 }
 
 test("a date change with the same quantity does not change the amount", () => {

@@ -12,6 +12,7 @@ import {
   invoiceOutstanding,
   paymentAccounted,
   paymentCash,
+  paymentRecovered,
   useFlowhubData,
 } from "@/lib/store";
 import { billingTermLabel } from "@/lib/billing-terms";
@@ -232,6 +233,9 @@ export default function InvoiceDetailPage() {
                     {p.tdsAmount ? ` · tds ${formatMoney(p.tdsAmount)}` : ""}
                     {p.otherDeductions
                       ? ` · other ${formatMoney(p.otherDeductions)}`
+                      : ""}
+                    {paymentRecovered(p)
+                      ? ` · recovered ${formatMoney(paymentRecovered(p))}`
                       : ""}
                   </p>
                 </div>

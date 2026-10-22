@@ -3801,13 +3801,19 @@ export function paymentCash(p: Payment) {
   return (Number(p.netAmount) || 0) + (Number(p.gstAmount) || 0);
 }
 
-/** Full payment line total (cash + actual ret/TDS + other). Display only — not used for outstanding. */
+/**
+ * Accounted toward an invoice:
+ * cash (net + GST) + retention held + TDS held + deduction + recovered.
+ * Deduction is `otherDeductions`. Recovered counts only on a tax-invoice
+ * payment. Cash received stays net + GST.
+ */
 export function paymentAccounted(p: Payment) {
   return (
     paymentCash(p) +
     (Number(p.retentionAmount) || 0) +
     (Number(p.tdsAmount) || 0) +
-    (Number(p.otherDeductions) || 0)
+    (Number(p.otherDeductions) || 0) +
+    paymentRecovered(p)
   );
 }
 
@@ -3832,11 +3838,10 @@ export function paymentRecovered(p: Payment): number {
 }
 
 /**
- * Amount that reduces outstanding: net + GST + other deductions
- * + recovered on a tax-invoice payment.
- * Retention and TDS are holds, not cash applied toward expected payment.
- * Recoverable-link cash is not applied here — callers only sum TI-linked
- * and unlinked payments, and recovered itself is not cash.
+ * Cash-like amount: net + GST + deduction + recovered on a tax-invoice payment.
+ * Retention and TDS stay out. Unlinked FIFO and the paid column use this.
+ * Outstanding on a linked invoice uses paymentAccounted (this, plus the
+ * retention and TDS stored on the payment).
  */
 export function paymentTowardOutstanding(p: Payment) {
   return (
@@ -4262,10 +4267,18 @@ function unlinkedTowardOutstandingAllocations(
       );
 
     for (const ti of tis) {
-      const linked = data.payments
-        .filter((p) => p.invoiceId === ti.id && isTiLinkedPayment(p))
-        .reduce((s, p) => s + paymentTowardOutstanding(p), 0);
-      const need = Math.max(0, invoiceExpectedCash(ti, data) - linked);
+      const linked = tiLinkedPayments(ti.id, data);
+      // A linked payment is settled against the invoice total, using the
+      // retention and TDS actually stored on those payments. With no linked
+      // payment, unlinked cash still fills expected cash only.
+      const need =
+        linked.length > 0
+          ? Math.max(
+              0,
+              ti.finalAmount -
+                linked.reduce((s, p) => s + paymentAccounted(p), 0)
+            )
+          : Math.max(0, invoiceExpectedCash(ti, data));
       const take = Math.min(pool, need);
       if (take > 0) {
         allocated.set(ti.id, take);
@@ -4298,17 +4311,37 @@ export function paymentReceivedTotal(invoiceId: string, data?: FlowhubData) {
   return linked + unlinked;
 }
 
+function tiLinkedPayments(invoiceId: string, data: FlowhubData): Payment[] {
+  return data.payments.filter(
+    (p) => p.invoiceId === invoiceId && isTiLinkedPayment(p)
+  );
+}
+
 /**
- * Outstanding (locked): Expected − (Σ net paid + Σ GST paid + Σ other + Σ recovered).
- * Do NOT subtract retention/TDS — those are holds, not cash applied.
- * Recovered clears the invoice the same way other deductions do, and is not cash.
- * Unlinked net+GST+other allocate FIFO toward TIs; recoverable cash does not.
- * Unlinked ret/TDS stay at contract actual-held only. Negative means overpayment — shown as-is.
+ * Outstanding on a tax invoice.
+ * No linked payment: expected cash minus FIFO unlinked net+GST+deduction
+ * (final − theoretical retention − theoretical TDS − that cash). An unpaid
+ * invoice stays on expected cash, not the full invoice total.
+ * Once a payment is linked: invoice final minus accounted
+ * (cash net+GST + deduction + retention held + TDS held + recovered),
+ * plus any FIFO unlinked cash still needed to reach the final.
+ * Within half a paisa of the final, outstanding is 0. Above the final,
+ * the negative amount is Extra for that excess only. A higher contract TDS
+ * percent than the TDS entered on the payment does not create Extra.
  */
 export function invoiceOutstanding(invoice: Invoice, data?: FlowhubData) {
   if (invoice.type !== "TI") return 0;
   const d = data ?? read();
-  return invoiceExpectedCash(invoice, d) - paymentReceivedTotal(invoice.id, d);
+  const linked = tiLinkedPayments(invoice.id, d);
+  if (linked.length === 0) {
+    return invoiceExpectedCash(invoice, d) - paymentReceivedTotal(invoice.id, d);
+  }
+  const unlinked = unlinkedTowardOutstandingAllocations(d).get(invoice.id) ?? 0;
+  const accounted =
+    linked.reduce((s, p) => s + paymentAccounted(p), 0) + unlinked;
+  const balance = invoice.finalAmount - accounted;
+  if (Math.abs(balance) <= RUPEE_EPS) return 0;
+  return balance;
 }
 
 /**

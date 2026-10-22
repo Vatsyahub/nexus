@@ -184,7 +184,7 @@ test("recovered reduces that tax invoice outstanding like other deductions", () 
   assert.equal(paymentCash(linked), 120);
   assert.equal(
     invoiceOutstanding(invoice, workspace([c], [invoice], [linked])),
-    810
+    1000 - (100 + 20 + 30 + 500 + 500 + 40)
   );
   assert.equal(
     invoiceOutstanding(invoice, workspace([c], [invoice], [linked])),
@@ -192,7 +192,7 @@ test("recovered reduces that tax invoice outstanding like other deductions", () 
   );
   assert.equal(
     invoiceOutstanding(invoice, workspace([c], [invoice], [holdsOnly])),
-    1000
+    0
   );
   assert.equal(
     invoiceOutstanding(invoice, workspace([c], [invoice], [proforma])),

@@ -6,11 +6,15 @@
  * - Expected payment / expected held = theoretical (ret%×net, tds%×net).
  * - Retention held / TDS held columns = actual sums from payment entries.
  * - Unlinked ret/TDS count in contract-level actual held; TI rows show linked only.
- * - Outstanding = Expected − Σ(net + GST + other + recovered on that TI); ret/TDS not subtracted.
- *   Recoverable-link cash does not reduce a TI and is not in the unlinked FIFO.
+ * - Outstanding with a linked payment = invoice final − (cash net+GST + deduction
+ *   + retention held + TDS held + recovered). Within half a paisa, that is 0.
+ *   Extra is only the excess above the final. No linked payment: expected cash
+ *   minus FIFO unlinked net+GST+deduction. Recoverable-link cash does not count.
  * - Sales “Total outstanding net” = Σ (TI net − ret%×net − tds%×net − net received).
  *   Net received is linked payment netAmount plus FIFO of unlinked netAmount only.
  *   GST, extras, other deductions, retention cash, and TDS cash stay out.
+ *   If recovered alone would make that net figure negative while the full
+ *   accounted sum equals the invoice final, the net figure is 0.
  */
 
 import type { Contract, FlowhubData, Invoice, Payment } from "@/lib/types";
@@ -36,6 +40,7 @@ import {
   outstandingIsStillDue,
   paymentAccounted,
   paymentReceivedTotal,
+  paymentRecovered,
 } from "@/lib/store";
 
 function isTiLinkedPayment(p: Payment) {
@@ -675,6 +680,15 @@ function unlinkedNetAmountAllocations(data: FlowhubData): Map<string, number> {
   return allocated;
 }
 
+function invoiceRecovered(invoice: Invoice, data: FlowhubData): number {
+  let recovered = 0;
+  for (const p of data.payments) {
+    if (p.invoiceId !== invoice.id || !isTiLinkedPayment(p)) continue;
+    recovered += paymentRecovered(p);
+  }
+  return recovered;
+}
+
 /**
  * Net outstanding on one tax invoice:
  * billed net − retention hold − TDS hold − net received.
@@ -682,6 +696,9 @@ function unlinkedNetAmountAllocations(data: FlowhubData): Map<string, number> {
  * Net received is linked netAmount plus FIFO-allocated unlinked netAmount.
  * GST, extra charges, other deductions, and payment retention/TDS stay out.
  * A negative result is an overpayment and is returned as-is.
+ * Recovered is not cash received. When it would push this net figure negative
+ * only by the gap between contract TDS and the TDS on the payment, and the
+ * full accounted sum equals the invoice final, the result is 0 — not Extra.
  */
 export function invoiceNetOutstanding(
   invoice: Invoice,
@@ -689,7 +706,16 @@ export function invoiceNetOutstanding(
 ): number {
   if (invoice.type !== "TI") return 0;
   const allocated = unlinkedNetAmountAllocations(data).get(invoice.id) ?? 0;
-  return netOutstandingBeforeUnlinked(invoice, data) - allocated;
+  const raw = netOutstandingBeforeUnlinked(invoice, data) - allocated;
+  const recovered = invoiceRecovered(invoice, data);
+  if (
+    raw > -0.005 &&
+    raw - recovered < -0.005 &&
+    invoiceOutstanding(invoice, data) === 0
+  ) {
+    return 0;
+  }
+  return raw;
 }
 
 /**
