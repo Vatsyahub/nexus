@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import type { FlowhubData } from "@/lib/types";
+import { useMemo, useRef, useState, type FormEvent } from "react";
+import type { FlowhubData, InstallationProgress } from "@/lib/types";
 import {
   flushWorkspace,
   installationProgressFor,
@@ -30,6 +30,17 @@ import { FormMessage, qtyCell, todayIsoLocal } from "./execution-ui";
 
 type Msg = { kind: "ok" | "error"; text: string } | null;
 
+const QTY_EPS = 1e-9;
+
+function installationSavedText(name: string, progress: InstallationProgress): string {
+  const last = progress.history[progress.history.length - 1];
+  return `${name}: installed ${formatQty(progress.installedQty)} (${last.delta > 0 ? "+" : ""}${formatQty(last.delta)}) as of ${formatDisplayDate(last.at)}.`;
+}
+
+function flushErrorText(err: unknown): string {
+  return err instanceof Error && err.message ? err.message : "Could not save.";
+}
+
 export function InstallationsTab({
   data,
   canEdit,
@@ -47,7 +58,8 @@ export function InstallationsTab({
   const [msg, setMsg] = useState<Msg>(null);
   const [date, setDate] = useState(todayIsoLocal);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [savingId, setSavingId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const savingLock = useRef(false);
 
   const items = useMemo(() => {
     if (!contract) return [];
@@ -79,71 +91,164 @@ export function InstallationsTab({
       );
   }, [contract, data.installationProgress]);
 
-  async function save(boqItemId: string) {
-    if (!contract) return;
-    const raw = (drafts[boqItemId] ?? "").trim();
-    if (raw === "") {
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!contract || savingLock.current) return;
+    const pending = items.flatMap(({ item, supplied, installed }) => {
+      const raw = (drafts[item.id] ?? "").trim();
+      if (raw === "") return [];
+      return [{ item, supplied, installed, total: Number(raw) }];
+    });
+    if (pending.length === 0) {
       setMsg({ kind: "error", text: "Enter the new cumulative installed total." });
       return;
     }
-    setSavingId(boqItemId);
-    const res = recordInstallationTotal(
-      { contractId: contract.id, boqItemId, newTotal: Number(raw), date },
-      { by: actorName }
-    );
-    if (!res.ok) {
-      setSavingId(null);
-      setMsg({ kind: "error", text: res.error });
+    const dateIso = date.trim().slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) {
+      setMsg({ kind: "error", text: "Update date is required." });
       return;
     }
-    await flushWorkspace();
-    setSavingId(null);
-    setDrafts((prev) => {
-      const next = { ...prev };
-      delete next[boqItemId];
-      return next;
-    });
-    const last = res.value.history[res.value.history.length - 1];
-    const name = contract.boq.find((b) => b.id === boqItemId)?.name ?? "Item";
-    setMsg({
-      kind: "ok",
-      text: `${name}: installed ${formatQty(res.value.installedQty)} (${last.delta > 0 ? "+" : ""}${formatQty(last.delta)}) as of ${formatDisplayDate(last.at)}.`,
-    });
+    for (const row of pending) {
+      if (!Number.isFinite(row.total) || row.total < 0) {
+        setMsg({
+          kind: "error",
+          text: "Enter a cumulative installed qty of 0 or more.",
+        });
+        return;
+      }
+      if (row.total > row.supplied + QTY_EPS) {
+        setMsg({
+          kind: "error",
+          text: `${row.item.name}: installed total ${row.total} exceeds supplied ${row.supplied}.`,
+        });
+        return;
+      }
+      if (Math.abs(row.total - row.installed) < QTY_EPS) {
+        setMsg({
+          kind: "error",
+          text: `${row.item.name}: total is already ${row.installed}.`,
+        });
+        return;
+      }
+    }
+
+    savingLock.current = true;
+    setSaving(true);
+    const saved: { id: string; name: string; progress: InstallationProgress }[] = [];
+    const clearSaved = () => {
+      setDrafts((prev) => {
+        const next = { ...prev };
+        for (const row of saved) delete next[row.id];
+        return next;
+      });
+    };
+    try {
+      for (const row of pending) {
+        const res = recordInstallationTotal(
+          {
+            contractId: contract.id,
+            boqItemId: row.item.id,
+            newTotal: row.total,
+            date,
+          },
+          { by: actorName }
+        );
+        if (!res.ok) {
+          if (saved.length > 0) {
+            await flushWorkspace();
+            clearSaved();
+          }
+          setMsg({ kind: "error", text: res.error });
+          return;
+        }
+        saved.push({ id: row.item.id, name: row.item.name, progress: res.value });
+      }
+      await flushWorkspace();
+      clearSaved();
+      setMsg({
+        kind: "ok",
+        text: saved
+          .map((row) => installationSavedText(row.name, row.progress))
+          .join(" "),
+      });
+    } catch (err) {
+      setMsg({ kind: "error", text: flushErrorText(err) });
+    } finally {
+      savingLock.current = false;
+      setSaving(false);
+    }
   }
 
-  return (
-    <div
-      className="mt-4 flex min-h-0 flex-1 flex-col gap-4 overflow-hidden"
-      {...entryRootProps}
-    >
-      <div className="flex flex-wrap items-end gap-4">
-        <div className="min-w-[16rem] max-w-xl flex-1" data-entry-ignore="">
-          <ContractTypeahead
-            contracts={data.contracts}
-            value={contractId}
-            onChange={(id) => {
-              setMsg(null);
-              setDrafts({});
-              onContractChange(id);
-            }}
+  const wide = canEdit && contract != null;
+  const editing = canEdit && contract != null && contract.boq.length > 0;
+  const canSaveAny = items.some((row) => row.supplied > 0);
+  const spanClass = editing ? "col-span-3" : wide ? "col-span-2" : "col-span-1";
+  const frameClass = cn(
+    "grid min-h-0 flex-1 justify-start gap-x-3 gap-y-4 overflow-hidden",
+    editing
+      ? "grid-cols-[minmax(0,36rem)_auto_auto]"
+      : wide
+        ? "grid-cols-[minmax(0,36rem)_auto]"
+        : "grid-cols-1",
+    msg ? "grid-rows-[auto_auto_minmax(0,1fr)]" : "grid-rows-[auto_minmax(0,1fr)]"
+  );
+  const listRow = msg ? "row-start-3" : "row-start-2";
+
+  const frame = (
+    <>
+      <div
+        className={cn(
+          "col-start-1 row-start-1 min-w-0 self-end",
+          !wide && "max-w-xl"
+        )}
+        data-entry-ignore=""
+      >
+        <ContractTypeahead
+          contracts={data.contracts}
+          value={contractId}
+          onChange={(id) => {
+            setMsg(null);
+            setDrafts({});
+            onContractChange(id);
+          }}
+        />
+      </div>
+      {wide && (
+        <div className="col-start-2 row-start-1 space-y-1 self-end">
+          <Label htmlFor="install-date">Update date</Label>
+          <Input
+            id="install-date"
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="w-[10.5rem] bg-white"
           />
         </div>
-        {canEdit && contract && (
-          <div className="space-y-1">
-            <Label htmlFor="install-date">Update date</Label>
-            <Input
-              id="install-date"
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-[10.5rem] bg-white"
-            />
-          </div>
+      )}
+      {editing && (
+        <Button
+          type="submit"
+          {...entrySaveProps}
+          disabled={saving || !canSaveAny}
+          className="col-start-3 row-start-1 self-end bg-[var(--fh-accent)] text-[var(--fh-ink)] hover:bg-[#f0b01a]"
+        >
+          {saving ? "Saving…" : "Update"}
+        </Button>
+      )}
+
+      {msg ? (
+        <div className={cn(spanClass, "col-start-1 row-start-2")}>
+          <FormMessage msg={msg} />
+        </div>
+      ) : null}
+
+      <div
+        className={cn(
+          spanClass,
+          "col-start-1 flex min-h-0 flex-col gap-4 self-stretch overflow-hidden",
+          listRow
         )}
-      </div>
-
-      <FormMessage msg={msg} />
-
+      >
       {!contract ? (
         <ReportsEmpty message="Select a contract to see and update installation progress." />
       ) : contract.boq.length === 0 ? (
@@ -151,22 +256,20 @@ export function InstallationsTab({
       ) : (
         <>
           {canEdit && (
-            <p className="text-xs text-[var(--fh-muted)]">
+            <p className="shrink-0 text-xs text-[var(--fh-muted)]">
               Enter the new cumulative installed total (not the increment). It
               cannot exceed supplied qty.
             </p>
           )}
-          <div {...entryRootProps}>
-          <ReportsTableScroll>
+          <ReportsTableScroll className="min-h-0">
             <table className="w-full table-fixed text-left text-sm">
               <colgroup>
-                <col className={canEdit ? "w-[26%]" : "w-[40%]"} />
-                <col className="w-[11%]" />
-                <col className="w-[11%]" />
+                <col className={canEdit ? "w-[34%]" : "w-[40%]"} />
+                <col className={canEdit ? "w-[12%]" : "w-[11%]"} />
+                <col className={canEdit ? "w-[12%]" : "w-[11%]"} />
                 <col className="w-[12%]" />
-                <col className={canEdit ? "w-[13%]" : "w-[26%]"} />
+                <col className={canEdit ? "w-[15%]" : "w-[26%]"} />
                 {canEdit && <col className="w-[15%]" />}
-                {canEdit && <col className="w-[12%]" />}
               </colgroup>
               <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] uppercase tracking-wide text-[var(--fh-muted)]">
                 <tr>
@@ -177,11 +280,6 @@ export function InstallationsTab({
                   <th className={reportTh}>Last update</th>
                   {canEdit && (
                     <th className={cn(reportTh, "text-right")}>New total</th>
-                  )}
-                  {canEdit && (
-                    <th className={reportTh}>
-                      <span className="sr-only">Save</span>
-                    </th>
                   )}
                 </tr>
               </thead>
@@ -240,33 +338,12 @@ export function InstallationsTab({
                           )}
                         </td>
                       )}
-                      {canEdit && (
-                        <td className="px-1 py-1.5 sm:px-1.5">
-                          <Button
-                            type="button"
-                            {...entrySaveProps}
-                            size="sm"
-                            variant="outline"
-                            disabled={
-                              supplied <= 0 ||
-                              draft === "" ||
-                              over ||
-                              savingId === item.id
-                            }
-                            onClick={() => void save(item.id)}
-                            className="w-full"
-                          >
-                            {savingId === item.id ? "…" : "Update"}
-                          </Button>
-                        </td>
-                      )}
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </ReportsTableScroll>
-          </div>
           <ReportExportIcons
             filename={`installations-${contract.projectNo}`}
             title="Operations — Installations"
@@ -289,7 +366,7 @@ export function InstallationsTab({
             <h3 className="shrink-0 font-[family-name:var(--font-display)] text-lg text-[var(--fh-steel)]">
               Installation history
             </h3>
-            <ReportsTableScroll className="mt-2">
+            <ReportsTableScroll className="mt-2 min-h-0">
               <table className="w-full table-fixed text-left text-sm">
                 <colgroup>
                   <col className="w-[16%]" />
@@ -365,6 +442,24 @@ export function InstallationsTab({
             />
           </div>
         </>
+      )}
+      </div>
+    </>
+  );
+
+  return (
+    <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+      {editing ? (
+        <form
+          onSubmit={onSubmit}
+          noValidate
+          {...entryRootProps}
+          className={frameClass}
+        >
+          {frame}
+        </form>
+      ) : (
+        <div className={frameClass}>{frame}</div>
       )}
     </div>
   );
