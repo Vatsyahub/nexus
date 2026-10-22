@@ -354,11 +354,12 @@ function todayIso(): string {
 }
 
 /**
- * Status for a TI row:
- * - paid: outstanding strictly under Rs 100 (zero and overpayment included)
- * - overdue: Rs 100 or more left and past due date (due today is not overdue)
- * - partially paid: some paid, Rs 100 or more left, not past due
- * - due: unpaid (or zero paid), Rs 100 or more left, not past due
+ * Status for a TI row. Due treatment starts only above Rs 200 short.
+ * The Rs 200 band is inclusive both ways. A larger extra is not due.
+ * - paid: not still due — Rs 200 extra through Rs 200 short, and any larger extra
+ * - overdue: more than Rs 200 short and past due date (due today is not overdue)
+ * - partially paid: some paid, more than Rs 200 short, not past due
+ * - due: unpaid (or zero paid), more than Rs 200 short, not past due
  */
 export function invoiceOutstandingStatus(
   outstanding: number,
@@ -418,7 +419,7 @@ export function buildInvoiceOutstandingRows(
     });
 }
 
-/** Sum of outstanding that is still due (Rs 100 and above). Under Rs 100 is left out. */
+/** Sum of outstanding still due (shortfall greater than Rs 200). The paid band and extras are left out. */
 export function sumOpenOutstanding(rows: InvoiceOutstandingRow[]): number {
   return rows.reduce(
     (s, r) => (outstandingIsStillDue(r.outstanding) ? s + r.outstanding : s),

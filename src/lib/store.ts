@@ -4431,32 +4431,40 @@ export function invoiceOutstanding(invoice: Invoice, data?: FlowhubData) {
 }
 
 /**
- * Hub paid-vs-due cutoff. A positive outstanding strictly under this many
- * rupees counts as paid. Rs 100 and above stays due. Stored outstanding
- * math is unchanged — reconciliation still uses the exact rupee balance.
+ * Hub paid band, both ways and inclusive. Outstanding from this many rupees
+ * extra through this many rupees short counts as paid. Exactly this amount
+ * either way is paid. A larger shortfall stays due. A larger extra stays
+ * Extra. Stored outstanding math is unchanged — reconciliation still uses
+ * the exact rupee balance.
  */
-export const OUTSTANDING_PAID_BELOW_RUPEES = 100;
+export const OUTSTANDING_PAID_WITHIN_RUPEES = 200;
 
 /**
  * True when the hub should keep this balance as due, overdue, or partially paid.
- * Zero, overpayment, and a positive balance strictly under Rs 100 are not still due.
+ * Only a shortfall greater than OUTSTANDING_PAID_WITHIN_RUPEES is still due.
+ * The paid band and any overpayment, including a large extra, are not due.
  */
 export function outstandingIsStillDue(outstanding: number): boolean {
-  return outstanding >= OUTSTANDING_PAID_BELOW_RUPEES;
+  return outstanding > OUTSTANDING_PAID_WITHIN_RUPEES;
 }
 
 /**
- * Balance text for a tax invoice. Overpayment stays Extra. Rs 100 and above
- * stays Due. Rs 1 and Rs 99.99 are Paid. Does not rewrite the stored balance.
+ * Balance text for a tax invoice. From -OUTSTANDING_PAID_WITHIN_RUPEES
+ * through +OUTSTANDING_PAID_WITHIN_RUPEES is Paid, including both ends.
+ * A larger shortfall is Due. A larger extra is Extra, not Due.
+ * Does not rewrite the stored balance.
  */
 export function invoiceBalanceLabel(amount: number): string {
-  if (amount < -RUPEE_EPS) return `Extra ${formatMoney(-amount)}`;
+  if (amount < -OUTSTANDING_PAID_WITHIN_RUPEES) {
+    return `Extra ${formatMoney(-amount)}`;
+  }
   if (outstandingIsStillDue(amount)) return `Due ${formatMoney(amount)}`;
   return "Paid";
 }
 
 export function invoiceIsPaid(invoice: Invoice, data?: FlowhubData) {
-  return !outstandingIsStillDue(invoiceOutstanding(invoice, data));
+  const outstanding = invoiceOutstanding(invoice, data);
+  return Math.abs(outstanding) <= OUTSTANDING_PAID_WITHIN_RUPEES;
 }
 
 export function assignTask(
