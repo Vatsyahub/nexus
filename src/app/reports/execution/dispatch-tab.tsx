@@ -155,7 +155,17 @@ function AddDcForm({
       onResult({ kind: "error", text: res.error });
       return;
     }
-    await flushWorkspace();
+    try {
+      await flushWorkspace();
+    } catch (err) {
+      setSaving(false);
+      onResult({
+        kind: "error",
+        text:
+          err instanceof Error && err.message ? err.message : "Could not save.",
+      });
+      return;
+    }
     setSaving(false);
     setDcNo("");
     setQty({});
