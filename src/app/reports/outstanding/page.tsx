@@ -310,17 +310,16 @@ function InvoicesTable({
       <ReportsTableScroll className="mt-4">
         <table className="w-full table-fixed text-left text-sm">
           <colgroup>
-            <col className="w-[11%]" />
-            <col className="w-[5%]" />
-            <col className="w-[8%]" />
-            <col className="w-[8%]" />
-            <col className="w-[11%]" />
-            <col className="w-[11%]" />
-            <col className="w-[11%]" />
-            <col className="w-[11%]" />
+            <col className="w-[14%]" />
+            <col className="w-[6%]" />
+            <col className="w-[9%]" />
+            <col className="w-[9%]" />
+            <col className="w-[12%]" />
+            <col className="w-[12%]" />
+            <col className="w-[13%]" />
             <col className="w-[8%]" />
             <col className="w-[7%]" />
-            <col className="w-[9%]" />
+            <col className="w-[10%]" />
           </colgroup>
           <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] uppercase tracking-wide text-[var(--fh-muted)]">
             <tr>
@@ -329,7 +328,6 @@ function InvoicesTable({
               <th className={reportTh}>TI no.</th>
               <th className={reportTh}>TI date</th>
               <th className={cn(reportTh, "text-right")}>TI amount</th>
-              <th className={cn(reportTh, "text-right")}>Expected</th>
               <th className={cn(reportTh, "text-right")}>Paid</th>
               <th className={cn(reportTh, "text-right")}>Outstanding</th>
               <th className={reportTh}>Due date</th>
@@ -341,7 +339,7 @@ function InvoicesTable({
             {rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={11}
+                  colSpan={10}
                   className="px-3 py-6 text-center text-[var(--fh-muted)]"
                 >
                   No matching invoices.
@@ -370,7 +368,6 @@ function InvoicesTable({
                     {formatDisplayDate(r.date)}
                   </td>
                   <td className={reportMoney}>{formatMoney(r.finalAmount)}</td>
-                  <td className={reportMoney}>{formatMoney(r.expected)}</td>
                   <td className={reportMoney}>
                     {formatMoney(r.paid > 0.005 ? r.paid : 0)}
                   </td>
@@ -403,7 +400,6 @@ function InvoicesTable({
           "TI no.",
           "TI date",
           "TI amount",
-          "Expected",
           "Paid",
           "Outstanding",
           "Due date",
@@ -417,7 +413,6 @@ function InvoicesTable({
           r.number,
           formatDisplayDate(r.date),
           r.finalAmount,
-          r.expected,
           r.paid > 0.005 ? r.paid : 0,
           r.outstanding,
           formatDisplayDate(r.dueDate),
