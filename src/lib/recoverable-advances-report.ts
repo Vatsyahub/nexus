@@ -7,7 +7,7 @@ import type { FlowhubData } from "@/lib/types";
 import { recoverableRunningLineFigures } from "@/lib/store";
 
 export const RECOVERABLE_ADVANCES_HEADERS = [
-  "PROJECT NAME AND NO.",
+  "Project",
   "ADVANCE",
   "RECOVERED",
   "LEFT TO RECOVER",

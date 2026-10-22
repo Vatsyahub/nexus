@@ -11,6 +11,7 @@ import {
   contractDisplayStatus,
   handoverDateForContract,
   todayIso as coreTodayIso,
+  type ContractStatusLabel,
 } from "@/lib/nexus-core";
 import { installedQty, suppliedQty, taskIsOpen } from "@/lib/store";
 
@@ -185,6 +186,8 @@ export type ExecutionSummaryRow = {
   unbilledSupplyQty: number;
   /** Installed minus the billed install quantity. Never negative. */
   unbilledInstallQty: number;
+  /** On-screen project status. Summary search only. Not shown or exported. */
+  projectStatus: ContractStatusLabel;
 };
 
 const SUPPLY_STAND_IN_TERMS = [
@@ -238,6 +241,7 @@ export function buildExecutionSummaryRows(
   contractId?: string
 ): ExecutionSummaryRow[] {
   const billedByTerm = taxInvoiceQtyByTerm(data);
+  const today = coreTodayIso();
   const rows: ExecutionSummaryRow[] = [];
   for (const c of data.contracts) {
     if (contractId && c.id !== contractId) continue;
@@ -266,6 +270,7 @@ export function buildExecutionSummaryRows(
         leftToInstall: Math.max(0, supplied - installed),
         unbilledSupplyQty: unbilledQty(supplied, billedFor(supplyTerm)),
         unbilledInstallQty: unbilledQty(installed, billedFor(installTerm)),
+        projectStatus: contractDisplayStatus(data, c, today),
       });
     }
   }
@@ -316,7 +321,14 @@ export function filterExecutionSummaryRows(
   const needle = (q ?? "").trim();
   if (!needle) return rows;
   return rows.filter((r) =>
-    matchesAny(needle, [r.projectNo, r.projectName, r.city, r.itemName, r.unit])
+    matchesAny(needle, [
+      r.projectNo,
+      r.projectName,
+      r.city,
+      r.itemName,
+      r.unit,
+      r.projectStatus,
+    ])
   );
 }
 

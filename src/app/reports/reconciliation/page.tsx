@@ -553,8 +553,7 @@ function SummaryView({
       <ReportsTableScroll className="mt-3">
         <table className="w-full table-fixed text-left text-sm">
           <colgroup>
-            <col className="w-[10%]" />
-            <col className="w-[18%]" />
+            <col className="w-[28%]" />
             <col className="w-[10%]" />
             <col className="w-[10%]" />
             <col className="w-[11%]" />
@@ -565,8 +564,7 @@ function SummaryView({
           </colgroup>
           <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] uppercase tracking-wide text-[var(--fh-muted)]">
             <tr>
-              <th className={reportTh}>Project no.</th>
-              <th className={reportTh}>Project name</th>
+              <th className={reportTh}>Project</th>
               <th className={reportTh}>City</th>
               <th className={cn(reportTh, "text-right")}>Invoiced (TI)</th>
               <th className={cn(reportTh, "text-right")}>Expected</th>
@@ -579,16 +577,20 @@ function SummaryView({
           <tbody className="divide-y divide-[var(--fh-line)]">
             {rows.map((row) => (
               <tr key={row.contractId}>
-                <td className={cn(reportTd, "break-all")}>
-                  <button
-                    type="button"
-                    className="font-medium text-[var(--fh-steel)] hover:underline"
-                    onClick={() => onSelectContract(row.contractId)}
-                  >
-                    {row.projectNo}
-                  </button>
+                <td className={reportTd}>
+                  <div className="min-w-0 break-words">
+                    <button
+                      type="button"
+                      className="break-words text-left font-medium text-[var(--fh-steel)] hover:underline"
+                      onClick={() => onSelectContract(row.contractId)}
+                    >
+                      {row.projectName}
+                    </button>
+                    <p className="break-all text-xs text-[var(--fh-muted)]">
+                      {row.projectNo}
+                    </p>
+                  </div>
                 </td>
-                <td className={cn(reportTd, "break-words")}>{row.projectName}</td>
                 <td className={cn(reportTd, "break-words")}>{row.city}</td>
                 <td className={reportMoney}>{formatMoney(row.invoiced)}</td>
                 <td className={reportMoney}>{formatMoney(row.expected)}</td>
@@ -605,7 +607,7 @@ function SummaryView({
           </tbody>
           <tfoot className="border-t border-[var(--fh-line)] bg-[var(--fh-bg)] text-sm font-medium">
             <tr>
-              <td className={reportTd} colSpan={3}>
+              <td className={reportTd} colSpan={2}>
                 Portfolio totals
               </td>
               <td className={reportMoney}>{formatMoney(totals.invoiced)}</td>
@@ -627,8 +629,7 @@ function SummaryView({
         title="Reconciliation Report — All contracts"
         filters={filters}
         headers={[
-          "Project no.",
-          "Project name",
+          "Project",
           "City",
           "Invoiced (TI)",
           "Expected",
@@ -639,8 +640,7 @@ function SummaryView({
         ]}
         rows={[
           ...rows.map((row) => [
-            row.projectNo,
-            row.projectName,
+            `${row.projectName}\n${row.projectNo}`,
             row.city,
             row.invoiced,
             row.expected,
@@ -651,7 +651,6 @@ function SummaryView({
           ]),
           [
             "Portfolio totals",
-            "",
             "",
             totals.invoiced,
             totals.expected,

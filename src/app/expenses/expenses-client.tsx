@@ -489,8 +489,8 @@ export function ExpensesClient({
         <table className="w-full min-w-[720px] text-left text-sm">
           <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-xs uppercase tracking-wide text-[var(--fh-muted)]">
             <tr>
+              <th className="px-3 py-2 font-medium">Project</th>
               <th className="px-3 py-2 font-medium">Date</th>
-              <th className="px-3 py-2 font-medium">Contract</th>
               <th className="px-3 py-2 font-medium">Category</th>
               <th className="px-3 py-2 font-medium text-right">Amount</th>
               <th className="px-3 py-2 font-medium">Person paid</th>
@@ -518,9 +518,6 @@ export function ExpensesClient({
                     e.deletedAt && "bg-[var(--fh-bg)]/60 text-[var(--fh-muted)]"
                   )}
                 >
-                  <td className="px-3 py-2 tabular-nums">
-                    {formatDisplayDate(e.date)}
-                  </td>
                   <td className="px-3 py-2">
                     <Link
                       href={`/contracts/${contractId}`}
@@ -531,6 +528,9 @@ export function ExpensesClient({
                     <p className="text-xs text-[var(--fh-muted)]">
                       {projectName}
                     </p>
+                  </td>
+                  <td className="px-3 py-2 tabular-nums">
+                    {formatDisplayDate(e.date)}
                   </td>
                   <td className="px-3 py-2">{e.category}</td>
                   <td className="px-3 py-2 text-right tabular-nums font-medium">

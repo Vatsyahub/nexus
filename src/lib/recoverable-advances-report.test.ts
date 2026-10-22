@@ -192,7 +192,7 @@ test("advance is the recoverable pool, not the billing-term percent", () => {
 
 test("export headers are the four capital labels, including a zero left", async () => {
   assert.deepEqual([...RECOVERABLE_ADVANCES_HEADERS], [
-    "PROJECT NAME AND NO.",
+    "Project",
     "ADVANCE",
     "RECOVERED",
     "LEFT TO RECOVER",

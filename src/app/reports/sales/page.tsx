@@ -10,11 +10,11 @@ import {
   SALES_INVOICE_EXPORT_HEADERS,
   buildSalesContractRows,
   buildSalesInvoiceRows,
+  filterSalesContractRows,
   filterSalesInvoiceRows,
   salesInvoiceExportRow,
   sumSalesInvoiceNet,
 } from "@/lib/reports";
-import { matchesAny } from "@/lib/list-search";
 import { ListWindowNote } from "@/components/list-window-note";
 import {
   LIST_WINDOW_ORDER,
@@ -108,23 +108,10 @@ function SalesReportInner() {
   );
   const invoiceRows = invoiceWindow.rows;
 
-  const contractRows = useMemo(() => {
-    const needle = q.trim();
-    if (!needle) return allContractRows;
-    return allContractRows.filter((r) =>
-      matchesAny(needle, [
-        r.projectNo,
-        r.projectName,
-        r.city,
-        r.woValue,
-        r.totalInvoiceNet,
-        r.leftoverBilling,
-        r.totalPaid,
-        r.totalOutstandingNet,
-        r.totalOutstanding,
-      ])
-    );
-  }, [allContractRows, q]);
+  const contractRows = useMemo(
+    () => filterSalesContractRows(allContractRows, q),
+    [allContractRows, q]
+  );
 
   const netTotal = wholeUntilFiltered(
     sumSalesInvoiceNet(allInvoiceRows),

@@ -563,9 +563,8 @@ test("one city token filters every accounts tab and none of them export city", (
   );
 
   assert.deepEqual([...COLLECTION_EXPORT_HEADERS], [
+    "Project",
     "DATE",
-    "CONTRACT",
-    "PROJECT NO.",
     "AGAINST",
     "CASH RECEIVED NET",
     "CASH RECEIVED GST",

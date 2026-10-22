@@ -22,7 +22,11 @@
 
 import type { Contract, FlowhubData, Invoice, Payment } from "@/lib/types";
 import { matchesAny } from "@/lib/list-search";
-import { handoverDateForContract } from "@/lib/nexus-core";
+import {
+  contractDisplayStatus,
+  handoverDateForContract,
+  type ContractStatusLabel,
+} from "@/lib/nexus-core";
 import {
   dateSearchForms,
   formatDisplayDate,
@@ -281,6 +285,7 @@ export function buildReconciliationSummary(
 ): ReconciliationSummaryRow[] {
   const city = (opts?.city ?? "").trim().toLowerCase();
   const q = opts?.q ?? "";
+  const today = todayIso();
 
   return data.contracts
     .slice()
@@ -293,6 +298,7 @@ export function buildReconciliationSummary(
         c.city,
         c.state,
         contractClientLabel(c),
+        contractDisplayStatus(data, c, today),
       ]);
     })
     .map((c) => {
@@ -630,6 +636,8 @@ export type SalesContractRow = {
   totalOutstandingNet: number;
   /** Σ locked outstanding per TI — same helpers as I&O */
   totalOutstanding: number;
+  /** On-screen status. Sales → Contracts search only. Not a column. */
+  projectStatus: ContractStatusLabel;
 };
 
 function linkedNetReceived(ti: Invoice, data: FlowhubData): number {
@@ -732,6 +740,7 @@ export function invoiceNetOutstanding(
  * Total outstanding net is the sum of invoiceNetOutstanding.
  */
 export function buildSalesContractRows(data: FlowhubData): SalesContractRow[] {
+  const today = todayIso();
   return data.contracts
     .slice()
     .sort((a, b) => a.projectNo.localeCompare(b.projectNo))
@@ -754,8 +763,32 @@ export function buildSalesContractRows(data: FlowhubData): SalesContractRow[] {
         totalPaid: totals.paid,
         totalOutstandingNet,
         totalOutstanding: totals.outstanding,
+        projectStatus: contractDisplayStatus(data, c, today),
       };
     });
+}
+
+/** Sales → Contracts text search. Invoices do not use this. */
+export function filterSalesContractRows(
+  rows: SalesContractRow[],
+  q?: string
+): SalesContractRow[] {
+  const needle = (q ?? "").trim();
+  if (!needle) return rows;
+  return rows.filter((r) =>
+    matchesAny(needle, [
+      r.projectNo,
+      r.projectName,
+      r.city,
+      r.woValue,
+      r.totalInvoiceNet,
+      r.leftoverBilling,
+      r.totalPaid,
+      r.totalOutstandingNet,
+      r.totalOutstanding,
+      r.projectStatus,
+    ])
+  );
 }
 
 /* ——— Accounts report ——— */
@@ -1267,9 +1300,8 @@ export function filterCollectionRows(
 
 /** Excel / PDF columns for Accounts → Collections. City stays off this sheet. */
 export const COLLECTION_EXPORT_HEADERS = [
+  "Project",
   "DATE",
-  "CONTRACT",
-  "PROJECT NO.",
   "AGAINST",
   "CASH RECEIVED NET",
   "CASH RECEIVED GST",
@@ -1283,9 +1315,8 @@ export function collectionExportRow(
   row: CollectionReportRow
 ): (string | number)[] {
   return [
+    `${row.projectName}\n${row.projectNo}`,
     formatDisplayDate(row.date),
-    row.projectName,
-    row.projectNo,
     row.against,
     row.cashReceivedNet,
     row.cashReceivedGst,
