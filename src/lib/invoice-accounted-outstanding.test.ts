@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatMoney } from "@/lib/format-money";
 import {
   buildInvoiceOutstandingRows,
   buildReconciliationDetail,
@@ -207,7 +206,7 @@ test("Godrej Yerwada C4953P/014/26-27 Paid amount is the accounted total", () =>
   assert.equal(row?.outstanding, 0);
 });
 
-test("true over-accounting is Extra for only the amount above the invoice final", () => {
+test("true over-accounting stores only the amount above the invoice final", () => {
   const invoice = godrejInvoice();
   const payment = godrejPayment({ recovered: GODREJ_RECOVERED + 100 });
   const data = workspace([godrejContract()], [invoice], [payment]);
@@ -215,7 +214,7 @@ test("true over-accounting is Extra for only the amount above the invoice final"
 
   assert.equal(paymentAccounted(payment), GODREJ_FINAL + 100);
   assert.equal(outstanding, -100);
-  assert.equal(invoiceBalanceLabel(outstanding), `Extra ${formatMoney(100)}`);
+  assert.equal(invoiceBalanceLabel(outstanding), "Paid");
   assert.equal(paymentCash(payment), 403_682);
   const detail = buildReconciliationDetail("godrej", data);
   assert.equal(detail?.tis[0]?.outstanding, -100);
