@@ -17,6 +17,13 @@ import {
   type InvoiceOutstandingStatus,
 } from "@/lib/reports";
 import { matchesAny } from "@/lib/list-search";
+import { ListWindowNote } from "@/components/list-window-note";
+import {
+  LIST_WINDOW_ORDER,
+  listIsFiltered,
+  wholeUntilFiltered,
+  windowList,
+} from "@/lib/list-window";
 import { ListSearchWithDateRange } from "@/components/list-date-range";
 import { ProjectIdentity } from "@/components/project-identity";
 import {
@@ -98,7 +105,17 @@ function InvoicesAndOutstandingsInner() {
     return { from: iso(today), to: iso(end) };
   }, [dueWithin]);
 
-  const invoiceRows = useMemo(() => {
+  const invoiceFiltered = listIsFiltered({
+    search: q,
+    from: dateFrom,
+    to: dateTo,
+    dueWithin7: dueWithin === 7,
+  });
+  const invoiceOrder =
+    tab === "outstandings"
+      ? LIST_WINDOW_ORDER.outstandingDue
+      : LIST_WINDOW_ORDER.outstandingAll;
+  const invoiceMatched = useMemo(() => {
     const base =
       tab === "outstandings" || dueWithin === 7
         ? allInvoiceRows.filter((r) => outstandingIsStillDue(r.outstanding))
@@ -130,8 +147,23 @@ function InvoicesAndOutstandingsInner() {
       ]);
     });
   }, [allInvoiceRows, tab, q, dateFrom, dateTo, dueWithin, dueWindow]);
+  const invoiceWindow = useMemo(
+    () =>
+      windowList(invoiceMatched, {
+        filtered: invoiceFiltered,
+        order: invoiceOrder,
+        date: (row) => row.date,
+      }),
+    [invoiceMatched, invoiceFiltered, invoiceOrder]
+  );
+  const invoiceRows = invoiceWindow.rows;
 
-  const proformaRows = useMemo(() => {
+  const proformaFiltered = listIsFiltered({
+    search: q,
+    from: dateFrom,
+    to: dateTo,
+  });
+  const proformaMatched = useMemo(() => {
     const needle = q.trim();
     return allProformaRows.filter((r) => {
       if (!isDateInInclusiveRange(r.date, dateFrom, dateTo)) return false;
@@ -148,10 +180,26 @@ function InvoicesAndOutstandingsInner() {
       ]);
     });
   }, [allProformaRows, q, dateFrom, dateTo]);
+  const proformaWindow = useMemo(
+    () =>
+      windowList(proformaMatched, {
+        filtered: proformaFiltered,
+        order: LIST_WINDOW_ORDER.proformas,
+        date: (row) => row.date,
+      }),
+    [proformaMatched, proformaFiltered]
+  );
+  const proformaRows = proformaWindow.rows;
 
-  const outstandingTotal = useMemo(
-    () => sumOpenOutstanding(invoiceRows),
-    [invoiceRows]
+  const outstandingTotal = wholeUntilFiltered(
+    sumOpenOutstanding(allInvoiceRows),
+    sumOpenOutstanding(invoiceRows),
+    invoiceFiltered
+  );
+  const openProformaCount = wholeUntilFiltered(
+    allProformaRows.length,
+    proformaRows.length,
+    proformaFiltered
   );
 
   const showProformas = tab === "proformas";
@@ -201,8 +249,8 @@ function InvoicesAndOutstandingsInner() {
               </div>
             ) : (
               <p className="text-xs text-[var(--fh-muted)]">
-                {proformaRows.length} open proforma
-                {proformaRows.length === 1 ? "" : "s"}
+                {openProformaCount} open proforma
+                {openProformaCount === 1 ? "" : "s"}
               </p>
             )}
           </div>
@@ -232,36 +280,50 @@ function InvoicesAndOutstandingsInner() {
                 No open proformas.
               </p>
             ) : (
-              <ProformasTable
-                rows={proformaRows}
+              <>
+                <ListWindowNote
+                  capped={proformaWindow.capped}
+                  order={LIST_WINDOW_ORDER.proformas}
+                  className="mt-3"
+                />
+                <ProformasTable
+                  rows={proformaRows}
+                  filters={reportFilterSummary({
+                    tab: "Proformas",
+                    search: q,
+                    dateFrom,
+                    dateTo,
+                    dateLabel: "PI date",
+                  })}
+                />
+              </>
+            )
+          ) : (
+            <>
+              <ListWindowNote
+                capped={invoiceWindow.capped}
+                order={invoiceOrder}
+                className="mt-3"
+              />
+              <InvoicesTable
+                rows={invoiceRows}
+                title={
+                  dueWithin === 7
+                    ? "Outstandings — due in 7 days"
+                    : tab === "outstandings"
+                      ? "Outstandings"
+                      : "All tax invoices"
+                }
                 filters={reportFilterSummary({
-                  tab: "Proformas",
+                  tab: tab === "outstandings" ? "Outstandings" : "All",
                   search: q,
                   dateFrom,
                   dateTo,
-                  dateLabel: "PI date",
+                  dateLabel: "Invoice date",
+                  extra: dueWithin === 7 ? [["Due", "within 7 days"]] : undefined,
                 })}
               />
-            )
-          ) : (
-            <InvoicesTable
-              rows={invoiceRows}
-              title={
-                dueWithin === 7
-                  ? "Outstandings — due in 7 days"
-                  : tab === "outstandings"
-                    ? "Outstandings"
-                    : "All tax invoices"
-              }
-              filters={reportFilterSummary({
-                tab: tab === "outstandings" ? "Outstandings" : "All",
-                search: q,
-                dateFrom,
-                dateTo,
-                dateLabel: "Invoice date",
-                extra: dueWithin === 7 ? [["Due", "within 7 days"]] : undefined,
-              })}
-            />
+            </>
           )}
         </section>
       )}

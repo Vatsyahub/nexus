@@ -16,6 +16,8 @@ import { buttonVariants } from "@/components/ui/button";
 import { ListSearchBar } from "@/components/list-search";
 import { invoiceMatchesQuery } from "@/lib/list-search";
 import { formatDisplayDate } from "@/lib/dates";
+import { ListWindowNote } from "@/components/list-window-note";
+import { LIST_WINDOW_ORDER, listIsFiltered, windowList } from "@/lib/list-window";
 import { HubDataScroll, HubPage } from "@/components/hub-scroll";
 import { cn } from "@/lib/utils";
 
@@ -35,7 +37,13 @@ export default function BillingHomePage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
 
-  const listed = useMemo(() => {
+  const filtered = listIsFiltered({
+    search: q,
+    from,
+    to,
+    type: typeFilter,
+  });
+  const matched = useMemo(() => {
     return data.invoices
       .filter((inv) => {
         const c = data.contracts.find((x) => x.id === inv.contractId);
@@ -50,6 +58,17 @@ export default function BillingHomePage() {
       .slice()
       .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
   }, [data, q, typeFilter, from, to]);
+  const listedWindow = useMemo(
+    () =>
+      windowList(matched, {
+        filtered,
+        order: LIST_WINDOW_ORDER.billingInvoices,
+        date: (inv) => inv.date,
+        createdAt: (inv) => inv.createdAt,
+      }),
+    [matched, filtered]
+  );
+  const listed = listedWindow.rows;
 
   return (
     <HubPage>
@@ -104,6 +123,11 @@ export default function BillingHomePage() {
             </div>
           </div>
         </div>
+
+        <ListWindowNote
+          capped={listedWindow.capped}
+          order={LIST_WINDOW_ORDER.billingInvoices}
+        />
 
         <HubDataScroll className="overflow-x-auto rounded-lg border border-[var(--fh-line)]">
           <table className="w-full min-w-[720px] text-left text-sm">
