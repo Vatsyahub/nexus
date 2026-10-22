@@ -3837,6 +3837,61 @@ export function paymentRecovered(p: Payment): number {
   return positiveRupees(p.recovered);
 }
 
+export type TaxInvoiceAccountedEntry = {
+  netAmount: number;
+  gstAmount: number;
+  retentionAmount: number;
+  tdsAmount: number;
+  otherDeductions: number;
+  recovered: number;
+  /** Hidden Recovered adds nothing, even when recovered still holds a number. */
+  showRecovered: boolean;
+};
+
+/**
+ * Payments already saved on this tax invoice, using paymentAccounted
+ * (net + GST + retention + TDS + other deduction + recovered).
+ * Recoverable, proforma, and unlinked payments stay out.
+ * exceptPaymentId drops the payment open on the form so its boxes
+ * are counted once, from the current entry, including when the form
+ * points at a different tax invoice.
+ */
+export function savedTaxInvoiceAccounted(
+  payments: readonly Payment[],
+  invoiceId: string,
+  exceptPaymentId?: string | null
+): number {
+  let sum = 0;
+  for (const p of payments) {
+    if (p.invoiceId !== invoiceId) continue;
+    if (exceptPaymentId && p.id === exceptPaymentId) continue;
+    if (!isTiLinkedPayment(p)) continue;
+    sum += paymentAccounted(p);
+  }
+  return sum;
+}
+
+/** This form's boxes, with the same paymentAccounted figure as a saved tax-invoice payment. */
+export function entryAccountedTowardInvoice(
+  entry: TaxInvoiceAccountedEntry
+): number {
+  return paymentAccounted({
+    id: "",
+    contractId: "",
+    invoiceId: "entry",
+    link: "TI",
+    date: "",
+    netAmount: Number(entry.netAmount) || 0,
+    gstAmount: Number(entry.gstAmount) || 0,
+    retentionAmount: Number(entry.retentionAmount) || 0,
+    tdsAmount: Number(entry.tdsAmount) || 0,
+    otherDeductions: Number(entry.otherDeductions) || 0,
+    otherDeductionReason: "",
+    recovered: entry.showRecovered ? Number(entry.recovered) || 0 : 0,
+    createdAt: "",
+  });
+}
+
 /**
  * Cash-like amount: net + GST + deduction + recovered on a tax-invoice payment.
  * Retention and TDS stay out. Unlinked FIFO uses this, and so does outstanding
@@ -3860,6 +3915,17 @@ function isContractMoneyPayment(p: Payment) {
 }
 
 const RUPEE_EPS = 0.005;
+
+/** Match when the two figures are within half a paisa, the same snap as outstanding. */
+export function taxInvoiceAccountedStatus(
+  invoiceValue: number,
+  accounted: number
+): string {
+  const gap = accounted - invoiceValue;
+  if (Math.abs(gap) <= RUPEE_EPS) return "Match";
+  if (gap > 0) return `Over by ${formatMoney(gap)}`;
+  return `Short by ${formatMoney(-gap)}`;
+}
 
 function paymentOmitsInvoice(link: Payment["link"]) {
   return link === "unlinked" || link === "recoverable";
