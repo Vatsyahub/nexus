@@ -27,6 +27,7 @@ import {
   type InvoiceLine,
 } from "@/lib/types";
 import { BoqCallbackPanel } from "@/components/boq-callback-panel";
+import { ADD_CONTRACT_MATCH_LIMIT } from "@/lib/add-contract-matches";
 import { ContractTypeahead } from "@/components/contract-typeahead";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
@@ -300,7 +301,8 @@ export default function NewInvoicePage() {
               if (id !== contractId) setDraftLines([]);
               setContractId(id);
             }}
-            placeholder="Type contract no. or name…"
+            placeholder="Type project number or name…"
+            maxMatches={ADD_CONTRACT_MATCH_LIMIT}
           />
         </div>
 

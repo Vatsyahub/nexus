@@ -42,7 +42,6 @@ export function NewPaymentClient({
       </div>
       <PaymentForm
         defaultContractId={defaultContractId}
-        contractSearch
         cancelHref="/payments"
         submitLabel="Save payment"
         onSubmit={onCreate}

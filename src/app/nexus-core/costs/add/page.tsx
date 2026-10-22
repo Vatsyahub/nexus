@@ -14,6 +14,7 @@ import {
 import { defaultAccess, levelForPath, mayMutate } from "@/lib/access";
 import { formatQty } from "@/lib/execution-reports";
 import { normalizeNexusCosts } from "@/lib/nexus-core";
+import { ADD_CONTRACT_MATCH_LIMIT } from "@/lib/add-contract-matches";
 import { ContractTypeahead } from "@/components/contract-typeahead";
 import { buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -94,7 +95,8 @@ export default function AddCostsPage() {
                   setDraftYet(undefined);
                 }}
                 label="Contract"
-                placeholder="Type project number, name, or city…"
+                placeholder="Type project number or name…"
+                maxMatches={ADD_CONTRACT_MATCH_LIMIT}
               />
             </div>
             {!contract && (
