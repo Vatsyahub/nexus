@@ -7,6 +7,7 @@ import {
   convertPiToTi,
   flushWorkspace,
   isValidInvoiceQty,
+  keptInvoiceExtraCharges,
   useFlowhubData,
 } from "@/lib/store";
 import { billingTermLabel } from "@/lib/billing-terms";
@@ -14,11 +15,7 @@ import {
   billingTermChoices,
   recalcTouchedInvoiceLine,
 } from "@/lib/invoice-line-edit";
-import {
-  GST_RATE,
-  type InvoiceExtraCharge,
-  type InvoiceLine,
-} from "@/lib/types";
+import { GST_RATE, type InvoiceLine } from "@/lib/types";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,7 +41,9 @@ export default function ConvertPiPage() {
   const [lines, setLines] = useState<InvoiceLine[]>([]);
   /** Raw qty text per line so "-" / "1." can be typed before it parses */
   const [qtyText, setQtyText] = useState<string[]>([]);
-  const [charges, setCharges] = useState<InvoiceExtraCharge[]>([]);
+  const [charges, setCharges] = useState<
+    { id: string; label: string; amount: string }[]
+  >([]);
   const [msg, setMsg] = useState<string | null>(null);
 
   const pi = openPis.find((p) => p.id === piId);
@@ -59,12 +58,18 @@ export default function ConvertPiPage() {
     }
     setLines(pi.lines.map((l) => ({ ...l })));
     setQtyText(pi.lines.map((l) => String(l.billedQty)));
-    setCharges((pi.extraCharges ?? []).map((c) => ({ ...c })));
+    setCharges(
+      (pi.extraCharges ?? []).map((c) => ({
+        id: c.id,
+        label: c.label,
+        amount: String(c.amount),
+      }))
+    );
   }, [pi]);
 
   const net = lines.reduce((s, l) => s + l.lineNet, 0);
   const gst = contract?.gstApplicable ? net * GST_RATE : 0;
-  const extraTotal = charges.reduce((s, c) => s + c.amount, 0);
+  const extraTotal = charges.reduce((s, c) => s + (Number(c.amount) || 0), 0);
 
   function recalcLine(line: InvoiceLine, patch: Partial<InvoiceLine>): InvoiceLine {
     return recalcTouchedInvoiceLine(line, patch);
@@ -86,7 +91,7 @@ export default function ConvertPiPage() {
     }
     const ti = convertPiToTi(piId, tiNumber, tiDate, {
       lines,
-      extraCharges: charges,
+      extraCharges: keptInvoiceExtraCharges(charges),
     });
     if (!ti) {
       setMsg("Conversion failed.");
@@ -254,9 +259,7 @@ export default function ConvertPiPage() {
                     onChange={(e) =>
                       setCharges((prev) =>
                         prev.map((c, i) =>
-                          i === idx
-                            ? { ...c, amount: Number(e.target.value) || 0 }
-                            : c
+                          i === idx ? { ...c, amount: e.target.value } : c
                         )
                       )
                     }
@@ -280,7 +283,7 @@ export default function ConvertPiPage() {
                 onClick={() =>
                   setCharges((prev) => [
                     ...prev,
-                    { id: crypto.randomUUID(), label: "", amount: 0 },
+                    { id: crypto.randomUUID(), label: "", amount: "" },
                   ])
                 }
               >
@@ -290,7 +293,7 @@ export default function ConvertPiPage() {
 
             <p className="text-sm tabular-nums">
               Net {formatMoney(net)} + GST {formatMoney(gst)}
-              {extraTotal ? ` + charges ${formatMoney(extraTotal)}` : ""} ={" "}
+              {extraTotal !== 0 ? ` + charges ${formatMoney(extraTotal)}` : ""} ={" "}
               <strong>{formatMoney(net + gst + extraTotal)}</strong>
             </p>
           </div>
