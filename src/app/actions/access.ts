@@ -1,8 +1,12 @@
 "use server";
 
 import { auth } from "@/auth";
+import { clearanceFromDb } from "@/lib/clearance";
 import { prisma } from "@/lib/prisma";
-import { coerceAccess, type AccessMap } from "@/lib/access";
+import { resolveUserAccessSave, type AccessMap } from "@/lib/access";
+
+/** Serializes access saves so two of them cannot drop the last Edit. */
+const ACCESS_SAVE_LOCK = 872341;
 
 export async function saveUserAccess(userId: string, raw: AccessMap) {
   const session = await auth();
@@ -13,21 +17,35 @@ export async function saveUserAccess(userId: string, raw: AccessMap) {
     return { ok: false as const, error: "Only Master can change access." };
   }
 
-  const target = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { id: true, clearance: true },
-  });
-  if (!target) return { ok: false as const, error: "User not found." };
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRawUnsafe(`SELECT pg_advisory_xact_lock(${ACCESS_SAVE_LOCK})`);
 
-  const next = coerceAccess(raw);
-  if (target.clearance === "MASTER") {
-    next.users = "edit";
-    next.home = "view";
-  }
+    const target = await tx.user.findUnique({
+      where: { id: userId },
+      select: { id: true, clearance: true, access: true },
+    });
+    if (!target) return { ok: false as const, error: "User not found." };
 
-  await prisma.user.update({
-    where: { id: userId },
-    data: { access: next },
+    const masters = await tx.user.findMany({
+      where: { clearance: "MASTER" },
+      select: { id: true, access: true },
+    });
+
+    const decision = resolveUserAccessSave(
+      raw,
+      {
+        id: target.id,
+        role: clearanceFromDb(target.clearance),
+        access: target.access,
+      },
+      masters
+    );
+    if (!decision.ok) return { ok: false as const, error: decision.error };
+
+    await tx.user.update({
+      where: { id: userId },
+      data: { access: decision.map },
+    });
+    return { ok: true as const };
   });
-  return { ok: true as const };
 }
