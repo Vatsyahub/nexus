@@ -311,17 +311,17 @@ export function PaymentForm({
           />
         </div>
         <Field
-          label="Cash — net"
+          label="Cash - Net"
           value={netAmount}
           onChange={setNetAmount}
         />
         <Field
-          label="Cash — GST"
+          label="Cash - Gst"
           value={gstAmount}
           onChange={setGstAmount}
         />
-        <Field label="Retention (held)" value={retention} onChange={setRetention} />
-        <Field label="TDS (held)" value={tds} onChange={setTds} />
+        <Field label="Retention" value={retention} onChange={setRetention} />
+        <Field label="TDS" value={tds} onChange={setTds} />
         <Field label="Other deductions" value={other} onChange={setOther} />
         <div className="space-y-1">
           <Label>Deduction reason</Label>
