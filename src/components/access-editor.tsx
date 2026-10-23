@@ -58,13 +58,18 @@ export function AccessEditor({
     setPending(true);
     setErr(null);
     setMsg(null);
-    const result = await saveUserAccess(userId, map);
-    setPending(false);
-    if (!result.ok) {
-      setErr(result.error);
-      return;
+    try {
+      const result = await saveUserAccess(userId, map);
+      if (!result.ok) {
+        setErr(result.error);
+        return;
+      }
+      setMsg("Access saved. It applies the next time this person loads a page.");
+    } catch {
+      setErr("Could not save access. Try again.");
+    } finally {
+      setPending(false);
     }
-    setMsg("Access saved. It applies the next time this person loads a page.");
   }
 
   return (

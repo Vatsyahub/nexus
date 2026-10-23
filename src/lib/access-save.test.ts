@@ -52,14 +52,12 @@ mock.module("@/lib/prisma", {
   namedExports: {
     prisma: {
       user,
-      $queryRawUnsafe: async () => [],
-      $transaction: async (
-        run: (tx: { user: typeof user; $queryRawUnsafe: () => Promise<unknown> }) => Promise<unknown>
-      ) =>
-        run({
-          user,
-          $queryRawUnsafe: async () => [],
-        }),
+      $queryRawUnsafe: async () => {
+        throw new Error("saveUserAccess must not take a lock");
+      },
+      $transaction: async () => {
+        throw new Error("saveUserAccess must not open a transaction");
+      },
     },
   },
 });
