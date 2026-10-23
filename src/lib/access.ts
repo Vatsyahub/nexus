@@ -22,11 +22,22 @@ export type DoorId =
 
 export type AccessMap = Record<DoorId, AccessLevel>;
 
+/** View all, Edit all, and Block all never change these pages. */
+export const BULK_SKIPPED_DOORS: readonly DoorId[] = [
+  "home",
+  "settings",
+  "users",
+  "nexus_core",
+];
+
+export const LAST_USER_EDIT_ERROR =
+  "At least one Master must keep User management on Edit. View cannot save access, so this change was not saved.";
+
 export const DOORS: {
   id: DoorId;
   label: string;
   group: string;
-  /** Home cannot be blocked. */
+  /** Home and Settings cannot be blocked. */
   floor?: AccessLevel;
 }[] = [
   { id: "home", label: "Home", group: "Hub", floor: "view" },
@@ -89,6 +100,128 @@ export function coerceAccess(map: AccessMap): AccessMap {
     }
   }
   return next;
+}
+
+/** Sets every page except Home, Settings, User management, and Nexus Core. */
+export function applyBulkAccess(map: AccessMap, level: AccessLevel): AccessMap {
+  const next = { ...map };
+  for (const door of DOORS) {
+    if (BULK_SKIPPED_DOORS.includes(door.id)) continue;
+    next[door.id] = level;
+  }
+  return next;
+}
+
+export function storedUsersLevel(
+  access: unknown,
+  role: ClearanceRole
+): AccessLevel {
+  return parseAccess(access, role).map.users;
+}
+
+export type StoredAccessUser = { id: string; access: unknown };
+
+export type AccessChoiceContext = {
+  role: ClearanceRole;
+  masterCount: number;
+  /** User management level already stored for this person. */
+  storedUsers: AccessLevel;
+  /** Other Masters whose stored User management is Edit. */
+  otherMastersOnEdit: number;
+};
+
+/**
+ * Local ticks before Save. Does not write.
+ * Non-masters stay on Block for User management.
+ * Anyone who is not Master or Director stays on Block for Nexus Core.
+ * The only Master stays on Edit for User management.
+ */
+export function presentAccess(
+  map: AccessMap,
+  ctx: { role: ClearanceRole; masterCount: number }
+): AccessMap {
+  const next = coerceAccess(map);
+  if (ctx.role !== "master") next.users = "block";
+  else if (ctx.masterCount <= 1) next.users = "edit";
+  if (ctx.role !== "master" && ctx.role !== "director") next.nexus_core = "block";
+  return next;
+}
+
+/** Whether a row button on the Access screen cannot be chosen. */
+export function doorChoiceDisabled(
+  doorId: DoorId,
+  level: AccessLevel,
+  ctx: AccessChoiceContext
+): boolean {
+  const door = DOORS.find((item) => item.id === doorId);
+  if (door?.floor === "view" && level === "block") return true;
+
+  if (doorId === "users") {
+    if (ctx.role !== "master") return level !== "block";
+    const soleMaster = ctx.masterCount <= 1;
+    const lastEdit =
+      ctx.storedUsers === "edit" && ctx.otherMastersOnEdit === 0;
+    if (soleMaster || lastEdit) return level !== "edit";
+  }
+
+  if (doorId === "nexus_core") {
+    if (ctx.role !== "master" && ctx.role !== "director") {
+      return level !== "block";
+    }
+  }
+
+  return false;
+}
+
+export type AccessSaveResult =
+  | { ok: true; map: AccessMap }
+  | { ok: false; error: string };
+
+/**
+ * Access that Save may store.
+ * Rejects a write that would leave no Master on Edit for User management.
+ * The caller must skip the database write when `ok` is false.
+ */
+export function resolveUserAccessSave(
+  raw: AccessMap,
+  target: { id: string; role: ClearanceRole; access: unknown },
+  masters: StoredAccessUser[]
+): AccessSaveResult {
+  const next = coerceAccess(raw);
+
+  if (target.role !== "master" && target.role !== "director") {
+    next.nexus_core = "block";
+  }
+  if (target.role !== "master") {
+    next.users = "block";
+    return { ok: true, map: next };
+  }
+
+  const rows = masters.some((master) => master.id === target.id)
+    ? masters
+    : [...masters, { id: target.id, access: target.access }];
+
+  if (rows.length <= 1) {
+    next.users = "edit";
+    return { ok: true, map: next };
+  }
+
+  const before = rows.filter(
+    (master) => storedUsersLevel(master.access, "master") === "edit"
+  ).length;
+  const after = rows.filter((master) => {
+    const level =
+      master.id === target.id
+        ? next.users
+        : storedUsersLevel(master.access, "master");
+    return level === "edit";
+  }).length;
+
+  if (before > 0 && after === 0) {
+    return { ok: false, error: LAST_USER_EDIT_ERROR };
+  }
+
+  return { ok: true, map: next };
 }
 
 export function parseAccess(

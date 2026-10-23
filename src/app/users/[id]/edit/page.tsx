@@ -5,7 +5,7 @@ import { UserForm } from "@/components/user-form";
 import { AccessEditor } from "@/components/access-editor";
 import type { UserRow } from "@/components/user-management";
 import { clearanceFromDb } from "@/lib/clearance";
-import { parseAccess } from "@/lib/access";
+import { parseAccess, storedUsersLevel } from "@/lib/access";
 
 export default async function EditUserPage({
   params,
@@ -32,6 +32,17 @@ export default async function EditUserPage({
   });
   if (!u) notFound();
 
+  const masters = await prisma.user.findMany({
+    where: { clearance: "MASTER" },
+    select: { id: true, access: true },
+  });
+  const role = clearanceFromDb(u.clearance);
+  const initial = parseAccess(u.access, role, u.department).map;
+  const otherMastersOnEdit = masters.filter(
+    (master) =>
+      master.id !== u.id && storedUsersLevel(master.access, "master") === "edit"
+  ).length;
+
   const existing: UserRow = {
     id: u.id,
     name: u.name,
@@ -53,13 +64,10 @@ export default async function EditUserPage({
       <UserForm existing={existing} />
       <AccessEditor
         userId={u.id}
-        initial={
-          parseAccess(
-            u.access,
-            clearanceFromDb(u.clearance),
-            u.department
-          ).map
-        }
+        initial={initial}
+        role={role}
+        masterCount={masters.length}
+        otherMastersOnEdit={otherMastersOnEdit}
       />
     </div>
   );
