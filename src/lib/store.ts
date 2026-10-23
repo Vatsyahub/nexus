@@ -336,7 +336,7 @@ function normalizeAmendment(a: BoqAmendment, idx: number): BoqAmendment {
 
 function normalizeInvoice(i: Invoice): Invoice {
   const extras = i.extraCharges ?? [];
-  const extraTotal = extras.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const extraTotal = signedExtraTotal(extras);
   const net = i.netAmount ?? 0;
   const gst = i.gstAmount ?? 0;
   return {
@@ -3638,6 +3638,39 @@ export function deleteExpense(
   return { ok: true };
 }
 
+/**
+ * Additional charges are after GST and carry no GST of their own.
+ * A filled label with a non-zero amount is kept, positive or negative.
+ * A negative amount is a discount and reduces the invoice total by that
+ * amount. Zero and blank amounts, and blank labels, are left off.
+ */
+export function keptInvoiceExtraCharges(
+  charges: readonly {
+    id?: string;
+    label?: string | null;
+    amount?: number | string | null;
+  }[]
+): InvoiceExtraCharge[] {
+  const kept: InvoiceExtraCharge[] = [];
+  for (const charge of charges) {
+    const label = String(charge.label ?? "").trim();
+    const amount = Number(charge.amount);
+    if (!label || !Number.isFinite(amount) || amount === 0) continue;
+    kept.push({
+      id: charge.id?.trim() ? charge.id : crypto.randomUUID(),
+      label,
+      amount,
+    });
+  }
+  return kept;
+}
+
+function signedExtraTotal(
+  charges: readonly { amount?: number | string | null }[]
+) {
+  return charges.reduce((sum, charge) => sum + (Number(charge.amount) || 0), 0);
+}
+
 export function addInvoice(input: {
   type: Invoice["type"];
   number: string;
@@ -3661,8 +3694,8 @@ export function addInvoice(input: {
 
   const netAmount = lines.reduce((s, l) => s + l.lineNet, 0);
   const gstAmount = contract.gstApplicable ? netAmount * GST_RATE : 0;
-  const extraCharges = input.extraCharges ?? [];
-  const extraTotal = extraCharges.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const extraCharges = keptInvoiceExtraCharges(input.extraCharges ?? []);
+  const extraTotal = signedExtraTotal(extraCharges);
   const full: Invoice = {
     id: crypto.randomUUID(),
     type: input.type,
@@ -3713,10 +3746,12 @@ export function updateInvoice(
   ) {
     return null;
   }
-  const extraCharges = patch.extraCharges ?? current.extraCharges ?? [];
+  const extraCharges = keptInvoiceExtraCharges(
+    patch.extraCharges ?? current.extraCharges ?? []
+  );
   const netAmount = lines.reduce((s, l) => s + l.lineNet, 0);
   const gstAmount = contract.gstApplicable ? netAmount * GST_RATE : 0;
-  const extraTotal = extraCharges.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const extraTotal = signedExtraTotal(extraCharges);
 
   const updated: Invoice = normalizeInvoice({
     ...current,
@@ -3764,10 +3799,12 @@ export function convertPiToTi(
   ) {
     return null;
   }
-  const extraCharges = overrides?.extraCharges ?? pi.extraCharges ?? [];
+  const extraCharges = keptInvoiceExtraCharges(
+    overrides?.extraCharges ?? pi.extraCharges ?? []
+  );
   const netAmount = lines.reduce((s, l) => s + l.lineNet, 0);
   const gstAmount = contract?.gstApplicable ? netAmount * GST_RATE : 0;
-  const extraTotal = extraCharges.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const extraTotal = signedExtraTotal(extraCharges);
 
   const ti: Invoice = {
     ...pi,
@@ -4157,10 +4194,7 @@ export function deletePayment(id: string): boolean {
 }
 
 export function invoiceExtraTotal(invoice: Invoice) {
-  return (invoice.extraCharges ?? []).reduce(
-    (s, e) => s + (Number(e.amount) || 0),
-    0
-  );
+  return signedExtraTotal(invoice.extraCharges ?? []);
 }
 
 /**

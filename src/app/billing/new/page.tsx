@@ -7,6 +7,7 @@ import {
   addInvoice,
   flushWorkspace,
   isValidInvoiceQty,
+  keptInvoiceExtraCharges,
   useFlowhubData,
 } from "@/lib/store";
 import { billingTermLabel } from "@/lib/billing-terms";
@@ -198,13 +199,7 @@ export default function NewInvoicePage() {
         return;
       }
     }
-    const extraCharges: InvoiceExtraCharge[] = charges
-      .filter((c) => c.label.trim() && Number(c.amount) > 0)
-      .map((c) => ({
-        id: c.id,
-        label: c.label.trim(),
-        amount: Number(c.amount),
-      }));
+    const extraCharges: InvoiceExtraCharge[] = keptInvoiceExtraCharges(charges);
     const inv = addInvoice({
       type,
       number,
@@ -490,7 +485,7 @@ export default function NewInvoicePage() {
             <p className="text-sm tabular-nums">
               Net {formatMoney(net)}
               {contract.gstApplicable ? ` + GST ${formatMoney(gst)}` : ""}
-              {extraTotal > 0 ? ` + charges ${formatMoney(extraTotal)}` : ""} ={" "}
+              {extraTotal !== 0 ? ` + charges ${formatMoney(extraTotal)}` : ""} ={" "}
               <strong>{formatMoney(net + gst + extraTotal)}</strong>
             </p>
           </div>

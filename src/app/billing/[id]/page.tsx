@@ -9,6 +9,7 @@ import {
   invoiceBalanceLabel,
   invoiceDueDate,
   invoiceExpectedCash,
+  invoiceExtraTotal,
   invoiceOutstanding,
   paymentAccounted,
   paymentCash,
@@ -53,7 +54,10 @@ export default function InvoiceDetailPage() {
   }
 
   const due = inv.type === "TI" ? invoiceOutstanding(inv, data) : null;
-  const extras = inv.extraCharges ?? [];
+  const extraTotal = invoiceExtraTotal(inv);
+  const extras = (inv.extraCharges ?? []).filter(
+    (charge) => Number.isFinite(Number(charge.amount)) && Number(charge.amount) !== 0
+  );
   const expected = invoiceExpectedCash(inv, data);
   const dueDate = inv.type === "TI" ? invoiceDueDate(inv, data) : null;
   const invoice = inv;
@@ -168,15 +172,17 @@ export default function InvoiceDetailPage() {
             <span>GST</span>
             <span className="tabular-nums">{formatMoney(inv.gstAmount)}</span>
           </div>
-          {extras.map((e) => (
-            <div
-              key={e.id}
-              className="flex justify-between text-[var(--fh-muted)]"
-            >
-              <span>{e.label}</span>
-              <span className="tabular-nums">{formatMoney(e.amount)}</span>
-            </div>
-          ))}
+          {extraTotal !== 0
+            ? extras.map((e) => (
+                <div
+                  key={e.id}
+                  className="flex justify-between text-[var(--fh-muted)]"
+                >
+                  <span>{e.label}</span>
+                  <span className="tabular-nums">{formatMoney(e.amount)}</span>
+                </div>
+              ))
+            : null}
           <div className="flex justify-between border-t border-[var(--fh-line)] pt-2 text-base font-semibold">
             <span>Total</span>
             <span className="tabular-nums">{formatMoney(inv.finalAmount)}</span>
