@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { Contract } from "@/lib/types";
+import { matchingAddContracts } from "@/lib/add-contract-matches";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,7 @@ export function ContractTypeahead({
   emptyMessage = "No contracts match.",
   disabled,
   optionSuffix,
+  maxMatches,
 }: {
   contracts: Contract[];
   value: string;
@@ -39,17 +41,37 @@ export function ContractTypeahead({
   disabled?: boolean;
   /** Extra text after the contract label in the dropdown (e.g. schedule exists). */
   optionSuffix?: (c: Contract) => string | null;
+  /**
+   * Add flows. The list stays closed until the user types, then shows at most
+   * this many matches. Omit on list and report filters.
+   */
+  maxMatches?: number;
 }) {
   const selected = contracts.find((c) => c.id === value) ?? null;
   const [query, setQuery] = useState(selected ? labelFor(selected) : "");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const rootRef = useRef<HTMLDivElement>(null);
+  const chosenLabel = useRef<string | null>(selected ? labelFor(selected) : null);
+  const addMode = maxMatches != null;
 
   useEffect(() => {
-    if (selected) setQuery(labelFor(selected));
-    else if (!value) setQuery("");
-  }, [selected, value]);
+    if (selected) {
+      const label = labelFor(selected);
+      chosenLabel.current = label;
+      setQuery(label);
+      return;
+    }
+    if (!value) {
+      if (!addMode) {
+        setQuery("");
+        chosenLabel.current = null;
+        return;
+      }
+      setQuery((current) => (current === chosenLabel.current ? "" : current));
+      chosenLabel.current = null;
+    }
+  }, [selected, value, addMode]);
 
   useEffect(() => {
     function onDoc(e: MouseEvent) {
@@ -60,8 +82,18 @@ export function ContractTypeahead({
   }, []);
 
   const filtered = useMemo(() => {
+    if (addMode) return matchingAddContracts(contracts, query, maxMatches);
     return contracts.filter((c) => matches(c, query)).slice(0, 40);
-  }, [contracts, query]);
+  }, [addMode, contracts, maxMatches, query]);
+
+  function showingChosen(text: string): boolean {
+    return !!selected && text === labelFor(selected);
+  }
+
+  function canSuggest(text: string): boolean {
+    if (!addMode) return true;
+    return text.trim().length > 0 && !showingChosen(text);
+  }
 
   function pick(c: Contract) {
     onChange(c.id);
@@ -72,17 +104,22 @@ export function ContractTypeahead({
 
   function onInputChange(next: string) {
     setQuery(next);
-    setOpen(true);
     setActive(-1);
     if (selected && labelFor(selected) !== next) {
       onChange("");
     }
+    if (addMode) {
+      setOpen(next.trim().length > 0 && !(selected && next === labelFor(selected)));
+      return;
+    }
+    setOpen(true);
   }
 
   function onInputKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     const inEntry = !!rootRef.current?.closest("[data-entry]");
     const ignored = !!rootRef.current?.closest("[data-entry-ignore]");
     if (!inEntry || ignored) return;
+    if (addMode && !canSuggest(query)) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setOpen(true);
@@ -115,6 +152,8 @@ export function ContractTypeahead({
     }
   }
 
+  const listOpen = open && !disabled && canSuggest(query);
+
   return (
     <div ref={rootRef} className="relative space-y-1" data-suggest="">
       <Label htmlFor="contract-typeahead">{label}</Label>
@@ -125,7 +164,10 @@ export function ContractTypeahead({
         placeholder={placeholder}
         autoComplete="off"
         onChange={(e) => onInputChange(e.target.value)}
-        onFocus={() => setOpen(true)}
+        onFocus={() => {
+          if (!canSuggest(query)) return;
+          setOpen(true);
+        }}
         onKeyDown={onInputKeyDown}
         onBlur={() => {
           window.setTimeout(() => {
@@ -137,7 +179,7 @@ export function ContractTypeahead({
         }}
         className="bg-white"
       />
-      {open && !disabled && (
+      {listOpen && (
         <ul
           role="listbox"
           className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-[var(--fh-line)] bg-white py-1 shadow-md"

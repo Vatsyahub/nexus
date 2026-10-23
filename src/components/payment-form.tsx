@@ -18,6 +18,7 @@ import {
 } from "@/lib/store";
 import { formatRecoverableRunningLine } from "@/lib/payment-display";
 import { type Payment, type PaymentLink } from "@/lib/types";
+import { ADD_CONTRACT_MATCH_LIMIT } from "@/lib/add-contract-matches";
 import { ContractTypeahead } from "@/components/contract-typeahead";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -36,15 +37,12 @@ export function PaymentForm({
   submitLabel,
   onSubmit,
   defaultContractId = "",
-  contractSearch = false,
   cancelHref,
 }: {
   initial?: Payment;
   submitLabel: string;
   onSubmit: (values: PaymentFormValues) => Promise<string | null>;
   defaultContractId?: string;
-  /** Add payment uses type-to-search. Edit payment keeps the select. */
-  contractSearch?: boolean;
   cancelHref?: string;
 }) {
   const data = useFlowhubData();
@@ -240,41 +238,19 @@ export function PaymentForm({
     >
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1 sm:col-span-2">
-          {contractSearch ? (
-            <ContractTypeahead
-              contracts={typeaheadContracts}
-              value={contractId}
-              onChange={(id) => {
-                if (id !== contractId) {
-                  setInvoiceId("");
-                  setPrefilledFor(null);
-                }
-                setContractId(id);
-              }}
-              placeholder="Type contract no. or name…"
-            />
-          ) : (
-            <>
-              <Label>Contract</Label>
-              <select
-                className="flex h-8 w-full rounded-lg border border-input px-2 text-sm"
-                value={contractId}
-                onChange={(e) => {
-                  setContractId(e.target.value);
-                  setInvoiceId("");
-                  setPrefilledFor(null);
-                }}
-                required
-              >
-                <option value="">Select…</option>
-                {data.contracts.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.projectNo} · {c.projectName}
-                  </option>
-                ))}
-              </select>
-            </>
-          )}
+          <ContractTypeahead
+            contracts={typeaheadContracts}
+            value={contractId}
+            onChange={(id) => {
+              if (id !== contractId) {
+                setInvoiceId("");
+                setPrefilledFor(null);
+              }
+              setContractId(id);
+            }}
+            placeholder="Type project number or name…"
+            maxMatches={ADD_CONTRACT_MATCH_LIMIT}
+          />
         </div>
         <div className="space-y-1">
           <Label>Link</Label>

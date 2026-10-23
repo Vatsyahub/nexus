@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { isContractScheduleComplete, useFlowhubData } from "@/lib/store";
+import { ADD_CONTRACT_MATCH_LIMIT } from "@/lib/add-contract-matches";
 import { ContractTypeahead } from "@/components/contract-typeahead";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
@@ -81,7 +82,8 @@ export function NewScheduleClient() {
           contracts={contracts}
           value={contractId}
           onChange={setContractId}
-          placeholder="Type contract no. or name…"
+          placeholder="Type project number or name…"
+          maxMatches={ADD_CONTRACT_MATCH_LIMIT}
           emptyMessage={
             intent === "edit"
               ? "No matching contracts with a schedule."

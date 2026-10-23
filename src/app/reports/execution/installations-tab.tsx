@@ -10,6 +10,7 @@ import {
 } from "@/lib/store";
 import { formatDisplayDate } from "@/lib/dates";
 import { formatQty } from "@/lib/execution-reports";
+import { ADD_CONTRACT_MATCH_LIMIT } from "@/lib/add-contract-matches";
 import { ContractTypeahead } from "@/components/contract-typeahead";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import {
@@ -211,6 +212,8 @@ export function InstallationsTab({
             setDrafts({});
             onContractChange(id);
           }}
+          placeholder="Type project number or name…"
+          maxMatches={ADD_CONTRACT_MATCH_LIMIT}
         />
       </div>
       {wide && (
