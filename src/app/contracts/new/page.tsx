@@ -23,7 +23,7 @@ import {
   renameCustomBillingTerm,
   startingBillingTerms,
 } from "@/lib/billing-terms";
-import { itemNameChoices } from "@/lib/item-rename";
+import { itemNameChoices, itemNameKey, sameItemRate } from "@/lib/item-rename";
 import {
   DEFAULT_TDS_PERCENT,
   GST_RATE,
@@ -180,6 +180,18 @@ export default function NewContractPage() {
       rate,
       quantity,
     };
+    const taken = boq.some(
+      (line) =>
+        line.id !== nextLine.id &&
+        itemNameKey(line.name) === itemNameKey(nextLine.name) &&
+        sameItemRate(line.rate, nextLine.rate)
+    );
+    if (taken) {
+      setError(
+        `${nextLine.name} is already on the BOQ at this rate — change its qty instead.`
+      );
+      return;
+    }
     setBoq((prev) =>
       editingBoqId
         ? prev.map((l) => (l.id === editingBoqId ? nextLine : l))

@@ -9,6 +9,7 @@ import {
   suppliedQty,
 } from "@/lib/store";
 import { formatQty } from "@/lib/execution-reports";
+import { formatMoney } from "@/lib/format-money";
 import { ADD_CONTRACT_MATCH_LIMIT } from "@/lib/add-contract-matches";
 import { ContractTypeahead } from "@/components/contract-typeahead";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
@@ -265,7 +266,12 @@ function AddDcForm({
                 const over = entered > left + 1e-9;
                 return (
                   <tr key={b.id}>
-                    <td className={reportTd}>{b.name}</td>
+                    <td className={reportTd}>
+                      <span className="break-words">{b.name}</span>
+                      <span className="block text-xs text-[var(--fh-muted)]">
+                        {formatMoney(b.rate)}
+                      </span>
+                    </td>
                     <td className={reportTd}>{b.unit || "—"}</td>
                     <td className={qtyCell}>{formatQty(b.quantity)}</td>
                     <td className={qtyCell}>{formatQty(supplied)}</td>
@@ -282,7 +288,7 @@ function AddDcForm({
                         onChange={(e) =>
                           setQty((prev) => ({ ...prev, [b.id]: e.target.value }))
                         }
-                        aria-label={`Qty for ${b.name}`}
+                        aria-label={`Qty for ${b.name} at ${formatMoney(b.rate)}`}
                         aria-invalid={over || undefined}
                         className={cn(
                           "h-8 bg-white text-right tabular-nums",

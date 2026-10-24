@@ -274,21 +274,25 @@ test("worked example carries supply, leaves invoices, and lists the callback mis
   });
   assert.ok(payment);
 
-  const blocked = addInvoice({
+  const billedNewRate = addInvoice({
     type: "TI",
-    number: "TI-EX-BLOCK",
+    number: "TI-EX-NEW",
     date: "2026-10-09",
     contractId: contract.id,
     lines: [invoiceLine(itemANext, "advance", 10, 1000)],
   });
-  assert.equal(blocked, null);
-  const blockedReason = taxInvoiceQuantityIssues({
+  assert.ok(billedNewRate);
+  const overNewRate = taxInvoiceQuantityIssues({
     contract: savedContract(contract.id),
     invoices: getData().invoices,
-    lines: [invoiceLine(itemANext, "advance", 10, 1000)],
+    lines: [invoiceLine(itemANext, "advance", 1, 1000)],
   });
-  assert.match(blockedReason[0] ?? "", /Item A, Advance/);
-  assert.match(blockedReason[0] ?? "", /above the BOQ quantity 10/);
+  assert.match(overNewRate[0] ?? "", /Item A, Advance/);
+  assert.match(overNewRate[0] ?? "", /above the BOQ quantity 10/);
+  assert.deepEqual(
+    offerText(contract.id).filter((row) => row.startsWith("Item A|advance")),
+    ["Item A|advance|-10|100|40"]
+  );
 
   const callbackOnly = addInvoice({
     type: "TI",
@@ -307,7 +311,6 @@ test("worked example carries supply, leaves invoices, and lists the callback mis
     date: "2026-10-09",
     contractId: contract.id,
     lines: [
-      invoiceLine(itemANext, "advance", 10, 1000),
       invoiceLine(itemA, "advance", -10, 100),
       invoiceLine(itemB, "advance", 10),
       invoiceLine(itemC, "advance", -5, 300),

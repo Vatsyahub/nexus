@@ -124,9 +124,56 @@ function billedBuckets(
   return buckets;
 }
 
-function currentBoqLine(contract: Contract, name: string): BoqItem | undefined {
+function currentBoqLine(
+  contract: Contract,
+  name: string,
+  rate: number
+): BoqItem | undefined {
   const key = itemNameKey(name);
-  return contract.boq.find((line) => itemNameKey(line.name) === key);
+  return contract.boq.find(
+    (line) => itemNameKey(line.name) === key && sameRate(line.rate, rate)
+  );
+}
+
+/** BOQ quantity of every line with this name and this rate. Other rates stay out. */
+function boqQtyAtRate(contract: Contract, name: string, rate: number): number {
+  const key = itemNameKey(name);
+  let qty = 0;
+  for (const line of contract.boq) {
+    if (itemNameKey(line.name) !== key || !sameRate(line.rate, rate)) continue;
+    qty += Number(line.quantity) || 0;
+  }
+  return qty;
+}
+
+/**
+ * Cap for one billed name and rate.
+ * A line that still exists at that rate uses only its own quantity.
+ * A line whose rate was edited in place still caps the invoices that point
+ * at it. A removed line does not borrow a different rate's quantity.
+ */
+function quantityCap(
+  contract: Contract,
+  name: string,
+  rate: number,
+  boqItemIds: readonly (string | null | undefined)[]
+): number {
+  if (currentBoqLine(contract, name, rate)) {
+    return boqQtyAtRate(contract, name, rate);
+  }
+  const key = itemNameKey(name);
+  for (const id of boqItemIds) {
+    if (!id) continue;
+    const line = contract.boq.find((row) => row.id === id);
+    if (!line || itemNameKey(line.name) !== key) continue;
+    return Number(line.quantity) || 0;
+  }
+  return 0;
+}
+
+function quantityKey(nameKey: string, termKey: string, rate: number): string {
+  const scaled = Math.round((Number(rate) || 0) * 1e6);
+  return `${nameKey}\0${termKey}\0${scaled}`;
 }
 
 /**
@@ -145,13 +192,19 @@ export function boqCallbackOffers(input: {
     input.exceptInvoiceId
   )) {
     if (bucket.net <= QTY_EPS) continue;
-    const current = currentBoqLine(input.contract, bucket.itemName);
-    const rateChanged = !current || !sameRate(current.rate, bucket.rate);
+    const current = currentBoqLine(
+      input.contract,
+      bucket.itemName,
+      bucket.rate
+    );
+    const cap = quantityCap(input.contract, bucket.itemName, bucket.rate, [
+      bucket.boqItemId,
+    ]);
     let quantity = 0;
-    if (rateChanged || !current) {
+    if (!current && cap <= QTY_EPS) {
       quantity = bucket.net;
-    } else if (bucket.net > (Number(current.quantity) || 0) + QTY_EPS) {
-      quantity = bucket.net - (Number(current.quantity) || 0);
+    } else if (bucket.net > cap + QTY_EPS) {
+      quantity = bucket.net - cap;
     }
     if (quantity <= QTY_EPS) continue;
     offers.push({
@@ -196,30 +249,48 @@ export function taxInvoiceQuantityIssues(input: {
   exceptInvoiceId?: string | null;
 }): string[] {
   const prior = new Map<string, number>();
+  const priorIds = new Map<string, string[]>();
   for (const bucket of billedBuckets(
     input.invoices,
     input.contract,
     input.exceptInvoiceId
   )) {
-    const key = `${bucket.nameKey}\0${bucket.termKey}`;
+    const key = quantityKey(bucket.nameKey, bucket.termKey, bucket.rate);
     prior.set(key, (prior.get(key) ?? 0) + bucket.net);
+    if (!bucket.boqItemId) continue;
+    const ids = priorIds.get(key) ?? [];
+    ids.push(bucket.boqItemId);
+    priorIds.set(key, ids);
   }
-  const touched = new Map<string, { name: string; term: string; qty: number }>();
+  const touched = new Map<
+    string,
+    { name: string; term: string; rate: number; qty: number; boqItemId: string }
+  >();
   for (const line of input.lines) {
     const name = resolveItemName(line, input.contract);
     const term = line.termKey?.trim();
     if (!name || !term) continue;
-    const key = `${itemNameKey(name)}\0${term}`;
-    const row = touched.get(key) ?? { name, term, qty: 0 };
+    const rate = Number(line.rate) || 0;
+    const key = quantityKey(itemNameKey(name), term, rate);
+    const row = touched.get(key) ?? {
+      name,
+      term,
+      rate,
+      qty: 0,
+      boqItemId: line.boqItemId,
+    };
     row.qty += Number(line.billedQty) || 0;
+    if (line.boqItemId) row.boqItemId = line.boqItemId;
     touched.set(key, row);
   }
   const issues: string[] = [];
   for (const [key, row] of touched) {
     const result = (prior.get(key) ?? 0) + row.qty;
-    const current = currentBoqLine(input.contract, row.name);
-    const cap = current ? Number(current.quantity) || 0 : 0;
-    const label = `${row.name}, ${billingTermLabel(row.term)}`;
+    const cap = quantityCap(input.contract, row.name, row.rate, [
+      ...(priorIds.get(key) ?? []),
+      row.boqItemId,
+    ]);
+    const label = `${row.name}, ${billingTermLabel(row.term)} at ${formatMoney(row.rate)}`;
     if (result < -QTY_EPS) {
       issues.push(`${label}: billed quantity cannot go below 0.`);
     } else if (result > cap + QTY_EPS) {

@@ -17,7 +17,8 @@ export function itemNameKey(name: string | null | undefined): string {
   return String(name ?? "").trim().toLowerCase();
 }
 
-function sameRate(a: number, b: number): boolean {
+/** A BOQ line is the same item only when the name and the rate both match. */
+export function sameItemRate(a: number, b: number): boolean {
   return Math.abs((Number(a) || 0) - (Number(b) || 0)) <= RATE_EPS;
 }
 
@@ -103,7 +104,9 @@ function foldContract(
   const groups: Involved[][] = [];
   for (const row of involved) {
     const rate = Number(row.line.rate) || 0;
-    const group = groups.find((rows) => sameRate(Number(rows[0]?.line.rate) || 0, rate));
+    const group = groups.find((rows) =>
+      sameItemRate(Number(rows[0]?.line.rate) || 0, rate)
+    );
     if (group) group.push(row);
     else groups.push([row]);
   }

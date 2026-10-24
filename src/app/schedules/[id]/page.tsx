@@ -20,6 +20,7 @@ import {
   isScheduleDateNa,
   type ScheduleKind,
 } from "@/lib/types";
+import { formatMoney } from "@/lib/format-money";
 import {
   formatDisplayDate,
   formatScheduleDateRange,
@@ -432,7 +433,7 @@ export default function ScheduleDetailPage() {
                       <option value="">Select…</option>
                       {contract.boq.map((b) => (
                         <option key={b.id} value={b.id}>
-                          {b.name}
+                          {b.name} · {formatMoney(b.rate)} · {b.quantity} {b.unit}
                         </option>
                       ))}
                     </select>

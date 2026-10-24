@@ -18,6 +18,7 @@ import {
   isScheduleDateNa,
   type ScheduleLine,
 } from "@/lib/types";
+import { formatMoney } from "@/lib/format-money";
 import { confirmAction } from "@/components/confirm-panel";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
@@ -565,7 +566,16 @@ export default function SchedulesClient({
                           {SCHEDULE_KIND_LABELS[s.kind]}
                         </td>
                         <td className="px-3 py-2">
-                          {item ? item.name : SCHEDULE_KIND_LABELS[s.kind]}
+                          {item ? (
+                            <>
+                              <span>{item.name}</span>
+                              <span className="mt-0.5 block text-xs text-[var(--fh-muted)]">
+                                {formatMoney(item.rate)}
+                              </span>
+                            </>
+                          ) : (
+                            SCHEDULE_KIND_LABELS[s.kind]
+                          )}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">
                           {s.quantity != null
@@ -652,7 +662,9 @@ export default function SchedulesClient({
                 c?.projectNo ?? "",
                 c?.city ?? "",
                 SCHEDULE_KIND_LABELS[s.kind],
-                item ? item.name : SCHEDULE_KIND_LABELS[s.kind],
+                item
+                  ? `${item.name} (${formatMoney(item.rate)})`
+                  : SCHEDULE_KIND_LABELS[s.kind],
                 s.quantity ?? null,
                 item?.unit ?? "",
                 formatScheduleDateRange(s.startDate, s.endDate),

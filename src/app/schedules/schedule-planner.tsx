@@ -27,6 +27,7 @@ import {
 } from "@/components/icon-actions";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { ScheduleDateField } from "@/components/schedule-date-field";
+import { formatMoney } from "@/lib/format-money";
 import { cn } from "@/lib/utils";
 
 type WindowDraft = {
@@ -39,6 +40,7 @@ type WindowDraft = {
 type ItemDraft = {
   boqItemId: string;
   name: string;
+  rate: number;
   unit: string;
   boqQty: number;
   supplies: WindowDraft[];
@@ -121,6 +123,7 @@ function buildDrafts(
     return {
       boqItemId: b.id,
       name: b.name,
+      rate: b.rate,
       unit: b.unit,
       boqQty: b.quantity,
       supplies: windowsFromLines(supplies),
@@ -266,7 +269,7 @@ export function SchedulePlanner({
     const sum = sumQty(it[kind]);
     if (sum > it.boqQty) {
       setErr(
-        `${kind === "supplies" ? "Supply" : "Installation"} qty for ${it.name} exceeds BOQ (${sum} > ${it.boqQty}).`
+        `${kind === "supplies" ? "Supply" : "Installation"} qty for ${it.name} at ${formatMoney(it.rate)} exceeds BOQ (${sum} > ${it.boqQty}).`
       );
       return;
     }
@@ -320,7 +323,7 @@ export function SchedulePlanner({
         const s = sumQty(it.supplies);
         const i = sumQty(it.installations);
         if (s > it.boqQty || i > it.boqQty) {
-          setErr(`Qty exceeds BOQ for ${it.name}.`);
+          setErr(`Qty exceeds BOQ for ${it.name} at ${formatMoney(it.rate)}.`);
           return;
         }
       }
@@ -522,7 +525,7 @@ export function SchedulePlanner({
                 <h2 className="font-medium text-[var(--fh-steel)]">
                   {it.name}{" "}
                   <span className="text-sm font-normal text-[var(--fh-muted)]">
-                    · BOQ qty {it.boqQty} {it.unit}
+                    · {formatMoney(it.rate)} · BOQ qty {it.boqQty} {it.unit}
                   </span>
                 </h2>
 
