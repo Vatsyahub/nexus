@@ -65,6 +65,8 @@ export type ScheduleFulfilmentRow = {
   city: string;
   boqItemId: string;
   itemName: string;
+  /** This schedule line's BOQ rate. Same name at another rate is another row. */
+  rate: number;
   unit: string;
   kind: ExecutionKind;
   /** Committed vs uncommitted, as on the Schedules list */
@@ -146,6 +148,7 @@ export function buildScheduleFulfilmentRows(
         city: contract.city,
         boqItemId,
         itemName: item?.name ?? "—",
+        rate: Number(item?.rate) || 0,
         unit: item?.unit ?? "",
         kind,
         committed: !!s.committed,
@@ -162,6 +165,7 @@ export function buildScheduleFulfilmentRows(
       (a.date ?? "9999-99-99").localeCompare(b.date ?? "9999-99-99") ||
       a.projectNo.localeCompare(b.projectNo) ||
       a.itemName.localeCompare(b.itemName) ||
+      a.rate - b.rate ||
       a.kind.localeCompare(b.kind)
   );
 }
@@ -174,6 +178,8 @@ export type ExecutionSummaryRow = {
   city: string;
   boqItemId: string;
   itemName: string;
+  /** This BOQ line's rate. Same name at another rate stays a separate row. */
+  rate: number;
   unit: string;
   boqQty: number;
   supplied: number;
@@ -262,6 +268,7 @@ export function buildExecutionSummaryRows(
         city: c.city ?? "",
         boqItemId: b.id,
         itemName: b.name,
+        rate: Number(b.rate) || 0,
         unit: b.unit,
         boqQty,
         supplied,
@@ -277,7 +284,8 @@ export function buildExecutionSummaryRows(
   return rows.sort(
     (a, b) =>
       a.projectNo.localeCompare(b.projectNo) ||
-      a.itemName.localeCompare(b.itemName)
+      a.itemName.localeCompare(b.itemName) ||
+      a.rate - b.rate
   );
 }
 
@@ -440,6 +448,8 @@ export type SupplyDetailRow = {
   dcDate: string;
   boqItemId: string;
   itemName: string;
+  /** BOQ rate of this DC line. Null when the line is no longer on the BOQ. */
+  rate: number | null;
   qty: number;
 };
 
@@ -453,6 +463,7 @@ export function buildSupplyDetailRows(
     if (contractId && dc.contractId !== contractId) continue;
     const contract = contracts.get(dc.contractId);
     dc.lines.forEach((l, i) => {
+      const item = contract?.boq.find((b) => b.id === l.boqItemId);
       rows.push({
         key: `${dc.id}-${i}`,
         dcId: dc.id,
@@ -463,7 +474,8 @@ export function buildSupplyDetailRows(
         dcNo: dc.dcNo,
         dcDate: dc.date,
         boqItemId: l.boqItemId,
-        itemName: boqItemName(contract, l.boqItemId),
+        itemName: item?.name ?? boqItemName(contract, l.boqItemId),
+        rate: item ? Number(item.rate) || 0 : null,
         qty: l.qty,
       });
     });

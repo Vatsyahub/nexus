@@ -58,6 +58,7 @@ import {
   formatScheduleDateRange,
 } from "@/lib/dates";
 import { formatMoney } from "@/lib/format-money";
+import { itemNameKey, sameItemRate } from "@/lib/item-rename";
 import {
   resolveNotificationHref as resolveHrefFromTasks,
   taskNotificationHref,
@@ -1151,7 +1152,7 @@ export function saveContractSchedulePlan(
         sum += Number(line.quantity);
       }
       if (sum > boq.quantity)
-        return `${SCHEDULE_KIND_LABELS[kind]} qty for ${boq.name} exceeds BOQ (${sum} > ${boq.quantity}).`;
+        return `${SCHEDULE_KIND_LABELS[kind]} qty for ${boq.name} at ${formatMoney(boq.rate)} exceeds BOQ (${sum} > ${boq.quantity}).`;
       return null;
     };
 
@@ -2808,16 +2809,19 @@ export function boqAmendmentIssues(
   if (schedule) return [schedule];
   const issues: string[] = [];
   if (proposed.length === 0) issues.push("BOQ needs at least one line.");
-  const names = new Set<string>();
+  const seenRates: { key: string; rate: number }[] = [];
   for (const l of proposed) {
     const name = l.name.trim();
     if (!name) {
       issues.push("Every BOQ line needs an item name.");
       continue;
     }
-    const key = name.toLowerCase();
-    if (names.has(key)) issues.push(`Duplicate BOQ item: ${name}.`);
-    names.add(key);
+    const key = itemNameKey(name);
+    const rate = Number(l.rate) || 0;
+    if (seenRates.some((row) => row.key === key && sameItemRate(row.rate, rate))) {
+      issues.push(`Duplicate BOQ item: ${name}.`);
+    }
+    seenRates.push({ key, rate });
     if (!(Number(l.rate) > 0)) issues.push(`Rate must be > 0 for ${name}.`);
     const qty = Number(l.quantity);
     if (!Number.isFinite(qty) || qty <= 0) {
@@ -3059,13 +3063,16 @@ export function editLatestAmendmentIn(
     quantity: Number(l.quantity) || 0,
   }));
   if (proposed.length === 0) return { ok: false, error: "BOQ needs at least one line." };
-  const names = new Set<string>();
+  const seenRates: { key: string; rate: number }[] = [];
   for (const line of proposed) {
     const name = line.name.trim();
     if (!name) return { ok: false, error: "Every BOQ line needs an item name." };
-    const key = name.toLowerCase();
-    if (names.has(key)) return { ok: false, error: `Duplicate BOQ item: ${name}.` };
-    names.add(key);
+    const key = itemNameKey(name);
+    const rate = Number(line.rate) || 0;
+    if (seenRates.some((row) => row.key === key && sameItemRate(row.rate, rate))) {
+      return { ok: false, error: `Duplicate BOQ item: ${name}.` };
+    }
+    seenRates.push({ key, rate });
     if (!(Number(line.rate) > 0)) {
       return { ok: false, error: `Rate must be > 0 for ${name}.` };
     }
@@ -3284,16 +3291,19 @@ export function boqPlainEditIssues(
   const issues: string[] = [];
   const lines = proposed.map(normalizePlainBoqLine);
   if (lines.length === 0) issues.push("BOQ needs at least one line.");
-  const names = new Set<string>();
+  const seenRates: { key: string; rate: number }[] = [];
   const ids = new Set<string>();
   for (const l of lines) {
     if (!l.name) {
       issues.push("Every BOQ line needs an item name.");
       continue;
     }
-    const key = l.name.toLowerCase();
-    if (names.has(key)) issues.push(`Duplicate BOQ item: ${l.name}.`);
-    names.add(key);
+    const key = itemNameKey(l.name);
+    const rate = Number(l.rate) || 0;
+    if (seenRates.some((row) => row.key === key && sameItemRate(row.rate, rate))) {
+      issues.push(`Duplicate BOQ item: ${l.name}.`);
+    }
+    seenRates.push({ key, rate });
     if (ids.has(l.id)) issues.push(`Duplicate BOQ line id for ${l.name}.`);
     ids.add(l.id);
     if (!Number.isFinite(l.rate) || l.rate < 0) {
@@ -5514,7 +5524,7 @@ export function addSchedule(
       if (already + Number(input.quantity) > boq.quantity) {
         return {
           ok: false,
-          error: `Supply qty would exceed BOQ (${already} scheduled + ${input.quantity} > ${boq.quantity}).`,
+          error: `Supply qty for ${boq.name} at ${formatMoney(boq.rate)} would exceed BOQ (${already} scheduled + ${input.quantity} > ${boq.quantity}).`,
         };
       }
     }
@@ -5668,7 +5678,7 @@ export function updateSchedule(
     if (already + (Number(next.quantity) || 0) > boq.quantity) {
       return {
         ok: false,
-        error: `Supply qty would exceed BOQ (${already} other + ${next.quantity} > ${boq.quantity}).`,
+        error: `Supply qty for ${boq.name} at ${formatMoney(boq.rate)} would exceed BOQ (${already} other + ${next.quantity} > ${boq.quantity}).`,
       };
     }
   }
@@ -6025,7 +6035,10 @@ export function installedQty(
   return installationProgressFor(contractId, boqItemId, data)?.installedQty ?? 0;
 }
 
-/** BOQ − supplied (never negative). */
+/**
+ * This line's BOQ quantity minus what its own DCs have supplied.
+ * Another line with the same name and a different rate is not included.
+ */
 export function leftToSupplyQty(
   contractId: string,
   boqItemId: string,
@@ -6102,7 +6115,7 @@ export function addDeliveryChallan(
     if (qty > left + QTY_EPS) {
       return {
         ok: false,
-        error: `${item.name}: ${qty} exceeds qty left to supply (${left}).`,
+        error: `${item.name} at ${formatMoney(item.rate)}: ${qty} exceeds qty left to supply (${left}).`,
       };
     }
   }
@@ -6171,7 +6184,7 @@ export function recordInstallationTotal(
   if (total > supplied + QTY_EPS) {
     return {
       ok: false,
-      error: `${item.name}: installed total ${total} exceeds supplied ${supplied}.`,
+      error: `${item.name} at ${formatMoney(item.rate)}: installed total ${total} exceeds supplied ${supplied}.`,
     };
   }
   const existing = installationProgressFor(contract.id, item.id, data);

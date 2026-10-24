@@ -9,6 +9,7 @@ import {
   type ScheduleLine,
 } from "@/lib/types";
 import { formatDisplayDate } from "@/lib/dates";
+import { formatMoney } from "@/lib/format-money";
 import { buttonVariants } from "@/components/ui/button";
 import { EditIconLink } from "@/components/icon-actions";
 import {
@@ -46,6 +47,7 @@ function sortWindows(lines: ScheduleLine[]): ScheduleLine[] {
 type ViewRow = {
   key: string;
   itemName: string;
+  rate: number;
   unit: string;
   boqQty: number;
   supply: ScheduleLine;
@@ -94,6 +96,7 @@ export function ScheduleContractView({
         out.push({
           key: supply.id,
           itemName: b.name,
+          rate: b.rate,
           unit: b.unit,
           boqQty: b.quantity,
           supply,
@@ -154,7 +157,7 @@ export function ScheduleContractView({
           contract.projectNo,
           contract.projectName,
           contract.city || "",
-          row.itemName,
+          `${row.itemName} (${formatMoney(row.rate)})`,
           row.boqQty,
           row.unit,
           row.supply.quantity != null ? row.supply.quantity : "—",
@@ -281,7 +284,7 @@ export function ScheduleContractView({
                           {row.itemName}
                         </p>
                         <p className="text-xs text-[var(--fh-muted)]">
-                          BOQ qty {row.boqQty} {row.unit}
+                          {formatMoney(row.rate)} · BOQ qty {row.boqQty} {row.unit}
                         </p>
                       </td>
                       <td

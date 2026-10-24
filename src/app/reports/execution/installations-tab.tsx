@@ -10,6 +10,7 @@ import {
 } from "@/lib/store";
 import { formatDisplayDate } from "@/lib/dates";
 import { formatQty } from "@/lib/execution-reports";
+import { formatMoney } from "@/lib/format-money";
 import { ADD_CONTRACT_MATCH_LIMIT } from "@/lib/add-contract-matches";
 import { ContractTypeahead } from "@/components/contract-typeahead";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
@@ -77,13 +78,14 @@ export function InstallationsTab({
 
   const history = useMemo(() => {
     if (!contract) return [];
-    const names = new Map(contract.boq.map((b) => [b.id, b.name]));
+    const lines = new Map(contract.boq.map((b) => [b.id, b]));
     return data.installationProgress
       .filter((p) => p.contractId === contract.id)
       .flatMap((p) =>
         p.history.map((h) => ({
           ...h,
-          itemName: names.get(p.boqItemId) ?? "—",
+          itemName: lines.get(p.boqItemId)?.name ?? "—",
+          rate: lines.get(p.boqItemId)?.rate,
         }))
       )
       .sort(
@@ -120,7 +122,7 @@ export function InstallationsTab({
       if (row.total > row.supplied + QTY_EPS) {
         setMsg({
           kind: "error",
-          text: `${row.item.name}: installed total ${row.total} exceeds supplied ${row.supplied}.`,
+          text: `${row.item.name} at ${formatMoney(row.item.rate)}: installed total ${row.total} exceeds supplied ${row.supplied}.`,
         });
         return;
       }
@@ -294,11 +296,10 @@ export function InstallationsTab({
                     <tr key={item.id}>
                       <td className={reportTd}>
                         <span className="break-words">{item.name}</span>
-                        {item.unit ? (
-                          <span className="block text-xs text-[var(--fh-muted)]">
-                            {item.unit}
-                          </span>
-                        ) : null}
+                        <span className="block text-xs text-[var(--fh-muted)]">
+                          {formatMoney(item.rate)}
+                          {item.unit ? ` · ${item.unit}` : ""}
+                        </span>
                       </td>
                       <td className={qtyCell}>{formatQty(item.quantity)}</td>
                       <td className={qtyCell}>{formatQty(supplied)}</td>
@@ -327,7 +328,7 @@ export function InstallationsTab({
                                 [item.id]: e.target.value,
                               }))
                             }
-                            aria-label={`New installed total for ${item.name}`}
+                            aria-label={`New installed total for ${item.name} at ${formatMoney(item.rate)}`}
                             aria-invalid={over || undefined}
                             className={cn(
                               "h-8 bg-white text-right tabular-nums",
@@ -356,7 +357,7 @@ export function InstallationsTab({
             })}
             headers={["Item", "Unit", "BOQ qty", "Supplied", "Installed", "Last update"]}
             rows={items.map(({ item, supplied, installed, lastUpdatedAt }) => [
-              item.name,
+              `${item.name} (${formatMoney(item.rate)})`,
               item.unit,
               item.quantity,
               supplied,
@@ -403,7 +404,14 @@ export function InstallationsTab({
                         <td className={cn(reportTd, "tabular-nums")}>
                           {formatDisplayDate(h.at)}
                         </td>
-                        <td className={reportTd}>{h.itemName}</td>
+                        <td className={reportTd}>
+                          <span className="break-words">{h.itemName}</span>
+                          {typeof h.rate === "number" ? (
+                            <span className="block text-xs text-[var(--fh-muted)]">
+                              {formatMoney(h.rate)}
+                            </span>
+                          ) : null}
+                        </td>
                         <td
                           className={cn(
                             qtyCell,
@@ -437,7 +445,9 @@ export function InstallationsTab({
               headers={["Date", "Item", "Change", "Running total", "By"]}
               rows={history.map((h) => [
                 formatDisplayDate(h.at),
-                h.itemName,
+                typeof h.rate === "number"
+                  ? `${h.itemName} (${formatMoney(h.rate)})`
+                  : h.itemName,
                 h.delta,
                 h.totalAfter,
                 h.by,

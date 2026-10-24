@@ -192,7 +192,12 @@ export function SchedulesTab({ data }: { data: FlowhubData }) {
                     {r.city || "—"}
                   </td>
                   <td className={reportTd}>{SCHEDULE_KIND_LABELS[r.kind]}</td>
-                  <td className={reportTd}>{r.itemName}</td>
+                  <td className={reportTd}>
+                    <span className="break-words">{r.itemName}</span>
+                    <span className="block text-xs text-[var(--fh-muted)]">
+                      {formatMoney(r.rate)}
+                    </span>
+                  </td>
                   <td className={qtyCell}>{qtyWithUnit(r.plannedQty, r.unit)}</td>
                   <td className={cn(reportTd, "tabular-nums")}>
                     {r.date ? formatDisplayDate(r.date) : "NA"}
@@ -319,11 +324,10 @@ export function SummaryTab({ data }: { data: FlowhubData }) {
                   </td>
                   <td className={cn(reportTd, "max-w-[14rem]")}>
                     {r.itemName}
-                    {r.unit ? (
-                      <span className="block text-xs text-[var(--fh-muted)]">
-                        {r.unit}
-                      </span>
-                    ) : null}
+                    <span className="block text-xs text-[var(--fh-muted)]">
+                      {formatMoney(r.rate)}
+                      {r.unit ? ` · ${r.unit}` : ""}
+                    </span>
                   </td>
                   <td className={qtyCell}>{formatQty(r.boqQty)}</td>
                   <td className={qtyCell}>{formatQty(r.supplied)}</td>
@@ -1100,7 +1104,14 @@ function DcRecordsTable({
                   <td className={cn(reportTd, "tabular-nums")}>
                     {formatDisplayDate(r.dcDate)}
                   </td>
-                  <td className={reportTd}>{r.itemName}</td>
+                  <td className={reportTd}>
+                    <span className="break-words">{r.itemName}</span>
+                    {r.rate != null ? (
+                      <span className="block text-xs text-[var(--fh-muted)]">
+                        {formatMoney(r.rate)}
+                      </span>
+                    ) : null}
+                  </td>
                   <td className={qtyCell}>{formatQty(r.qty)}</td>
                   {canEdit && (
                     <td className="px-1 py-2 align-top">

@@ -29,7 +29,7 @@ import {
   type Contract,
 } from "@/lib/types";
 import { formatDisplayDate, formatDisplayDateTime } from "@/lib/dates";
-import { itemNameChoices } from "@/lib/item-rename";
+import { itemNameChoices, itemNameKey, sameItemRate } from "@/lib/item-rename";
 import { formatMoney } from "@/lib/format-money";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
@@ -79,6 +79,16 @@ function rowsToBoq(rows: DraftRow[]): BoqItem[] {
       rate: Number(r.rate) || 0,
       quantity: Number(r.qty) || 0,
     }));
+}
+
+function lineAlreadyThere(rows: DraftRow[], name: string, rate: number): boolean {
+  const key = itemNameKey(name);
+  return rows.some(
+    (row) =>
+      !row.removed &&
+      itemNameKey(row.name) === key &&
+      sameItemRate(Number(row.rate), rate)
+  );
 }
 
 function diffLabel(d: BoqAmendmentLineDiff): string {
@@ -233,10 +243,8 @@ export function BoqSection({
       setError("New line needs a rate and qty of 0 or more.");
       return;
     }
-    if (
-      rows.some((r) => !r.removed && r.name.trim().toLowerCase() === name.toLowerCase())
-    ) {
-      setError(`${name} is already on the BOQ.`);
+    if (lineAlreadyThere(rows, name, rate)) {
+      setError(`${name} is already on the BOQ at this rate.`);
       return;
     }
     setRows((prev) => [
@@ -265,10 +273,8 @@ export function BoqSection({
       setError("New line needs item name, rate > 0, and qty > 0.");
       return;
     }
-    if (
-      rows.some((r) => !r.removed && r.name.trim().toLowerCase() === name.toLowerCase())
-    ) {
-      setError(`${name} is already on the BOQ — change its qty instead.`);
+    if (lineAlreadyThere(rows, name, Number(newRate))) {
+      setError(`${name} is already on the BOQ at this rate — change its qty instead.`);
       return;
     }
     setRows((prev) => [
