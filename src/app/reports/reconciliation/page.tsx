@@ -35,11 +35,11 @@ import {
 type Scope = "all" | "one";
 
 const TI_NOTE =
-  "Retention expected / TDS expected = contract % × net. Retention / TDS = payment entry sums on that TI. Once a payment is linked, outstanding is the invoice final minus cash (net + GST), deduction, retention held, TDS held, and recovered. Unlinked net, GST, and deduction still fill any remainder FIFO. With no payment, outstanding stays expected cash. A match within half a paisa is zero; Extra is only the amount above the invoice final. Recoverable-link cash does not count.";
+  "Retention expected / TDS expected = contract % × net. Retention / TDS = payment entry sums on that TI. A linked payment stays on its invoice: outstanding starts as the invoice final minus cash (net + GST), deduction, retention held, TDS held, and recovered. Spare on that overpaid invoice then covers short invoices on this contract only, oldest first. Unlinked net, GST, and deduction still fill the next invoice that needs it and do not create Extra. With no payment, outstanding starts as expected cash. A match within half a paisa is zero. Extra is spare left on the overpaid invoice. Recoverable-link cash does not count.";
 const PAYMENTS_NOTE =
-  "TI-linked and unlinked payments. Unlinked net+GST+deduction allocate FIFO toward outstanding; unlinked ret/TDS count in contract actual held. Proforma-linked and recoverable payments are excluded.";
+  "TI-linked and unlinked payments. Unlinked net+GST+deduction still allocate FIFO to the next invoice that needs it. Unlinked ret/TDS count in contract actual held. Proforma-linked and recoverable payments are excluded.";
 const TOTALS_NOTE =
-  "Paid amount is the accounted total on each tax invoice: net + GST + retention + TDS + deduction + recovered on payments linked to that invoice, plus the same FIFO slice of unlinked net + GST + deduction that outstanding counts. Unlinked retention and TDS stay in Actual retention and Actual TDS. Recoverable-link cash is not included. Outstanding is unchanged: once a payment is linked it compares that full accounted sum to the invoice final, and stays expected cash when nothing is linked.";
+  "Paid amount is the accounted total on each tax invoice: net + GST + retention + TDS + deduction + recovered on payments linked to that invoice, plus the same FIFO slice of unlinked net + GST + deduction. Unlinked retention and TDS stay in Actual retention and Actual TDS. Recoverable-link cash is not included. True outstanding sums each invoice after linked spare is applied inside this contract. It stays zero when one invoice's spare equals another's short.";
 
 export default function ReconciliationReportPage() {
   const data = useFlowhubData();

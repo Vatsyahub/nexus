@@ -6,10 +6,12 @@
  * - Expected payment / expected held = theoretical (ret%×net, tds%×net).
  * - Retention held / TDS held columns = actual sums from payment entries.
  * - Unlinked ret/TDS count in contract-level actual held; TI rows show linked only.
- * - Outstanding with a linked payment = invoice final − (cash net+GST + deduction
- *   + retention held + TDS held + recovered). Within half a paisa, that is 0.
- *   Extra is only the excess above the final. No linked payment: expected cash
- *   minus FIFO unlinked net+GST+deduction. Recoverable-link cash does not count.
+ * - Outstanding starts from the invoice's own settlement: linked paymentAccounted
+ *   against the invoice final, or expected cash when nothing is linked.
+ *   Unlinked net+GST+deduction still FIFO-fills the next invoice that needs
+ *   it and does not create Extra. Linked spare then covers short invoices on
+ *   that contract only, oldest first. Within half a paisa, a linked balance
+ *   is 0. Recoverable-link cash does not count.
  * - Paid amount / Paid / Total paid = that same accounted total per TI
  *   (linked paymentAccounted plus the FIFO slice outstanding already uses).
  *   The display change does not alter outstanding.
@@ -42,6 +44,7 @@ import {
   invoiceExpectedCash,
   invoiceExtraTotal,
   invoiceOutstanding,
+  invoiceOwnSettlementMatchesFinal,
   invoicePaidAmount,
   invoiceRetentionHold,
   invoiceTdsHold,
@@ -726,7 +729,7 @@ export function invoiceNetOutstanding(
   if (
     raw > -0.005 &&
     raw - recovered < -0.005 &&
-    invoiceOutstanding(invoice, data) === 0
+    invoiceOwnSettlementMatchesFinal(invoice, data)
   ) {
     return 0;
   }

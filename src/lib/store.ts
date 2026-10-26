@@ -3974,6 +3974,44 @@ export function taxInvoiceAccountedStatus(
   return `Short by ${formatMoney(-gap)}`;
 }
 
+/**
+ * Live Over by / Short by / Match for the payment form.
+ * Uses the same netted balance as the invoice list: spare already covering
+ * this invoice is not still Short by, and spare already used is not still Over by.
+ * The open payment is left out and the current boxes are counted once.
+ * Saved links and amounts are not rewritten.
+ */
+export function taxInvoiceEntryStatus(
+  data: FlowhubData,
+  invoice: Invoice,
+  entry: TaxInvoiceAccountedEntry,
+  exceptPaymentId?: string | null
+): string {
+  const payments = data.payments.filter(
+    (p) => !exceptPaymentId || p.id !== exceptPaymentId
+  );
+  payments.push({
+    id: exceptPaymentId || "__entry__",
+    contractId: invoice.contractId,
+    invoiceId: invoice.id,
+    link: "TI",
+    date: invoice.date,
+    netAmount: Number(entry.netAmount) || 0,
+    gstAmount: Number(entry.gstAmount) || 0,
+    retentionAmount: Number(entry.retentionAmount) || 0,
+    tdsAmount: Number(entry.tdsAmount) || 0,
+    otherDeductions: Number(entry.otherDeductions) || 0,
+    otherDeductionReason: "",
+    recovered: entry.showRecovered ? positiveRupees(entry.recovered) : 0,
+    createdAt: invoice.createdAt,
+  });
+  const outstanding = invoiceOutstanding(invoice, { ...data, payments });
+  return taxInvoiceAccountedStatus(
+    invoice.finalAmount,
+    invoice.finalAmount - outstanding
+  );
+}
+
 function paymentOmitsInvoice(link: Payment["link"]) {
   return link === "unlinked" || link === "recoverable";
 }
@@ -4343,10 +4381,37 @@ function normalizePayment(
 }
 
 /**
+ * Oldest tax invoice first when applying spare: invoice date, then invoice
+ * number, then created time. The billing list is newest-first by date; this
+ * is the oldest-first date-then-number order for one contract.
+ */
+function compareInvoicesOldest(a: Invoice, b: Invoice): number {
+  return (
+    a.date.localeCompare(b.date) ||
+    a.number.localeCompare(b.number) ||
+    (a.createdAt ?? "").localeCompare(b.createdAt ?? "")
+  );
+}
+
+function contractTaxInvoices(data: FlowhubData): Map<string, Invoice[]> {
+  const byContract = new Map<string, Invoice[]>();
+  for (const invoice of data.invoices) {
+    if (invoice.type !== "TI") continue;
+    const list = byContract.get(invoice.contractId) ?? [];
+    list.push(invoice);
+    byContract.set(invoice.contractId, list);
+  }
+  for (const list of byContract.values()) list.sort(compareInvoicesOldest);
+  return byContract;
+}
+
+/**
  * FIFO-allocate unlinked payments’ toward-outstanding amounts (net+GST+other)
  * across a contract’s TIs. Recoverable-link cash is not in this pool.
  * Unlinked ret/TDS are NOT allocated here — they roll
  * into contract-level actual held only.
+ * This fill is unchanged by linked spare: an unlinked payment still goes to
+ * the next invoice that needs it, and it never becomes Extra on another invoice.
  */
 function unlinkedTowardOutstandingAllocations(
   data: FlowhubData
@@ -4448,29 +4513,88 @@ function tiLinkedPayments(invoiceId: string, data: FlowhubData): Payment[] {
 }
 
 /**
- * Outstanding on a tax invoice.
- * No linked payment: expected cash minus FIFO unlinked net+GST+deduction
- * (final − theoretical retention − theoretical TDS − that cash). An unpaid
- * invoice stays on expected cash, not the full invoice total.
+ * This invoice's own balance, before linked spare is shared on the contract.
+ * No linked payment: expected cash minus FIFO unlinked net+GST+deduction.
  * Once a payment is linked: invoice final minus accounted
  * (cash net+GST + deduction + retention held + TDS held + recovered),
- * plus any FIFO unlinked cash still needed to reach the final.
- * Within half a paisa of the final, outstanding is 0. Above the final,
- * the negative amount is Extra for that excess only. A higher contract TDS
- * percent than the TDS entered on the payment does not create Extra.
+ * minus any unlinked cash already filling this invoice's own need.
+ * Within half a paisa of the final, the linked balance is 0.
+ * Negative is spare. Positive is still short. Payments are not rewritten.
  */
-export function invoiceOutstanding(invoice: Invoice, data?: FlowhubData) {
+function invoiceSettlementOutstanding(
+  invoice: Invoice,
+  data: FlowhubData
+): number {
   if (invoice.type !== "TI") return 0;
-  const d = data ?? read();
-  const linked = tiLinkedPayments(invoice.id, d);
+  const linked = tiLinkedPayments(invoice.id, data);
   if (linked.length === 0) {
-    return invoiceExpectedCash(invoice, d) - paymentReceivedTotal(invoice.id, d);
+    return invoiceExpectedCash(invoice, data) - paymentReceivedTotal(invoice.id, data);
   }
-  const unlinked = unlinkedTowardOutstandingAllocations(d).get(invoice.id) ?? 0;
+  const unlinked = unlinkedTowardOutstandingAllocations(data).get(invoice.id) ?? 0;
   const accounted =
     linked.reduce((s, p) => s + paymentAccounted(p), 0) + unlinked;
   const balance = invoice.finalAmount - accounted;
   if (Math.abs(balance) <= RUPEE_EPS) return 0;
+  return balance;
+}
+
+/**
+ * True when this invoice's own settlement, including unlinked cash already
+ * on it, meets its total. Spare from another invoice does not count.
+ */
+export function invoiceOwnSettlementMatchesFinal(
+  invoice: Invoice,
+  data?: FlowhubData
+): boolean {
+  if (invoice.type !== "TI") return false;
+  return invoiceSettlementOutstanding(invoice, data ?? read()) === 0;
+}
+
+/**
+ * Share linked spare inside one contract. Oldest short is covered first.
+ * Spare is consumed from the oldest overpaid invoice first.
+ * Unlinked cash has already filled each invoice's own need and is not moved.
+ * Nothing crosses contracts. Payment rows are not changed.
+ */
+function spareAdjustedBalances(data: FlowhubData): Map<string, number> {
+  const adjusted = new Map<string, number>();
+  for (const invoices of contractTaxInvoices(data).values()) {
+    const rows = invoices.map((invoice) => ({
+      id: invoice.id,
+      balance: invoiceSettlementOutstanding(invoice, data),
+    }));
+    for (const short of rows) {
+      if (short.balance <= RUPEE_EPS) continue;
+      let need = short.balance;
+      for (const source of rows) {
+        if (need <= RUPEE_EPS) break;
+        if (source.balance >= -RUPEE_EPS) continue;
+        const spare = -source.balance;
+        const take = Math.min(spare, need);
+        source.balance += take;
+        if (Math.abs(source.balance) <= RUPEE_EPS) source.balance = 0;
+        need -= take;
+      }
+      short.balance = need <= RUPEE_EPS ? 0 : need;
+    }
+    for (const row of rows) adjusted.set(row.id, row.balance);
+  }
+  return adjusted;
+}
+
+/**
+ * Outstanding shown for a tax invoice.
+ * Own settlement stays paymentAccounted against the invoice total, with
+ * unlinked cash still filling the next invoice that needs it. Linked spare
+ * (a negative own balance) then covers short invoices on the same contract
+ * only. The Rs 200 paid band is applied by the label, not here. A higher
+ * contract TDS percent than the TDS on the payment does not create Extra.
+ */
+export function invoiceOutstanding(invoice: Invoice, data?: FlowhubData) {
+  if (invoice.type !== "TI") return 0;
+  const d = data ?? read();
+  const balance = spareAdjustedBalances(d).get(invoice.id);
+  if (balance == null) return invoiceSettlementOutstanding(invoice, d);
   return balance;
 }
 
