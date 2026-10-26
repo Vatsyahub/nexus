@@ -33,6 +33,7 @@ import {
 } from "@/lib/types";
 import { distinctContractPlaces } from "@/lib/contract-place-names";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
+import { ItemNameSearch } from "@/components/item-name-search";
 import { SavedNameField } from "@/components/saved-name-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,8 +60,6 @@ export default function NewContractPage() {
   const router = useRouter();
   const data = useFlowhubData();
   const [error, setError] = useState<string | null>(null);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [suggestActive, setSuggestActive] = useState(-1);
 
   const [projectName, setProjectName] = useState("");
   const [projectNo, setProjectNo] = useState("");
@@ -130,20 +129,10 @@ export default function NewContractPage() {
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [data, boq]);
 
-  /** Prefix match → first 3 alphabetical choices */
-  const topMatches = useMemo(() => {
-    const q = itemName.trim().toLowerCase();
-    if (!q) return [] as CatalogHit[];
-    return itemCatalog
-      .filter((c) => c.name.toLowerCase().startsWith(q))
-      .slice(0, 3);
-  }, [itemCatalog, itemName]);
-
   function pickCatalog(hit: CatalogHit) {
     setItemName(hit.name);
     setItemUnit(hit.unit);
     setItemRate(String(hit.lastRate));
-    setShowSuggestions(false);
   }
 
   function clearBoqEditor() {
@@ -152,7 +141,6 @@ export default function NewContractPage() {
     setItemUnit("Nos");
     setItemRate("");
     setItemQty("");
-    setShowSuggestions(false);
   }
 
   function startEditBoq(line: BoqItem) {
@@ -161,7 +149,6 @@ export default function NewContractPage() {
     setItemUnit(line.unit);
     setItemRate(String(line.rate));
     setItemQty(String(line.quantity));
-    setShowSuggestions(false);
     setError(null);
   }
 
@@ -590,99 +577,25 @@ export default function NewContractPage() {
             </Badge>
           </div>
 
-          <div className="relative space-y-2">
-            <Label htmlFor="itemName">Item name</Label>
-            <Input
-              id="itemName"
-              placeholder="Start typing to match previous items"
-              value={itemName}
-              autoComplete="off"
-              onChange={(e) => {
-                const v = e.target.value;
-                setItemName(v);
-                setShowSuggestions(true);
-                setSuggestActive(-1);
-                const exact = itemCatalog.find(
-                  (c) => c.name.toLowerCase() === v.trim().toLowerCase()
-                );
-                if (exact) {
-                  setItemUnit(exact.unit);
-                  setItemRate(String(exact.lastRate));
-                }
-              }}
-              onKeyDown={(e) => {
-                if (topMatches.length === 0) return;
-                if (e.key === "ArrowDown") {
-                  e.preventDefault();
-                  setShowSuggestions(true);
-                  setSuggestActive((i) =>
-                    i < 0 ? 0 : (i + 1) % topMatches.length
-                  );
-                  return;
-                }
-                if (e.key === "ArrowUp") {
-                  e.preventDefault();
-                  setShowSuggestions(true);
-                  setSuggestActive((i) =>
-                    i <= 0 ? topMatches.length - 1 : i - 1
-                  );
-                  return;
-                }
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  setShowSuggestions(false);
-                  setSuggestActive(-1);
-                  return;
-                }
-                if (
-                  e.key === "Enter" &&
-                  showSuggestions &&
-                  suggestActive >= 0 &&
-                  topMatches[suggestActive]
-                ) {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  pickCatalog(topMatches[suggestActive]);
-                  setSuggestActive(-1);
-                }
-              }}
-              onFocus={() => setShowSuggestions(true)}
-              onBlur={() => {
-                // Allow click on suggestion before closing
-                window.setTimeout(() => setShowSuggestions(false), 150);
-              }}
-            />
-            {showSuggestions && topMatches.length > 0 && (
-              <ul
-                className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border border-[var(--fh-line)] bg-white shadow-md"
-                role="listbox"
-              >
-                {topMatches.map((hit, index) => (
-                  <li key={hit.name}>
-                    <button
-                      type="button"
-                      role="option"
-                      data-active={index === suggestActive ? "true" : undefined}
-                      className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-[var(--fh-bg)]${
-                        index === suggestActive ? " bg-[var(--fh-bg)]" : ""
-                      }`}
-                      onMouseEnter={() => setSuggestActive(index)}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => {
-                        pickCatalog(hit);
-                        setSuggestActive(-1);
-                      }}
-                    >
-                      <span className="font-medium text-[var(--fh-steel)]">{hit.name}</span>
-                      <span className="text-xs text-[var(--fh-muted)]">
-                        {hit.unit} · {formatMoney(hit.lastRate)}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <ItemNameSearch
+            key={editingBoqId ?? "new-line"}
+            id="itemName"
+            label="Item name"
+            placeholder="Start typing to match previous items"
+            value={itemName}
+            items={itemCatalog}
+            onChange={(v) => {
+              setItemName(v);
+              const exact = itemCatalog.find(
+                (c) => c.name.toLowerCase() === v.trim().toLowerCase()
+              );
+              if (exact) {
+                setItemUnit(exact.unit);
+                setItemRate(String(exact.lastRate));
+              }
+            }}
+            onPick={pickCatalog}
+          />
 
           <div className="grid gap-2 sm:grid-cols-3">
             <Input placeholder="Unit" value={itemUnit} onChange={(e) => setItemUnit(e.target.value)} />

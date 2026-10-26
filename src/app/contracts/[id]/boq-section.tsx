@@ -19,6 +19,7 @@ import {
   useFlowhubData,
 } from "@/lib/store";
 import { confirmAction } from "@/components/confirm-panel";
+import { ItemNameSearch } from "@/components/item-name-search";
 import { confirmWorkspaceSave } from "@/lib/save-notice";
 import {
   boqTotal,
@@ -140,6 +141,7 @@ export function BoqSection({
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [replacePick, setReplacePick] = useState<Record<string, string>>({});
+  const [replaceQuery, setReplaceQuery] = useState<Record<string, string>>({});
   const [replacing, setReplacing] = useState(false);
   const canReplaceLockedName = isMaster && amendments.length === 0;
   const replaceChoices = useMemo(() => {
@@ -187,6 +189,7 @@ export function BoqSection({
     setNewRate("");
     setNewQty("");
     setReplacePick({});
+    setReplaceQuery({});
     setError(null);
     setStep("plain");
   }
@@ -360,6 +363,7 @@ export function BoqSection({
     const line = fresh?.boq.find((row) => row.id === lineId);
     if (line) patchRow(lineId, { name: line.name, catalogKey: line.catalogKey });
     setReplacePick((prev) => ({ ...prev, [lineId]: "" }));
+    setReplaceQuery((prev) => ({ ...prev, [lineId]: "" }));
   }
 
   async function confirm(e: FormEvent) {
@@ -507,24 +511,35 @@ export function BoqSection({
                             )}
                             {canReplaceLockedName && replaceChoices.length > 0 && (
                               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                                <select
-                                  aria-label={`Replace ${r.name} with an existing item`}
-                                  className="h-8 max-w-[14rem] rounded-lg border border-[var(--fh-line)] bg-white px-2 text-xs"
-                                  value={replacePick[r.id] ?? ""}
-                                  onChange={(e) =>
+                                <ItemNameSearch
+                                  id={`replace-${r.id}`}
+                                  ariaLabel={`Replace ${r.name} with an existing item`}
+                                  placeholder="Existing item"
+                                  className="w-56 max-w-full"
+                                  inputClassName="text-xs"
+                                  items={replaceChoices}
+                                  value={replaceQuery[r.id] ?? ""}
+                                  onChange={(text) => {
+                                    setReplaceQuery((prev) => ({
+                                      ...prev,
+                                      [r.id]: text,
+                                    }));
                                     setReplacePick((prev) => ({
                                       ...prev,
-                                      [r.id]: e.target.value,
-                                    }))
-                                  }
-                                >
-                                  <option value="">Existing item</option>
-                                  {replaceChoices.map((choice) => (
-                                    <option key={choice.key} value={choice.key}>
-                                      {choice.name}
-                                    </option>
-                                  ))}
-                                </select>
+                                      [r.id]: "",
+                                    }));
+                                  }}
+                                  onPick={(choice) => {
+                                    setReplaceQuery((prev) => ({
+                                      ...prev,
+                                      [r.id]: choice.name,
+                                    }));
+                                    setReplacePick((prev) => ({
+                                      ...prev,
+                                      [r.id]: choice.key,
+                                    }));
+                                  }}
+                                />
                                 <Button
                                   type="button"
                                   size="sm"
@@ -609,20 +624,17 @@ export function BoqSection({
               Add BOQ line
             </p>
             <div className="grid gap-2 sm:grid-cols-[2fr_1fr_1fr_1fr_auto] sm:items-end">
-              <div className="space-y-1">
-                <Label className="text-xs">Item name</Label>
-                <Input
-                  list="plain-boq-item-catalog"
-                  value={newName}
-                  onChange={(e) => onNewNameChange(e.target.value)}
-                  placeholder="Type to match previous items"
-                />
-                <datalist id="plain-boq-item-catalog">
-                  {itemChoices.map((x) => (
-                    <option key={x.key} value={x.name} />
-                  ))}
-                </datalist>
-              </div>
+              <ItemNameSearch
+                id="plain-boq-item-name"
+                label="Item name"
+                labelClassName="text-xs"
+                className="space-y-1"
+                value={newName}
+                onChange={onNewNameChange}
+                onPick={(hit) => onNewNameChange(hit.name)}
+                items={itemChoices}
+                placeholder="Type to match previous items"
+              />
               <div className="space-y-1">
                 <Label className="text-xs">Unit</Label>
                 <Input value={newUnit} onChange={(e) => setNewUnit(e.target.value)} />
@@ -834,20 +846,17 @@ export function BoqSection({
               Add BOQ line
             </p>
             <div className="grid gap-2 sm:grid-cols-[2fr_1fr_1fr_1fr_auto] sm:items-end">
-              <div className="space-y-1">
-                <Label className="text-xs">Item name</Label>
-                <Input
-                  list="amendment-item-catalog"
-                  value={newName}
-                  onChange={(e) => onNewNameChange(e.target.value)}
-                  placeholder="Type to match previous items"
-                />
-                <datalist id="amendment-item-catalog">
-                  {itemChoices.map((x) => (
-                    <option key={x.key} value={x.name} />
-                  ))}
-                </datalist>
-              </div>
+              <ItemNameSearch
+                id="amendment-boq-item-name"
+                label="Item name"
+                labelClassName="text-xs"
+                className="space-y-1"
+                value={newName}
+                onChange={onNewNameChange}
+                onPick={(hit) => onNewNameChange(hit.name)}
+                items={itemChoices}
+                placeholder="Type to match previous items"
+              />
               <div className="space-y-1">
                 <Label className="text-xs">Unit</Label>
                 <Input value={newUnit} onChange={(e) => setNewUnit(e.target.value)} />
