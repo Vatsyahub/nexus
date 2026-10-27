@@ -2,23 +2,16 @@
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { Contract } from "@/lib/types";
-import { matchingAddContracts } from "@/lib/add-contract-matches";
+import {
+  ADD_CONTRACT_MATCH_LIMIT,
+  matchingAddContracts,
+} from "@/lib/add-contract-matches";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
 function labelFor(c: Contract): string {
   return `${c.projectNo} · ${c.projectName}`;
-}
-
-function matches(c: Contract, q: string): boolean {
-  const needle = q.trim().toLowerCase();
-  if (!needle) return true;
-  return (
-    c.projectNo.toLowerCase().includes(needle) ||
-    c.projectName.toLowerCase().includes(needle) ||
-    (c.city || "").toLowerCase().includes(needle)
-  );
 }
 
 export function ContractTypeahead({
@@ -30,7 +23,7 @@ export function ContractTypeahead({
   emptyMessage = "No contracts match.",
   disabled,
   optionSuffix,
-  maxMatches,
+  maxMatches = ADD_CONTRACT_MATCH_LIMIT,
 }: {
   contracts: Contract[];
   value: string;
@@ -42,8 +35,8 @@ export function ContractTypeahead({
   /** Extra text after the contract label in the dropdown (e.g. schedule exists). */
   optionSuffix?: (c: Contract) => string | null;
   /**
-   * Add flows. The list stays closed until the user types, then shows at most
-   * this many matches. Omit on list and report filters.
+   * How many matches to show after a project number or name is typed.
+   * An empty click or focus shows nothing.
    */
   maxMatches?: number;
 }) {
@@ -53,7 +46,6 @@ export function ContractTypeahead({
   const [active, setActive] = useState(-1);
   const rootRef = useRef<HTMLDivElement>(null);
   const chosenLabel = useRef<string | null>(selected ? labelFor(selected) : null);
-  const addMode = maxMatches != null;
 
   useEffect(() => {
     if (selected) {
@@ -63,15 +55,10 @@ export function ContractTypeahead({
       return;
     }
     if (!value) {
-      if (!addMode) {
-        setQuery("");
-        chosenLabel.current = null;
-        return;
-      }
       setQuery((current) => (current === chosenLabel.current ? "" : current));
       chosenLabel.current = null;
     }
-  }, [selected, value, addMode]);
+  }, [selected, value]);
 
   useEffect(() => {
     function onDoc(e: MouseEvent) {
@@ -81,17 +68,16 @@ export function ContractTypeahead({
     return () => document.removeEventListener("mousedown", onDoc);
   }, []);
 
-  const filtered = useMemo(() => {
-    if (addMode) return matchingAddContracts(contracts, query, maxMatches);
-    return contracts.filter((c) => matches(c, query)).slice(0, 40);
-  }, [addMode, contracts, maxMatches, query]);
+  const filtered = useMemo(
+    () => matchingAddContracts(contracts, query, maxMatches),
+    [contracts, maxMatches, query]
+  );
 
   function showingChosen(text: string): boolean {
     return !!selected && text === labelFor(selected);
   }
 
   function canSuggest(text: string): boolean {
-    if (!addMode) return true;
     return text.trim().length > 0 && !showingChosen(text);
   }
 
@@ -108,18 +94,14 @@ export function ContractTypeahead({
     if (selected && labelFor(selected) !== next) {
       onChange("");
     }
-    if (addMode) {
-      setOpen(next.trim().length > 0 && !(selected && next === labelFor(selected)));
-      return;
-    }
-    setOpen(true);
+    setOpen(next.trim().length > 0 && !(selected && next === labelFor(selected)));
   }
 
   function onInputKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     const inEntry = !!rootRef.current?.closest("[data-entry]");
     const ignored = !!rootRef.current?.closest("[data-entry-ignore]");
     if (!inEntry || ignored) return;
-    if (addMode && !canSuggest(query)) return;
+    if (!canSuggest(query)) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setOpen(true);

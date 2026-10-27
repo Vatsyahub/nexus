@@ -14,6 +14,7 @@ import {
 } from "@/lib/reports";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { ADD_CONTRACT_MATCH_LIMIT } from "@/lib/add-contract-matches";
 import { ListSearchBar } from "@/components/list-search";
 import { ContractTypeahead } from "@/components/contract-typeahead";
 import {
@@ -151,6 +152,7 @@ function ReconciliationReportInner() {
                 onChange={setContractId}
                 label="Contract"
                 placeholder="Type contract no. or name…"
+                maxMatches={ADD_CONTRACT_MATCH_LIMIT}
               />
             </div>
           ) : (

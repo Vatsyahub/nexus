@@ -31,6 +31,7 @@ import {
   ReportExportIcons,
   reportFilterSummary,
 } from "@/components/report-export-icons";
+import { ADD_CONTRACT_MATCH_LIMIT } from "@/lib/add-contract-matches";
 import { ContractTypeahead } from "@/components/contract-typeahead";
 import { ScheduleContractView } from "@/app/schedules/schedule-contract-view";
 import { buttonVariants } from "@/components/ui/button";
@@ -398,6 +399,7 @@ function SchedulesClientInner({
               onChange={setViewContractId}
               placeholder="Type contract no. or name…"
               emptyMessage="No matching contracts with a schedule."
+              maxMatches={ADD_CONTRACT_MATCH_LIMIT}
             />
             {viewContracts.length === 0 && (
               <p className="text-xs text-[var(--fh-muted)]">
