@@ -13,7 +13,7 @@ import {
   recoverablePoolViolation,
   recoverableRunningLineFigures,
   savedTaxInvoiceAccounted,
-  taxInvoiceAccountedStatus,
+  taxInvoiceEntryStatus,
   useFlowhubData,
 } from "@/lib/store";
 import { formatRecoverableRunningLine } from "@/lib/payment-display";
@@ -119,25 +119,28 @@ export function PaymentForm({
   }, [data.invoices, contractId, link]);
 
   const selected = data.invoices.find((i) => i.id === invoiceId);
+  const entryBoxes = {
+    netAmount: Number(netAmount) || 0,
+    gstAmount: Number(gstAmount) || 0,
+    retentionAmount: Number(retention) || 0,
+    tdsAmount: Number(tds) || 0,
+    otherDeductions: Number(other) || 0,
+    recovered: Number(recovered) || 0,
+    showRecovered,
+  };
   const accountedBox =
     link === "TI" && selected && selected.type === "TI"
       ? {
           invoiceValue: selected.finalAmount,
           accounted:
-            savedTaxInvoiceAccounted(
-              data.payments,
-              selected.id,
-              initial?.id
-            ) +
-            entryAccountedTowardInvoice({
-              netAmount: Number(netAmount) || 0,
-              gstAmount: Number(gstAmount) || 0,
-              retentionAmount: Number(retention) || 0,
-              tdsAmount: Number(tds) || 0,
-              otherDeductions: Number(other) || 0,
-              recovered: Number(recovered) || 0,
-              showRecovered,
-            }),
+            savedTaxInvoiceAccounted(data.payments, selected.id, initial?.id) +
+            entryAccountedTowardInvoice(entryBoxes),
+          status: taxInvoiceEntryStatus(
+            data,
+            selected,
+            entryBoxes,
+            initial?.id
+          ),
         }
       : null;
 
@@ -299,6 +302,7 @@ export function PaymentForm({
           <TaxInvoiceAccountedBox
             invoiceValue={accountedBox.invoiceValue}
             accounted={accountedBox.accounted}
+            status={accountedBox.status}
           />
         )}
         <div className="space-y-1">
@@ -377,9 +381,11 @@ export function PaymentForm({
 function TaxInvoiceAccountedBox({
   invoiceValue,
   accounted,
+  status,
 }: {
   invoiceValue: number;
   accounted: number;
+  status: string;
 }) {
   return (
     <div className="space-y-2 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)] px-3 py-3 text-sm sm:col-span-2">
@@ -394,7 +400,7 @@ function TaxInvoiceAccountedBox({
         <span className="tabular-nums font-medium">{formatMoney(accounted)}</span>
       </div>
       <p className="border-t border-[var(--fh-line)] pt-2 font-medium text-[var(--fh-steel)]">
-        {taxInvoiceAccountedStatus(invoiceValue, accounted)}
+        {status}
       </p>
     </div>
   );
