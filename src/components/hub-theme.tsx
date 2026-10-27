@@ -4,10 +4,11 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import {
   HUB_THEME_KEY,
-  HUB_THEMES,
   applyHubTheme,
+  hubThemeAllowed,
   readHubTheme,
-  sessionAllowsDarkKnight,
+  sessionAllowsMasterThemes,
+  visibleHubThemes,
   type HubThemeId,
 } from "@/lib/hub-theme";
 import { cn } from "@/lib/utils";
@@ -27,34 +28,40 @@ const SWATCH: Record<
     bar: "#101218",
     accent: "#d4b36a",
   },
+  matrix: {
+    page: "#000000",
+    panel: "#04140c",
+    bar: "#001408",
+    accent: "#00ff41",
+  },
 };
 
 export function HubThemeSync() {
   const { data: session, status } = useSession();
-  const allowDarkKnight = sessionAllowsDarkKnight(session);
+  const allowMasterThemes = sessionAllowsMasterThemes(session);
 
   useEffect(() => {
     if (status === "loading") return;
-    applyHubTheme(readHubTheme(allowDarkKnight));
-  }, [allowDarkKnight, status]);
+    applyHubTheme(readHubTheme(allowMasterThemes));
+  }, [allowMasterThemes, status]);
 
   return null;
 }
 
 export function HubThemePicker() {
   const { data: session, status } = useSession();
-  const allowDarkKnight = sessionAllowsDarkKnight(session);
+  const allowMasterThemes = sessionAllowsMasterThemes(session);
   const [choice, setChoice] = useState<HubThemeId>("light");
 
   useEffect(() => {
     if (status === "loading") return;
-    const next = readHubTheme(allowDarkKnight);
+    const next = readHubTheme(allowMasterThemes);
     setChoice(next);
     applyHubTheme(next);
-  }, [allowDarkKnight, status]);
+  }, [allowMasterThemes, status]);
 
   function pick(next: HubThemeId) {
-    if (next === "dark-knight" && !allowDarkKnight) return;
+    if (!hubThemeAllowed(next, allowMasterThemes)) return;
     setChoice(next);
     try {
       localStorage.setItem(HUB_THEME_KEY, next);
@@ -64,9 +71,7 @@ export function HubThemePicker() {
     applyHubTheme(next);
   }
 
-  const themes = HUB_THEMES.filter(
-    (theme) => !theme.masterOnly || allowDarkKnight
-  );
+  const themes = visibleHubThemes(allowMasterThemes);
 
   return (
     <div className="flex flex-wrap gap-2" role="group" aria-label="Hub colour">

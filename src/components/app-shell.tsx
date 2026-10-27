@@ -181,7 +181,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const nexusHome = pathname === "/nexus-core";
 
   return (
-    <div className="h-dvh overflow-hidden bg-[var(--fh-bg)] text-[var(--fh-ink)]">
+    <div className="nexus-shell relative z-[1] h-dvh overflow-hidden bg-[var(--fh-bg)] text-[var(--fh-ink)]">
       <div className="flex h-full min-h-0 overflow-hidden">
         <aside className="hidden h-full w-60 shrink-0 flex-col border-r border-white/10 bg-[var(--fh-steel)] text-white lg:flex">
           <div className="min-h-0 flex-1 overflow-y-auto">
