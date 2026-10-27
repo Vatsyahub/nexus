@@ -14,7 +14,9 @@
  *   is 0. Recoverable-link cash does not count.
  * - Paid amount / Paid / Total paid = that same accounted total per TI
  *   (linked paymentAccounted plus the FIFO slice outstanding already uses).
- *   The display change does not alter outstanding.
+ *   The display change does not alter outstanding. An unlinked receipt
+ *   already inside that figure is named on the invoice and on the Paid
+ *   click list. The receipt stays unlinked and its amount stays as stored.
  * - Sales “Total outstanding net” = Σ (TI net − ret%×net − tds%×net − net received).
  *   Net received is linked payment netAmount plus FIFO of unlinked netAmount only.
  *   GST, extras, other deductions, retention cash, and TDS cash stay out.
@@ -46,6 +48,7 @@ import {
   invoiceOutstanding,
   invoiceOwnSettlementMatchesFinal,
   invoicePaidAmount,
+  invoicePaidPaymentIds,
   invoiceRetentionHold,
   invoiceTdsHold,
   outstandingIsStillDue,
@@ -57,17 +60,12 @@ function isTiLinkedPayment(p: Payment) {
   return p.link === "TI" || (!p.link && !!p.invoiceId);
 }
 
-/** Payments saved against this tax invoice, oldest first. Zero-amount rows stay out. */
+/**
+ * Payments the Paid amount opens. Linked tax-invoice payments, plus unlinked
+ * receipts already counted in that figure. Oldest first. A zero stays out.
+ */
 function paidPaymentIds(ti: Invoice, data: FlowhubData): string[] {
-  return data.payments
-    .filter((p) => p.invoiceId === ti.id && isTiLinkedPayment(p))
-    .filter((p) => paymentAccounted(p) > 0.005)
-    .slice()
-    .sort(
-      (a, b) =>
-        a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt)
-    )
-    .map((p) => p.id);
+  return invoicePaidPaymentIds(ti, data);
 }
 
 /** Linked-payment component sums for a TI (unlinked FIFO is not attributed here). */
@@ -356,8 +354,9 @@ export type InvoiceOutstandingRow = {
   /** invoicePaidAmount: accounted total, including the FIFO slice (0 if none) */
   paid: number;
   /**
-   * Tax-invoice payments linked to this invoice that make up Paid.
-   * Oldest first. Empty when nothing is linked to the invoice.
+   * Payments the Paid amount opens: linked tax-invoice payments, plus
+   * unlinked receipts already counted in Paid. Oldest first. Empty when
+   * none of those have an accounted amount, so a zero stays plain text.
    */
   paidPaymentIds: string[];
   outstanding: number;

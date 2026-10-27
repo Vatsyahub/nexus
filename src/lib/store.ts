@@ -4465,6 +4465,148 @@ function unlinkedTowardOutstandingAllocations(
   return allocated;
 }
 
+function comparePaymentsOldest(a: Payment, b: Payment): number {
+  return a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt);
+}
+
+/**
+ * How much unlinked cash this tax invoice still takes, before any receipt
+ * is named. Same need as unlinkedTowardOutstandingAllocations. Payments
+ * are not rewritten.
+ */
+function unlinkedFillNeed(invoice: Invoice, data: FlowhubData): number {
+  const linked = tiLinkedPayments(invoice.id, data);
+  if (linked.length > 0) {
+    return Math.max(
+      0,
+      invoice.finalAmount - linked.reduce((s, p) => s + paymentAccounted(p), 0)
+    );
+  }
+  return Math.max(0, invoiceExpectedCash(invoice, data));
+}
+
+/**
+ * Unlinked receipts whose cash is already inside this tax invoice's paid
+ * amount. Same FIFO and same need as the rupee allocation: oldest receipt
+ * first, oldest invoice first, and a receipt never becomes Extra.
+ * A receipt that fills more than one invoice is named on each of them.
+ * Nothing is relinked. The stored amount stays on the receipt.
+ */
+export function unlinkedPaymentsFillingInvoice(
+  invoiceId: string,
+  data?: FlowhubData
+): Payment[] {
+  const d = data ?? read();
+  const invoice = d.invoices.find((i) => i.id === invoiceId);
+  if (!invoice || invoice.type !== "TI") return [];
+  const ids = unlinkedFillPaymentIds(d).get(invoiceId);
+  if (!ids?.length) return [];
+  const byId = new Map(d.payments.map((p) => [p.id, p]));
+  return ids
+    .map((id) => byId.get(id))
+    .filter((p): p is Payment => !!p && p.link === "unlinked");
+}
+
+function unlinkedFillPaymentIds(data: FlowhubData): Map<string, string[]> {
+  const result = new Map<string, string[]>();
+  const byContract = new Map<string, Payment[]>();
+  for (const p of data.payments) {
+    if (p.link !== "unlinked") continue;
+    const list = byContract.get(p.contractId) ?? [];
+    list.push(p);
+    byContract.set(p.contractId, list);
+  }
+
+  for (const [contractId, pays] of byContract) {
+    const remaining = pays
+      .slice()
+      .sort(comparePaymentsOldest)
+      .map((p) => ({ p, left: paymentTowardOutstanding(p) }));
+    const tis = data.invoices
+      .filter((i) => i.type === "TI" && i.contractId === contractId)
+      .slice()
+      .sort(
+        (a, b) =>
+          a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt)
+      );
+    let index = 0;
+    for (const ti of tis) {
+      let need = unlinkedFillNeed(ti, data);
+      const ids: string[] = [];
+      while (need > RUPEE_EPS && index < remaining.length) {
+        const row = remaining[index];
+        if (row.left <= RUPEE_EPS) {
+          index += 1;
+          continue;
+        }
+        const take = Math.min(row.left, need);
+        if (take > RUPEE_EPS) {
+          ids.push(row.p.id);
+          row.left -= take;
+          need -= take;
+        }
+        if (row.left <= RUPEE_EPS) index += 1;
+      }
+      if (ids.length) result.set(ti.id, ids);
+    }
+  }
+  return result;
+}
+
+/**
+ * Payments to list on one invoice. Oldest first.
+ * A tax invoice keeps every payment stored on it, and also names each
+ * unlinked receipt already counted in its paid amount. A proforma keeps
+ * the payments stored on that proforma. Amounts are not recomputed.
+ */
+export function invoiceListedPayments(
+  invoice: Invoice,
+  data?: FlowhubData
+): Payment[] {
+  const d = data ?? read();
+  const rows: Payment[] = [];
+  const seen = new Set<string>();
+  const add = (p: Payment) => {
+    if (seen.has(p.id)) return;
+    seen.add(p.id);
+    rows.push(p);
+  };
+  for (const p of d.payments) {
+    if (p.invoiceId === invoice.id) add(p);
+  }
+  if (invoice.type === "TI") {
+    for (const p of unlinkedPaymentsFillingInvoice(invoice.id, d)) add(p);
+  }
+  rows.sort(comparePaymentsOldest);
+  return rows;
+}
+
+/**
+ * Payments the Paid amount opens. Oldest first.
+ * Linked tax-invoice payments with an accounted amount, plus unlinked
+ * receipts already counted in that Paid figure. A zero accounted amount
+ * stays out, so Paid with nothing to open stays plain text. One id opens
+ * that payment. Two or more open the short list.
+ */
+export function invoicePaidPaymentIds(
+  invoice: Invoice,
+  data?: FlowhubData
+): string[] {
+  const d = data ?? read();
+  const filling = new Set(
+    invoice.type === "TI"
+      ? unlinkedPaymentsFillingInvoice(invoice.id, d).map((p) => p.id)
+      : []
+  );
+  return invoiceListedPayments(invoice, d)
+    .filter((p) => {
+      if (paymentAccounted(p) <= RUPEE_EPS) return false;
+      if (p.link === "unlinked") return filling.has(p.id);
+      return isTiLinkedPayment(p);
+    })
+    .map((p) => p.id);
+}
+
 /**
  * Paid toward outstanding on a TI: Σ(net + GST + other + recovered) on linked
  * payments plus FIFO-allocated unlinked (net+GST+other). Does not include

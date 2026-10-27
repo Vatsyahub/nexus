@@ -11,6 +11,7 @@ import {
   invoiceDueDate,
   invoiceExpectedCash,
   invoiceExtraTotal,
+  invoiceListedPayments,
   invoiceOutstanding,
   paymentAccounted,
   paymentCash,
@@ -62,7 +63,7 @@ export default function InvoiceDetailPage() {
   const expected = invoiceExpectedCash(inv, data);
   const dueDate = inv.type === "TI" ? invoiceDueDate(inv, data) : null;
   const invoice = inv;
-  const linkedPayments = data.payments.filter((p) => p.invoiceId === invoice.id);
+  const linkedPayments = invoiceListedPayments(invoice, data);
   const isMaster = session?.user?.clearance === "master";
   const showDelete =
     invoice.type === "PI" || (status === "authenticated" && isMaster);
@@ -234,6 +235,7 @@ export default function InvoiceDetailPage() {
                   </Link>
                   <p className="text-xs text-[var(--fh-muted)]">
                     cash {formatMoney(paymentCash(p))}
+                    {p.link === "unlinked" ? " · Unlinked" : ""}
                     {p.retentionAmount
                       ? ` · ret ${formatMoney(p.retentionAmount)}`
                       : ""}
