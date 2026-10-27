@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useMemo } from "react";
+import { Suspense, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useViewQuery } from "@/lib/use-view-query";
 import {
@@ -625,9 +625,35 @@ function PaidAmount({
       </Link>
     );
   }
+  return <PaidAmountList label={label} payments={linked} linkClass={linkClass} />;
+}
+
+function PaidAmountList({
+  label,
+  payments,
+  linkClass,
+}: {
+  label: string;
+  payments: Payment[];
+  linkClass: string;
+}) {
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      const details = detailsRef.current;
+      if (!details?.open) return;
+      if (e.target instanceof Node && details.contains(e.target)) return;
+      details.open = false;
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
   return (
     <div className="flex justify-end">
-      <details className="relative ml-auto w-fit max-w-full text-right">
+      <details
+        ref={detailsRef}
+        className="relative ml-auto w-fit max-w-full text-right"
+      >
         <summary
           className={cn(
             linkClass,
@@ -637,7 +663,7 @@ function PaidAmount({
           {label}
         </summary>
         <div className="absolute right-0 z-20 mt-1 min-w-44 rounded-md border border-[var(--fh-line)] bg-white p-1 text-left shadow-sm">
-          {linked.map((p) => (
+          {payments.map((p) => (
             <Link
               key={p.id}
               href={`/payments/${p.id}`}
