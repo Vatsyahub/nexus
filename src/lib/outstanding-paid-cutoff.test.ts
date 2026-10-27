@@ -89,6 +89,7 @@ function row(outstanding: number): InvoiceOutstandingRow {
     finalAmount: Math.abs(outstanding),
     expected: Math.abs(outstanding),
     paid: 0,
+    paidPaymentIds: [],
     outstanding,
     daysUntilDue: -15,
     status: "due",

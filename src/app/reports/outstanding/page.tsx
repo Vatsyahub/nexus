@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   outstandingIsStillDue,
+  paymentAccounted,
   useFlowhubData,
   useWorkspaceReady,
 } from "@/lib/store";
@@ -32,6 +33,7 @@ import {
 } from "@/components/report-export-icons";
 import { HubPage } from "@/components/hub-scroll";
 import { cn } from "@/lib/utils";
+import type { Payment } from "@/lib/types";
 import {
   ReportsEmpty,
   ReportsHeader,
@@ -307,6 +309,7 @@ function InvoicesAndOutstandingsInner() {
               />
               <InvoicesTable
                 rows={invoiceRows}
+                payments={data.payments}
                 title={
                   dueWithin === 7
                     ? "Outstandings — due in 7 days"
@@ -360,10 +363,12 @@ function TabButton({
 
 function InvoicesTable({
   rows,
+  payments,
   title,
   filters,
 }: {
   rows: ReturnType<typeof buildInvoiceOutstandingRows>;
+  payments: Payment[];
   title: string;
   filters: string;
 }) {
@@ -431,7 +436,11 @@ function InvoicesTable({
                   </td>
                   <td className={reportMoney}>{formatMoney(r.finalAmount)}</td>
                   <td className={reportMoney}>
-                    {formatMoney(r.paid > 0.005 ? r.paid : 0)}
+                    <PaidAmount
+                      amount={r.paid}
+                      paymentIds={r.paidPaymentIds}
+                      payments={payments}
+                    />
                   </td>
                   <td className={cn(reportMoney, "font-medium")}>
                     {formatMoney(r.outstanding)}
@@ -585,6 +594,58 @@ function ProformasTable({
         ])}
       />
     </>
+  );
+}
+
+function PaidAmount({
+  amount,
+  paymentIds,
+  payments,
+}: {
+  amount: number;
+  paymentIds: string[];
+  payments: Payment[];
+}) {
+  const label = formatMoney(amount > 0.005 ? amount : 0);
+  const linked = paymentIds
+    .map((id) => payments.find((p) => p.id === id))
+    .filter((p): p is Payment => !!p);
+  if (linked.length === 0) return label;
+  const linkClass = "font-medium text-[var(--fh-steel)] hover:underline";
+  if (linked.length === 1) {
+    return (
+      <Link
+        href={`/payments/${linked[0].id}`}
+        className={cn(linkClass, "inline")}
+      >
+        {label}
+      </Link>
+    );
+  }
+  return (
+    <div className="flex justify-end">
+      <details className="relative ml-auto w-fit max-w-full text-right">
+        <summary
+          className={cn(
+            linkClass,
+            "block cursor-pointer list-none text-right marker:content-none [&::-webkit-details-marker]:hidden"
+          )}
+        >
+          {label}
+        </summary>
+        <div className="absolute right-0 z-20 mt-1 min-w-44 rounded-md border border-[var(--fh-line)] bg-white p-1 text-left shadow-sm">
+          {linked.map((p) => (
+            <Link
+              key={p.id}
+              href={`/payments/${p.id}`}
+              className="block rounded px-2 py-1 text-xs text-[var(--fh-steel)] hover:underline"
+            >
+              {formatDisplayDate(p.date)} · {formatMoney(paymentAccounted(p))}
+            </Link>
+          ))}
+        </div>
+      </details>
+    </div>
   );
 }
 

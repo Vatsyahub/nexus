@@ -54,6 +54,19 @@ function isTiLinkedPayment(p: Payment) {
   return p.link === "TI" || (!p.link && !!p.invoiceId);
 }
 
+/** Payments saved against this tax invoice, oldest first. Zero-amount rows stay out. */
+function paidPaymentIds(ti: Invoice, data: FlowhubData): string[] {
+  return data.payments
+    .filter((p) => p.invoiceId === ti.id && isTiLinkedPayment(p))
+    .filter((p) => paymentAccounted(p) > 0.005)
+    .slice()
+    .sort(
+      (a, b) =>
+        a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt)
+    )
+    .map((p) => p.id);
+}
+
 /** Linked-payment component sums for a TI (unlinked FIFO is not attributed here). */
 function tiLinkedPaidBreakdown(ti: Invoice, data: FlowhubData) {
   let netPaid = 0;
@@ -339,6 +352,11 @@ export type InvoiceOutstandingRow = {
   expected: number;
   /** invoicePaidAmount: accounted total, including the FIFO slice (0 if none) */
   paid: number;
+  /**
+   * Tax-invoice payments linked to this invoice that make up Paid.
+   * Oldest first. Empty when nothing is linked to the invoice.
+   */
+  paidPaymentIds: string[];
   outstanding: number;
   /** Days until due: positive = future, 0 = today, negative = past due */
   daysUntilDue: number;
@@ -418,6 +436,7 @@ export function buildInvoiceOutstandingRows(
         finalAmount: ti.finalAmount,
         expected,
         paid,
+        paidPaymentIds: paidPaymentIds(ti, data),
         outstanding,
         daysUntilDue: daysBetween(today, dueDate),
         status: invoiceOutstandingStatus(outstanding, paid, dueDate, today),
