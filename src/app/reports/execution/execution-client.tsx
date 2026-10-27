@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useViewQuery } from "@/lib/use-view-query";
 import { useFlowhubData, useWorkspaceReady } from "@/lib/store";
 import { HubPage } from "@/components/hub-scroll";
 import {
@@ -57,55 +58,41 @@ export default function ExecutionReportClient({
   const data = useFlowhubData();
   const ready = useWorkspaceReady();
   const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [tab, setTab] = useState<Tab>(() => {
-    const raw = searchParams.get("tab");
-    if (raw === "other" && searchParams.get("sub") === "supply") return "supply";
-    if (raw === "other") return "dispatch";
-    return parseTab(raw);
-  });
-  const [contractId, setContractId] = useState(
-    () => searchParams.get("contract") ?? ""
-  );
+  const { get, commit } = useViewQuery();
+  const rawTab = get("tab");
+  const sub = get("sub");
+  const tab: Tab =
+    rawTab === "other" && sub === "supply"
+      ? "supply"
+      : rawTab === "other"
+        ? "dispatch"
+        : parseTab(rawTab);
+  const contractId = get("contract");
 
   useEffect(() => {
     const raw = searchParams.get("tab");
-    const sub = searchParams.get("sub");
+    const legacySub = searchParams.get("sub");
     // Legacy Other reports lived under Execution — send WO/Tasks to new page
-    if (raw === "other" && sub !== "supply") {
+    if (raw === "other" && legacySub !== "supply") {
       const dest =
-        sub === "tasks" ? "/reports/other?tab=tasks" : "/reports/other";
+        legacySub === "tasks" ? "/reports/other?tab=tasks" : "/reports/other";
       router.replace(dest);
-      return;
     }
-    if (raw === "other" && sub === "supply") setTab("supply");
-    else setTab(parseTab(raw));
-    setContractId(searchParams.get("contract") ?? "");
   }, [searchParams, router]);
 
-  function replaceParams(patch: Record<string, string | null>) {
-    const params = new URLSearchParams(searchParams.toString());
-    for (const [k, v] of Object.entries(patch)) {
-      if (v) params.set(k, v);
-      else params.delete(k);
-    }
-    // Drop legacy Other-reports sub param
-    params.delete("sub");
-    const qs = params.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-  }
-
   function selectTab(next: Tab) {
-    setTab(next);
-    replaceParams({
+    commit({
       tab: next === "dispatch" ? null : next,
+      sub: null,
+      q: null,
+      from: null,
+      to: null,
     });
   }
 
   function selectContract(id: string) {
-    setContractId(id);
-    replaceParams({ contract: id || null });
+    commit({ contract: id || null });
   }
 
   return (

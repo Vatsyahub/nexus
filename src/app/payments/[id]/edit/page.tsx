@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { HubReturnLink } from "@/components/hub-return-link";
 import { useParams, useRouter } from "next/navigation";
 import { updatePayment, useFlowhubData } from "@/lib/store";
 import { confirmWorkspaceSave } from "@/lib/save-notice";
@@ -23,9 +24,9 @@ export default function EditPaymentPage() {
     return (
       <div className="space-y-3">
         <p className="text-sm text-[var(--fh-muted)]">Payment not found.</p>
-        <Link href="/payments" className={cn(buttonVariants({ variant: "outline" }))}>
+        <HubReturnLink href="/payments" className={cn(buttonVariants({ variant: "outline" }))}>
           Back
-        </Link>
+        </HubReturnLink>
       </div>
     );
   }

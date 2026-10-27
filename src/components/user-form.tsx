@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import Link from "next/link";
+import { HubReturnLink } from "@/components/hub-return-link";
 import {
   createUser,
   updateUser,
@@ -141,9 +141,9 @@ export function UserForm({ existing }: { existing?: UserRow }) {
         >
           {pending ? "Saving…" : existing ? "Save changes" : "Create user"}
         </Button>
-        <Link href="/users" className={cn(buttonVariants({ variant: "outline" }))}>
+        <HubReturnLink href="/users" className={cn(buttonVariants({ variant: "outline" }))}>
           Back
-        </Link>
+        </HubReturnLink>
       </div>
     </form>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
+import { HubReturnLink } from "@/components/hub-return-link";
 import { useRouter } from "next/navigation";
 import { reassignDepartmentMembers } from "@/app/actions/users";
 import { confirmAction } from "@/components/confirm-panel";
@@ -152,9 +152,9 @@ export function DepartmentsClient({ users }: { users: UserRow[] }) {
             Departments
           </h1>
         </div>
-        <Link href="/users" className={cn(buttonVariants({ variant: "outline" }))}>
+        <HubReturnLink href="/users" className={cn(buttonVariants({ variant: "outline" }))}>
           Back to users
-        </Link>
+        </HubReturnLink>
       </div>
 
       <form

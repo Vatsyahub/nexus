@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import Link from "next/link";
+import { useListFilters } from "@/lib/use-view-query";
 import { useRouter } from "next/navigation";
 import { deleteUser } from "@/app/actions/users";
 import { confirmAction } from "@/components/confirm-panel";
@@ -18,8 +19,22 @@ export function UsersClient({
   users: UserRow[];
   currentUserId: string;
 }) {
+  return (
+    <Suspense fallback={null}>
+      <UsersClientInner users={users} currentUserId={currentUserId} />
+    </Suspense>
+  );
+}
+
+function UsersClientInner({
+  users,
+  currentUserId,
+}: {
+  users: UserRow[];
+  currentUserId: string;
+}) {
   const router = useRouter();
-  const [q, setQ] = useState("");
+  const { q, setQ } = useListFilters();
   const [msg, setMsg] = useState<string | null>(null);
 
   const filtered = useMemo(() => {

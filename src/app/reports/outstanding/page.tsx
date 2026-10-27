@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useMemo } from "react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useViewQuery } from "@/lib/use-view-query";
 import {
   outstandingIsStillDue,
   paymentAccounted,
@@ -47,7 +47,7 @@ import {
 
 type Tab = "all" | "outstandings" | "proformas";
 
-function parseTab(raw: string | null): Tab {
+function parseTab(raw: string): Tab {
   if (raw === "outstandings" || raw === "proformas") return raw;
   return "all";
 }
@@ -63,27 +63,30 @@ export default function InvoicesAndOutstandingsPage() {
 function InvoicesAndOutstandingsInner() {
   const data = useFlowhubData();
   const ready = useWorkspaceReady();
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const [tab, setTab] = useState<Tab>(() => parseTab(searchParams.get("tab")));
-  const [q, setQ] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const dueWithin = searchParams.get("dueWithin") === "7" ? 7 : 0;
-
-  useEffect(() => {
-    setTab(parseTab(searchParams.get("tab")));
-  }, [searchParams]);
+  const { get, commit } = useViewQuery();
+  const tab = parseTab(get("tab"));
+  const q = get("q");
+  const dateFrom = get("from");
+  const dateTo = get("to");
+  const dueWithin = get("dueWithin") === "7" ? 7 : 0;
 
   function selectTab(next: Tab) {
-    setTab(next);
-    const params = new URLSearchParams(searchParams.toString());
-    if (next === "all") params.delete("tab");
-    else params.set("tab", next);
-    params.delete("dueWithin");
-    const qs = params.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    commit({
+      tab: next === "all" ? null : next,
+      dueWithin: null,
+    });
+  }
+
+  function setQ(value: string) {
+    commit({ q: value || null });
+  }
+
+  function setDateFrom(value: string) {
+    commit({ from: value || null });
+  }
+
+  function setDateTo(value: string) {
+    commit({ to: value || null });
   }
 
   const allInvoiceRows = useMemo(

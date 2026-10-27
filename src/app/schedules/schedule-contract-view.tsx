@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import Link from "next/link";
+import { HubReturnLink } from "@/components/hub-return-link";
 import { useFlowhubData } from "@/lib/store";
 import {
   SCHEDULE_KIND_LABELS,
@@ -123,12 +123,12 @@ export function ScheduleContractView({
       <div className="space-y-3">
         <p className="text-sm text-[var(--fh-muted)]">Contract not found.</p>
         {!embedded && (
-          <Link
+          <HubReturnLink
             href="/schedules"
             className={cn(buttonVariants({ variant: "outline" }))}
           >
             Back to schedules
-          </Link>
+          </HubReturnLink>
         )}
       </div>
     );
@@ -200,12 +200,12 @@ export function ScheduleContractView({
     <div className="space-y-6">
       {!embedded && (
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <Link
+          <HubReturnLink
             href="/schedules"
             className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
           >
             Back to schedules
-          </Link>
+          </HubReturnLink>
           <div className="flex flex-wrap items-center gap-2">
             <ReportExportIcons
               className="mt-0"

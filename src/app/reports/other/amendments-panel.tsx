@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useViewQuery } from "@/lib/use-view-query";
 import type { Contract, FlowhubData } from "@/lib/types";
 import { boqTotal } from "@/lib/types";
 import { formatMoney } from "@/lib/format-money";
@@ -54,8 +55,21 @@ function figureClass(
 }
 
 export function AmendmentsPanel({ data }: { data: FlowhubData }) {
-  const [query, setQuery] = useState("");
-  const [contractId, setContractId] = useState("");
+  const { get, commit, retreatSamePage } = useViewQuery();
+  const query = get("q");
+  const contractId = get("contract");
+
+  function setQuery(value: string) {
+    commit({ q: value || null });
+  }
+
+  function openContract(id: string) {
+    commit({ contract: id }, "push");
+  }
+
+  function closeContract() {
+    if (!retreatSamePage()) commit({ contract: null });
+  }
   const listed = useMemo(
     () => buildAmendmentListRows(data.contracts),
     [data.contracts]
@@ -76,13 +90,13 @@ export function AmendmentsPanel({ data }: { data: FlowhubData }) {
         onQuery={setQuery}
         rows={rows}
         hasAny={listed.length > 0}
-        onOpen={setContractId}
+        onOpen={openContract}
       />
     );
   }
 
   return (
-    <AmendmentDetails contract={contract} onBack={() => setContractId("")} />
+    <AmendmentDetails contract={contract} onBack={closeContract} />
   );
 }
 

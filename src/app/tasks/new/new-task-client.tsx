@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type FormEvent } from "react";
-import Link from "next/link";
+import { HubReturnLink } from "@/components/hub-return-link";
 import { useRouter } from "next/navigation";
 import { addManualTask, flushWorkspace, listDepartments, useFlowhubData } from "@/lib/store";
 import {
@@ -158,12 +158,12 @@ export function NewTaskClient({
         <h1 className="font-[family-name:var(--font-display)] text-4xl font-semibold text-[var(--fh-steel)]">
           Add New Task
         </h1>
-        <Link
+        <HubReturnLink
           href={listHref}
           className={cn(buttonVariants({ variant: "outline" }))}
         >
           Back to tasks
-        </Link>
+        </HubReturnLink>
       </div>
 
       <form
@@ -310,12 +310,12 @@ export function NewTaskClient({
           <Button type="submit" {...entrySaveProps} className="bg-[var(--fh-steel)]">
             Create task
           </Button>
-          <Link
+          <HubReturnLink
             href={listHref}
             className={cn(buttonVariants({ variant: "outline" }))}
           >
             Cancel
-          </Link>
+          </HubReturnLink>
         </div>
       </form>
     </div>

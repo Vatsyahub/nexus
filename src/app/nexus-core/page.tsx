@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo } from "react";
+import { useViewQuery } from "@/lib/use-view-query";
 import Link from "next/link";
 import {
   contractActualRetentionHold,
@@ -49,10 +50,27 @@ const TRACK = "var(--fh-line)";
 const PANEL = "var(--fh-panel)";
 
 export default function NexusCorePage() {
+  return (
+    <Suspense fallback={null}>
+      <NexusCoreInner />
+    </Suspense>
+  );
+}
+
+function NexusCoreInner() {
   const data = useFlowhubData();
   const ready = useWorkspaceReady();
-  const [billCity, setBillCity] = useState("");
-  const [withRetention, setWithRetention] = useState(true);
+  const { get, commit } = useViewQuery();
+  const billCity = get("city");
+  const withRetention = get("retention") !== "0";
+
+  function setBillCity(value: string) {
+    commit({ city: value || null });
+  }
+
+  function setWithRetention(next: boolean) {
+    commit({ retention: next ? null : "0" });
+  }
 
   const today = todayIso();
   const fy = financialYear(today);

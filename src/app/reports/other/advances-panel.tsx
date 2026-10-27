@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useListFilters } from "@/lib/use-view-query";
 import type { FlowhubData } from "@/lib/types";
 import { formatMoney } from "@/lib/format-money";
 import { matchesAny } from "@/lib/list-search";
@@ -29,7 +30,7 @@ const theadClass =
 
 /** Contracts with a recoverable payment. Figures match the payment-form pool. */
 export function RecoverableAdvancesPanel({ data }: { data: FlowhubData }) {
-  const [q, setQ] = useState("");
+  const { q, setQ } = useListFilters();
   const all = useMemo(() => buildRecoverableAdvanceRows(data), [data]);
   const rows = useMemo(() => {
     const needle = q.trim();

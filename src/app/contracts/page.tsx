@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo } from "react";
 import Link from "next/link";
+import { useListFilters } from "@/lib/use-view-query";
 import {
   closureDateNeedsAttention,
   taskIsOpen,
@@ -34,8 +35,16 @@ function formatMoney(n: number) {
 }
 
 export default function ContractsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ContractsPageInner />
+    </Suspense>
+  );
+}
+
+function ContractsPageInner() {
   const data = useFlowhubData();
-  const [q, setQ] = useState("");
+  const { q, setQ } = useListFilters();
   const today = todayIso();
 
   const rows = useMemo(() => {

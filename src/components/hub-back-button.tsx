@@ -1,69 +1,56 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
+import {
+  currentHubPath,
+  hubBackTarget,
+  noteHubLocation,
+  readHubStack,
+  stackAfterPop,
+  writeHubStack,
+} from "@/lib/hub-nav";
 
-const STORAGE_KEY = "nexus-hub-nav-stack";
-const MAX_STACK = 50;
-
-function currentHubPath() {
-  if (typeof window === "undefined") return "/";
-  return `${window.location.pathname}${window.location.search}`;
-}
-
-function readStack(): string[] {
-  try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed)
-      ? parsed.filter((p): p is string => typeof p === "string")
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeStack(stack: string[]) {
-  try {
-    sessionStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify(stack.slice(-MAX_STACK))
-    );
-  } catch {
-    /* ignore quota / private mode */
-  }
-}
-
-/** Small right-edge tab — previous hub page. */
-export function HubBackButton() {
+function HubBackButtonInner() {
   const pathname = usePathname();
+  const search = useSearchParams().toString();
   const router = useRouter();
   const [canBack, setCanBack] = useState(false);
 
   useEffect(() => {
     if (pathname.startsWith("/login")) return;
-    const current = currentHubPath();
-    const stack = readStack();
-    if (stack[stack.length - 1] !== current) {
-      stack.push(current);
-      writeStack(stack);
+    const next = noteHubLocation(readHubStack(), currentHubPath(), "auto");
+    writeHubStack(next);
+    setCanBack(next.length > 1);
+  }, [pathname, search]);
+
+  useEffect(() => {
+    function onPop() {
+      const next = stackAfterPop(readHubStack(), currentHubPath());
+      writeHubStack(next);
+      setCanBack(next.length > 1);
     }
-    setCanBack(stack.length > 1);
-  }, [pathname]);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   function goBack() {
-    const stack = readStack();
-    if (stack.length < 2) {
+    const current = currentHubPath();
+    let stack = readHubStack();
+    if (stack[stack.length - 1] !== current) {
+      stack = noteHubLocation(stack, current, "auto");
+    }
+    const back = hubBackTarget(stack);
+    if (!back) {
+      writeHubStack(stack.length ? stack : [current]);
+      setCanBack(false);
       router.push("/");
       return;
     }
-    stack.pop();
-    const prev = stack[stack.length - 1] || "/";
-    writeStack(stack);
-    setCanBack(stack.length > 1);
-    router.push(prev);
+    writeHubStack(back.stack);
+    setCanBack(back.stack.length > 1);
+    router.back();
   }
 
   if (pathname.startsWith("/login") || pathname === "/") return null;
@@ -79,5 +66,14 @@ export function HubBackButton() {
     >
       <ArrowLeft className="size-3.5" aria-hidden />
     </button>
+  );
+}
+
+/** Small right-edge tab — previous hub page, including its query. */
+export function HubBackButton() {
+  return (
+    <Suspense fallback={null}>
+      <HubBackButtonInner />
+    </Suspense>
   );
 }

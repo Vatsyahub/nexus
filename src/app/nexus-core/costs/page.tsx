@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo } from "react";
+import { useViewQuery } from "@/lib/use-view-query";
 import Link from "next/link";
+import { HubReturnLink } from "@/components/hub-return-link";
 import {
   hydrateWorkspace,
   useFlowhubData,
@@ -29,14 +31,31 @@ import { HubDataScroll, HubPage } from "@/components/hub-scroll";
 import { cn } from "@/lib/utils";
 
 export default function CostCentrePage() {
+  return (
+    <Suspense fallback={null}>
+      <CostCentreInner />
+    </Suspense>
+  );
+}
+
+function CostCentreInner() {
   const data = useFlowhubData();
   const ready = useWorkspaceReady();
   useEffect(() => {
     if (ready) return;
     void hydrateWorkspace({ force: true });
   }, [ready]);
-  const [q, setQ] = useState("");
-  const [lossesOnly, setLossesOnly] = useState(false);
+  const { get, commit } = useViewQuery();
+  const q = get("q");
+  const lossesOnly = get("losses") === "1";
+
+  function setQ(value: string) {
+    commit({ q: value || null });
+  }
+
+  function setLossesOnly(next: boolean) {
+    commit({ losses: next ? "1" : null });
+  }
   const today = todayIso();
 
   const allRows = useMemo(
@@ -123,12 +142,12 @@ export default function CostCentrePage() {
           >
             Add costs
           </Link>
-          <Link
+          <HubReturnLink
             href="/nexus-core"
             className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
           >
             Back to Nexus Core
-          </Link>
+          </HubReturnLink>
         </div>
       </div>
 
@@ -180,7 +199,7 @@ export default function CostCentrePage() {
                 aria-pressed={lossesOnly}
                 aria-label="Losses"
                 data-losses={lossesOnly ? "on" : "off"}
-                onClick={() => setLossesOnly((on) => !on)}
+                onClick={() => setLossesOnly(!lossesOnly)}
                 className="inline-flex size-8 items-center justify-center rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[var(--destructive)]/40"
               >
                 <svg

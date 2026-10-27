@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
+import { useViewQuery } from "@/lib/use-view-query";
 import {
   applyCascadeProposals,
   clearScheduleChangeLog,
@@ -50,6 +51,18 @@ import { cn } from "@/lib/utils";
 
 type Tab = "all" | "near" | "overdue" | "view" | "changelog";
 
+function parseScheduleTab(raw: string): Tab {
+  if (
+    raw === "near" ||
+    raw === "overdue" ||
+    raw === "view" ||
+    raw === "changelog"
+  ) {
+    return raw;
+  }
+  return "all";
+}
+
 function todayIso() {
   const t = new Date();
   const m = String(t.getMonth() + 1).padStart(2, "0");
@@ -86,7 +99,21 @@ function scheduleStatusLabel(s: ScheduleLine, today: string) {
   return "Planned";
 }
 
-export default function SchedulesClient({
+export default function SchedulesClient(
+  props: {
+    canEdit: boolean;
+    isMaster: boolean;
+    actorName: string;
+  }
+) {
+  return (
+    <Suspense fallback={null}>
+      <SchedulesClientInner {...props} />
+    </Suspense>
+  );
+}
+
+function SchedulesClientInner({
   canEdit,
   isMaster,
   actorName,
@@ -97,19 +124,46 @@ export default function SchedulesClient({
 }) {
   const data = useFlowhubData();
   const router = useRouter();
-  const [tab, setTab] = useState<Tab>("all");
-  const [q, setQ] = useState("");
-  const [committedFilter, setCommittedFilter] = useState<
-    "all" | "committed" | "uncommitted"
-  >("all");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const { get, commit } = useViewQuery();
+  const tab = parseScheduleTab(get("tab"));
+  const q = get("q");
+  const committedRaw = get("committed");
+  const committedFilter: "all" | "committed" | "uncommitted" =
+    committedRaw === "committed" || committedRaw === "uncommitted"
+      ? committedRaw
+      : "all";
+  const fromDate = get("from");
+  const toDate = get("to");
   const [msg, setMsg] = useState<string | null>(null);
   const [cascade, setCascade] = useState<CascadeProposal[] | null>(null);
   const [cascadeContractId, setCascadeContractId] = useState<string | null>(
     null
   );
-  const [viewContractId, setViewContractId] = useState("");
+  const viewContractId = get("contract");
+
+  function setTab(next: Tab) {
+    commit({ tab: next === "all" ? null : next });
+  }
+
+  function setQ(value: string) {
+    commit({ q: value || null });
+  }
+
+  function setCommittedFilter(next: "all" | "committed" | "uncommitted") {
+    commit({ committed: next === "all" ? null : next });
+  }
+
+  function setFromDate(value: string) {
+    commit({ from: value || null });
+  }
+
+  function setToDate(value: string) {
+    commit({ to: value || null });
+  }
+
+  function setViewContractId(value: string) {
+    commit({ contract: value || null });
+  }
 
   const today = todayIso();
 
@@ -266,9 +320,7 @@ export default function SchedulesClient({
                   ? "bg-[var(--fh-steel)] text-white hover:bg-[#244a5e]"
                   : undefined
               }
-              onClick={() =>
-                setTab((t) => (t === "changelog" ? "all" : "changelog"))
-              }
+              onClick={() => setTab(tab === "changelog" ? "all" : "changelog")}
             >
               Change log
               <span className="ml-1.5 tabular-nums opacity-80">

@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo } from "react";
 import Link from "next/link";
+import { useListFilters } from "@/lib/use-view-query";
 import {
   paymentAccounted,
   paymentCash,
@@ -30,11 +31,16 @@ function formatMoney(n: number) {
 }
 
 export default function PaymentsPage() {
-  const data = useFlowhubData();
-  const [q, setQ] = useState("");
+  return (
+    <Suspense fallback={null}>
+      <PaymentsPageInner />
+    </Suspense>
+  );
+}
 
-  const [filterFrom, setFilterFrom] = useState("");
-  const [filterTo, setFilterTo] = useState("");
+function PaymentsPageInner() {
+  const data = useFlowhubData();
+  const { q, from: filterFrom, to: filterTo, setQ, setFrom: setFilterFrom, setTo: setFilterTo } = useListFilters();
 
   const filtered = listIsFiltered({
     search: q,

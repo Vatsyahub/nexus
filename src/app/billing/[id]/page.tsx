@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { HubReturnLink } from "@/components/hub-return-link";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
@@ -46,9 +47,9 @@ export default function InvoiceDetailPage() {
     return (
       <div className="space-y-3">
         <p className="text-sm text-[var(--fh-muted)]">Invoice not found.</p>
-        <Link href="/billing" className={cn(buttonVariants({ variant: "outline" }))}>
+        <HubReturnLink href="/billing" className={cn(buttonVariants({ variant: "outline" }))}>
           Back
-        </Link>
+        </HubReturnLink>
       </div>
     );
   }
@@ -81,12 +82,12 @@ export default function InvoiceDetailPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Link
+        <HubReturnLink
           href="/billing"
           className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
         >
           Back to billing
-        </Link>
+        </HubReturnLink>
         <div className="flex flex-wrap items-center gap-2">
           <Badge>{inv.type}</Badge>
           <EditIconLink href={`/billing/${id}/edit`} label="Edit invoice" />

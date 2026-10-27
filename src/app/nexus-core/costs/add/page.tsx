@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { HubReturnLink } from "@/components/hub-return-link";
 import { useSession } from "next-auth/react";
 import {
   flushWorkspace,
@@ -70,12 +70,12 @@ export default function AddCostsPage() {
             Add costs
           </h1>
         </div>
-        <Link
+        <HubReturnLink
           href="/nexus-core/costs"
           className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
         >
           Back to Cost centre
-        </Link>
+        </HubReturnLink>
       </div>
 
       {!ready ? (
