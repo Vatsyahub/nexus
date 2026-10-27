@@ -644,6 +644,7 @@ function PaidAmount({
               className="block rounded px-2 py-1 text-xs text-[var(--fh-steel)] hover:underline"
             >
               {formatDisplayDate(p.date)} · {formatMoney(paymentAccounted(p))}
+              {p.link === "unlinked" ? " · Unlinked" : ""}
             </Link>
           ))}
         </div>
