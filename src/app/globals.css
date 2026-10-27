@@ -69,6 +69,9 @@
   --fh-profit-yellow-tint: #f6efd6;
   --fh-profit-red: var(--destructive);
   --fh-profit-red-tint: #f8ebe8;
+  /* Pie percent sitting on the accent slice. Dark type, light edge. */
+  --fh-figure-on-accent: #14232e;
+  --fh-figure-on-accent-edge: #ffffff;
 
   --background: #eef1f4;
   --foreground: #14232e;
@@ -389,6 +392,70 @@ html[data-theme="dark-knight"] {
   --sidebar-ring: #d4b36a;
 }
 
+/* Matrix: 1999 digital rain. Pure black, phosphor type, thin green borders.
+   The head glyph is the bright leading green; the trail is dimmer.
+   Rain is a background layer. Panels stay opaque so figures stay readable.
+   Master only. No cream type and no antique gold. */
+html[data-theme="matrix"] {
+  color-scheme: dark;
+  --fh-bg: #000000;
+  --fh-ink: #8dff78;
+  --fh-muted: #5dce78;
+  --fh-steel: #c6ffb0;
+  --fh-accent: #00ff41;
+  --fh-brand: #39ff14;
+  --fh-line: #145c28;
+  --fh-panel: #04140c;
+  --fh-ok: #39ff14;
+  --fh-bg-end: #000000;
+  --fh-glow: rgba(0, 255, 65, 0.08);
+  --fh-wash: rgba(0, 40, 12, 0.35);
+  --fh-steel-fill: #000000;
+  --fh-steel-hover: #0c2e16;
+  --fh-accent-hover: #7dff6b;
+  --fh-panel-hover: #082416;
+  --fh-profit-green: #7dff6b;
+  --fh-profit-green-tint: rgba(0, 255, 65, 0.16);
+  --fh-profit-yellow: #d2ff6a;
+  --fh-profit-yellow-tint: rgba(210, 255, 106, 0.14);
+  --fh-profit-red: #ff8d84;
+  --fh-profit-red-tint: rgba(255, 110, 100, 0.2);
+  --fh-figure-on-accent: #03140a;
+  --fh-figure-on-accent-edge: #03140a;
+
+  --background: #000000;
+  --foreground: #8dff78;
+  --card: #04140c;
+  --card-foreground: #8dff78;
+  --popover: #04140c;
+  --popover-foreground: #8dff78;
+  --primary: #0a2e14;
+  --primary-foreground: #d6ffc2;
+  --secondary: #071a0e;
+  --secondary-foreground: #8dff78;
+  --muted: #071a0e;
+  --muted-foreground: #5dce78;
+  --accent: #00ff41;
+  --accent-foreground: #03140a;
+  --destructive: #ff6b63;
+  --border: #145c28;
+  --input: #1a5c32;
+  --ring: #39ff14;
+  --chart-1: #00ff41;
+  --chart-2: #176105;
+  --chart-3: #89f76e;
+  --chart-4: #c6ffb0;
+  --chart-5: #0d4a18;
+  --sidebar: #000000;
+  --sidebar-foreground: #c6ffb0;
+  --sidebar-primary: #00ff41;
+  --sidebar-primary-foreground: #03140a;
+  --sidebar-accent: #0c2e16;
+  --sidebar-accent-foreground: #c6ffb0;
+  --sidebar-border: #145c28;
+  --sidebar-ring: #39ff14;
+}
+
 /* Native select popups. color-scheme: dark paints option type light while the
    popup stays white. Pin the list to the theme panel and keep color-scheme
    dark so the browser does not swap in a light system menu. */
@@ -420,6 +487,20 @@ html[data-theme="dark-knight"] option:checked {
   color: #ebe6dc;
 }
 
+html[data-theme="matrix"] select,
+html[data-theme="matrix"] option {
+  color-scheme: dark;
+  background-color: #04140c;
+  color: #b6ff9a;
+}
+html[data-theme="matrix"] option:hover,
+html[data-theme="matrix"] option:focus,
+html[data-theme="matrix"] option:active,
+html[data-theme="matrix"] option:checked {
+  background-color: #0c3a18;
+  color: #d6ffc2;
+}
+
 /* Profit-percent chips: light type on a quiet tint, still readable on charcoal. */
 html[data-theme="dark"],
 html[data-theme="dark-knight"] {
@@ -432,23 +513,27 @@ html[data-theme="dark-knight"] {
 
 /* Cards written as bg-white follow the charcoal panel. */
 html[data-theme="dark"] [class~="bg-white"],
-html[data-theme="dark-knight"] [class~="bg-white"] {
+html[data-theme="dark-knight"] [class~="bg-white"],
+html[data-theme="matrix"] [class~="bg-white"] {
   background-color: var(--fh-panel);
 }
 
 html[data-theme="dark"] [class~="hover:bg-white"]:hover,
-html[data-theme="dark-knight"] [class~="hover:bg-white"]:hover {
+html[data-theme="dark-knight"] [class~="hover:bg-white"]:hover,
+html[data-theme="matrix"] [class~="hover:bg-white"]:hover {
   background-color: var(--fh-panel-hover);
 }
 
 html[data-theme="dark"] [class~="bg-white/70"],
-html[data-theme="dark-knight"] [class~="bg-white/70"] {
+html[data-theme="dark-knight"] [class~="bg-white/70"],
+html[data-theme="matrix"] [class~="bg-white/70"] {
   background-color: color-mix(in srgb, var(--fh-panel) 88%, transparent);
 }
 
 /* Steel fills stay navy or charcoal while --fh-steel is the light heading colour. */
 html[data-theme="dark"] [class~="bg-[var(--fh-steel)]"],
-html[data-theme="dark-knight"] [class~="bg-[var(--fh-steel)]"] {
+html[data-theme="dark-knight"] [class~="bg-[var(--fh-steel)]"],
+html[data-theme="matrix"] [class~="bg-[var(--fh-steel)]"] {
   background-color: var(--fh-steel-fill);
 }
 
@@ -464,37 +549,49 @@ html[data-theme="dark-knight"] [class~="bg-[#fff6e5]"] {
    lighten the type and deepen the chip so neither pair washes out. */
 html[data-theme="dark"] [class~="text-red-600"],
 html[data-theme="dark-knight"] [class~="text-red-600"],
+html[data-theme="matrix"] [class~="text-red-600"],
 html[data-theme="dark"] [class~="text-red-700"],
 html[data-theme="dark-knight"] [class~="text-red-700"],
+html[data-theme="matrix"] [class~="text-red-700"],
 html[data-theme="dark"] [class~="text-red-800"],
-html[data-theme="dark-knight"] [class~="text-red-800"] {
+html[data-theme="dark-knight"] [class~="text-red-800"],
+html[data-theme="matrix"] [class~="text-red-800"] {
   color: #fca5a5;
 }
 html[data-theme="dark"] [class~="bg-red-50"],
 html[data-theme="dark-knight"] [class~="bg-red-50"],
+html[data-theme="matrix"] [class~="bg-red-50"],
 html[data-theme="dark"] [class~="bg-red-50/60"],
 html[data-theme="dark-knight"] [class~="bg-red-50/60"],
+html[data-theme="matrix"] [class~="bg-red-50/60"],
 html[data-theme="dark"] [class~="bg-red-100"],
 html[data-theme="dark-knight"] [class~="bg-red-100"],
+html[data-theme="matrix"] [class~="bg-red-100"],
 html[data-theme="dark"] [class~="bg-red-100/90"],
-html[data-theme="dark-knight"] [class~="bg-red-100/90"] {
+html[data-theme="dark-knight"] [class~="bg-red-100/90"],
+html[data-theme="matrix"] [class~="bg-red-100/90"] {
   background-color: #3f2224;
 }
 html[data-theme="dark"] [class~="hover:bg-red-100"]:hover,
-html[data-theme="dark-knight"] [class~="hover:bg-red-100"]:hover {
+html[data-theme="dark-knight"] [class~="hover:bg-red-100"]:hover,
+html[data-theme="matrix"] [class~="hover:bg-red-100"]:hover {
   background-color: #532c2f;
 }
 
 html[data-theme="dark"] [class~="text-emerald-700"],
 html[data-theme="dark-knight"] [class~="text-emerald-700"],
+html[data-theme="matrix"] [class~="text-emerald-700"],
 html[data-theme="dark"] [class~="text-emerald-800"],
-html[data-theme="dark-knight"] [class~="text-emerald-800"] {
+html[data-theme="dark-knight"] [class~="text-emerald-800"],
+html[data-theme="matrix"] [class~="text-emerald-800"] {
   color: #6ee7b7;
 }
 html[data-theme="dark"] [class~="bg-emerald-50"],
 html[data-theme="dark-knight"] [class~="bg-emerald-50"],
+html[data-theme="matrix"] [class~="bg-emerald-50"],
 html[data-theme="dark"] [class~="bg-emerald-100"],
-html[data-theme="dark-knight"] [class~="bg-emerald-100"] {
+html[data-theme="dark-knight"] [class~="bg-emerald-100"],
+html[data-theme="matrix"] [class~="bg-emerald-100"] {
   background-color: #12312c;
 }
 
@@ -503,18 +600,22 @@ html[data-theme="dark-knight"] [class~="bg-emerald-100"] {
   color: #022c22;
 }
 html[data-theme="dark"] .amendment-added-text,
-html[data-theme="dark-knight"] .amendment-added-text {
+html[data-theme="dark-knight"] .amendment-added-text,
+html[data-theme="matrix"] .amendment-added-text {
   color: #d1fae5;
 }
 
 html[data-theme="dark"] [class~="text-green-700"],
 html[data-theme="dark-knight"] [class~="text-green-700"],
+html[data-theme="matrix"] [class~="text-green-700"],
 html[data-theme="dark"] [class~="text-green-800"],
-html[data-theme="dark-knight"] [class~="text-green-800"] {
+html[data-theme="dark-knight"] [class~="text-green-800"],
+html[data-theme="matrix"] [class~="text-green-800"] {
   color: #86efac;
 }
 html[data-theme="dark"] [class~="bg-green-50"],
-html[data-theme="dark-knight"] [class~="bg-green-50"] {
+html[data-theme="dark-knight"] [class~="bg-green-50"],
+html[data-theme="matrix"] [class~="bg-green-50"] {
   background-color: #143024;
 }
 
@@ -534,17 +635,20 @@ html[data-theme="dark-knight"] [class~="bg-amber-100"] {
 }
 
 html[data-theme="dark"] [class~="text-sky-900"],
-html[data-theme="dark-knight"] [class~="text-sky-900"] {
+html[data-theme="dark-knight"] [class~="text-sky-900"],
+html[data-theme="matrix"] [class~="text-sky-900"] {
   color: #7dd3fc;
 }
 html[data-theme="dark"] [class~="bg-sky-50"],
-html[data-theme="dark-knight"] [class~="bg-sky-50"] {
+html[data-theme="dark-knight"] [class~="bg-sky-50"],
+html[data-theme="matrix"] [class~="bg-sky-50"] {
   background-color: #132a3a;
 }
 
 /* Sign-in card stays white on the navy page, so it keeps the day palette. */
 html[data-theme="dark"] .nexus-force-light,
-html[data-theme="dark-knight"] .nexus-force-light {
+html[data-theme="dark-knight"] .nexus-force-light,
+html[data-theme="matrix"] .nexus-force-light {
   color-scheme: light;
   --fh-bg: #eef1f4;
   --fh-ink: #14232e;
@@ -563,23 +667,28 @@ html[data-theme="dark-knight"] .nexus-force-light {
   color: #14232e;
 }
 html[data-theme="dark"] .nexus-force-light [class~="bg-white"],
-html[data-theme="dark-knight"] .nexus-force-light [class~="bg-white"] {
+html[data-theme="dark-knight"] .nexus-force-light [class~="bg-white"],
+html[data-theme="matrix"] .nexus-force-light [class~="bg-white"] {
   background-color: #ffffff;
 }
 html[data-theme="dark"] .nexus-force-light [class~="bg-red-50"],
-html[data-theme="dark-knight"] .nexus-force-light [class~="bg-red-50"] {
+html[data-theme="dark-knight"] .nexus-force-light [class~="bg-red-50"],
+html[data-theme="matrix"] .nexus-force-light [class~="bg-red-50"] {
   background-color: #fef2f2;
 }
 html[data-theme="dark"] .nexus-force-light [class~="text-red-700"],
-html[data-theme="dark-knight"] .nexus-force-light [class~="text-red-700"] {
+html[data-theme="dark-knight"] .nexus-force-light [class~="text-red-700"],
+html[data-theme="matrix"] .nexus-force-light [class~="text-red-700"] {
   color: #b91c1c;
 }
 html[data-theme="dark"] .nexus-force-light [class~="bg-green-50"],
-html[data-theme="dark-knight"] .nexus-force-light [class~="bg-green-50"] {
+html[data-theme="dark-knight"] .nexus-force-light [class~="bg-green-50"],
+html[data-theme="matrix"] .nexus-force-light [class~="bg-green-50"] {
   background-color: #f0fdf4;
 }
 html[data-theme="dark"] .nexus-force-light [class~="text-green-800"],
-html[data-theme="dark-knight"] .nexus-force-light [class~="text-green-800"] {
+html[data-theme="dark-knight"] .nexus-force-light [class~="text-green-800"],
+html[data-theme="matrix"] .nexus-force-light [class~="text-green-800"] {
   color: #166534;
 }
 
@@ -588,7 +697,8 @@ html[data-theme="red"] [class~="hover:bg-[#244a5e]"]:hover,
 html[data-theme="blue"] [class~="hover:bg-[#244a5e]"]:hover,
 html[data-theme="green"] [class~="hover:bg-[#244a5e]"]:hover,
 html[data-theme="dark"] [class~="hover:bg-[#244a5e]"]:hover,
-html[data-theme="dark-knight"] [class~="hover:bg-[#244a5e]"]:hover {
+html[data-theme="dark-knight"] [class~="hover:bg-[#244a5e]"]:hover,
+html[data-theme="matrix"] [class~="hover:bg-[#244a5e]"]:hover {
   background-color: var(--fh-steel-hover);
 }
 
@@ -596,6 +706,96 @@ html[data-theme="red"] [class~="hover:bg-[#f0b01a]"]:hover,
 html[data-theme="blue"] [class~="hover:bg-[#f0b01a]"]:hover,
 html[data-theme="green"] [class~="hover:bg-[#f0b01a]"]:hover,
 html[data-theme="dark"] [class~="hover:bg-[#f0b01a]"]:hover,
-html[data-theme="dark-knight"] [class~="hover:bg-[#f0b01a]"]:hover {
+html[data-theme="dark-knight"] [class~="hover:bg-[#f0b01a]"]:hover,
+html[data-theme="matrix"] [class~="hover:bg-[#f0b01a]"]:hover {
   background-color: var(--fh-accent-hover);
+}
+
+/* Home hero wash. Other themes keep the cool mist; Matrix uses a green one. */
+.nexus-hero-mist {
+  background-image:
+    radial-gradient(ellipse at 30% 20%, rgba(183, 201, 196, 0.35), transparent 55%),
+    linear-gradient(160deg, transparent 45%, rgba(20, 35, 46, 0.45) 100%);
+}
+html[data-theme="matrix"] .nexus-hero-mist {
+  background-image:
+    radial-gradient(ellipse at 30% 20%, rgba(0, 255, 65, 0.28), transparent 55%),
+    linear-gradient(160deg, transparent 40%, rgba(0, 30, 8, 0.7) 100%);
+}
+
+html[data-theme="matrix"] body {
+  background-color: #000000;
+  background-image: none;
+}
+html[data-theme="matrix"] .nexus-shell {
+  background-color: transparent;
+}
+html[data-theme="matrix"] .nexus-shell footer {
+  background-color: #000000;
+}
+html[data-theme="matrix"] h1,
+html[data-theme="matrix"] h2,
+html[data-theme="matrix"] h3 {
+  text-shadow: 0 0 12px #000, 0 1px 0 #000;
+}
+
+.matrix-rain {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Shell chrome written as white sits on black as phosphor, not paper white. */
+html[data-theme="matrix"] [class~="text-white"],
+html[data-theme="matrix"] [class~="text-white/85"],
+html[data-theme="matrix"] [class~="text-white/80"] {
+  color: #c6ffb0;
+}
+html[data-theme="matrix"] [class~="text-white/75"],
+html[data-theme="matrix"] [class~="text-white/70"] {
+  color: #5dce78;
+}
+html[data-theme="matrix"] [class~="text-white/60"] {
+  color: #3aaa58;
+}
+html[data-theme="matrix"] [class~="hover:text-white"]:hover {
+  color: #e0fcd9;
+}
+html[data-theme="matrix"] [class~="border-white/10"] {
+  border-color: #145c28;
+}
+html[data-theme="matrix"] [class~="hover:bg-white/5"]:hover {
+  background-color: rgba(0, 255, 65, 0.08);
+}
+html[data-theme="matrix"] [class~="hover:bg-white/10"]:hover {
+  background-color: rgba(0, 255, 65, 0.12);
+}
+html[data-theme="matrix"] [class~="bg-white/15"],
+html[data-theme="matrix"] [class~="bg-white/20"] {
+  background-color: rgba(0, 255, 65, 0.12);
+}
+
+/* Bright phosphor controls take near-black type so labels stay readable. */
+html[data-theme="matrix"] [class~="bg-[var(--fh-accent)]"],
+html[data-theme="matrix"] [class~="bg-[var(--fh-ok)]"],
+html[data-theme="matrix"] [class~="bg-[var(--destructive)]"] {
+  color: #03140a;
+}
+html[data-theme="matrix"] [class~="bg-[#fff6e5]"] {
+  background-color: #0c3a18;
+  color: #b6ff9a;
+}
+html[data-theme="matrix"] [class~="text-[#f7d3b5]"] {
+  color: #8dff70;
+}
+
+html[data-theme="matrix"] [class~="text-amber-800"],
+html[data-theme="matrix"] [class~="text-amber-900"] {
+  color: #d2ff6a;
+}
+html[data-theme="matrix"] [class~="bg-amber-50"],
+html[data-theme="matrix"] [class~="bg-amber-50/60"],
+html[data-theme="matrix"] [class~="bg-amber-100"] {
+  background-color: #1a2608;
 }

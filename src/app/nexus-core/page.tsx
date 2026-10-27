@@ -402,7 +402,8 @@ function CostPie({
       >
         <style>
           {`.core-pie-percent { fill: #ffffff; stroke: #14232e; }
-            html.dark .core-pie-percent { fill: #14232e; stroke: #ffffff; }`}
+            html.dark .core-pie-percent { fill: #14232e; stroke: #ffffff; }
+            html[data-theme="matrix"] .core-pie-percent { fill: #03140a; stroke: #021006; }`}
         </style>
         {empty ? (
           <circle cx="50" cy="50" r="46" fill={TRACK} />
@@ -426,8 +427,12 @@ function CostPie({
             textAnchor="middle"
             dominantBaseline="central"
             className={label.color === GOLD ? undefined : "core-pie-percent"}
-            fill={label.color === GOLD ? "#14232e" : undefined}
-            stroke={label.color === GOLD ? "#ffffff" : undefined}
+            fill={label.color === GOLD ? "var(--fh-figure-on-accent, #14232e)" : undefined}
+            stroke={
+              label.color === GOLD
+                ? "var(--fh-figure-on-accent-edge, #ffffff)"
+                : undefined
+            }
             strokeWidth="0.55"
             strokeLinejoin="round"
             fontSize="7"

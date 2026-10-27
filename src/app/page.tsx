@@ -120,13 +120,7 @@ export default function HomePage() {
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4">
       <section className="relative overflow-hidden rounded-2xl border border-[var(--fh-line)] bg-[var(--fh-steel)] px-6 py-16 text-white sm:px-12 sm:py-20">
-        <div
-          className="pointer-events-none absolute inset-0 opacity-25"
-          style={{
-            backgroundImage:
-              "radial-gradient(ellipse at 30% 20%, rgba(183,201,196,0.35), transparent 55%), linear-gradient(160deg, transparent 45%, rgba(20,35,46,0.45) 100%)",
-          }}
-        />
+        <div className="nexus-hero-mist pointer-events-none absolute inset-0 opacity-25" />
         <div className="relative text-center sm:text-left">
           <h1 className="nexus-wordmark font-[family-name:var(--font-brand)] text-7xl font-semibold leading-none tracking-tight sm:text-8xl md:text-9xl">
             {HUB_NAME}

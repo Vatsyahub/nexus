@@ -7,24 +7,35 @@ export const HUB_THEMES = [
   { id: "blue", label: "Blue", masterOnly: false },
   { id: "green", label: "Green", masterOnly: false },
   { id: "dark-knight", label: "Dark knight", masterOnly: true },
+  { id: "matrix", label: "Matrix", masterOnly: true },
 ] as const;
 
 export type HubThemeId = (typeof HUB_THEMES)[number]["id"];
 
-const PUBLIC_THEME_IDS: readonly HubThemeId[] = [
-  "light",
+const PUBLIC_THEME_IDS = HUB_THEMES.filter((theme) => !theme.masterOnly).map(
+  (theme) => theme.id
+);
+
+const MASTER_THEME_IDS = HUB_THEMES.filter((theme) => theme.masterOnly).map(
+  (theme) => theme.id
+);
+
+/** Themes that use Tailwind's `.dark` variant (night steel, Dark knight, Matrix). */
+const DARK_CLASS_THEME_IDS: readonly HubThemeId[] = [
   "dark",
-  "red",
-  "blue",
-  "green",
+  "dark-knight",
+  "matrix",
 ];
 
 export function isHubThemeId(value: string | null): value is HubThemeId {
   return HUB_THEMES.some((theme) => theme.id === value);
 }
 
-/** Dark knight is Master only, and hidden while Master is impersonating. */
-export function sessionAllowsDarkKnight(session: {
+/**
+ * Dark knight and Matrix are Master only, and hidden while Master is impersonating
+ * so another clearance never sees them.
+ */
+export function sessionAllowsMasterThemes(session: {
   user?: { clearance?: string | null; impersonating?: boolean | null } | null;
 } | null | undefined): boolean {
   return (
@@ -32,20 +43,25 @@ export function sessionAllowsDarkKnight(session: {
   );
 }
 
-export function readHubTheme(allowDarkKnight: boolean): HubThemeId {
+export function visibleHubThemes(allowMasterThemes: boolean) {
+  return HUB_THEMES.filter((theme) => !theme.masterOnly || allowMasterThemes);
+}
+
+export function hubThemeAllowed(
+  id: HubThemeId,
+  allowMasterThemes: boolean
+): boolean {
+  const theme = HUB_THEMES.find((item) => item.id === id);
+  return !!theme && (!theme.masterOnly || allowMasterThemes);
+}
+
+export function readHubTheme(allowMasterThemes: boolean): HubThemeId {
   if (typeof window === "undefined") return "light";
   try {
     const raw = localStorage.getItem(HUB_THEME_KEY);
-    if (raw === "dark-knight") return allowDarkKnight ? "dark-knight" : "light";
-    if (
-      raw === "light" ||
-      raw === "dark" ||
-      raw === "red" ||
-      raw === "blue" ||
-      raw === "green"
-    ) {
-      return raw;
-    }
+    if (!isHubThemeId(raw)) return "light";
+    if (!hubThemeAllowed(raw, allowMasterThemes)) return "light";
+    return raw;
   } catch {
     /* private mode */
   }
@@ -57,18 +73,29 @@ export function applyHubTheme(choice: HubThemeId) {
   const root = document.documentElement;
   root.dataset.theme = choice;
   root.dataset.themeChoice = choice;
-  root.classList.toggle("dark", choice === "dark" || choice === "dark-knight");
+  root.classList.toggle(
+    "dark",
+    (DARK_CLASS_THEME_IDS as readonly string[]).includes(choice)
+  );
 }
 
 /**
  * Runs before paint. The hub opens on Default (steel and gold).
  * Saved "system" is ignored. "dark" is the general night-steel theme.
- * Dark knight applies only when this session is allowed to use it;
- * otherwise Default is used.
+ * Dark knight and Matrix apply only for a real Master session;
+ * every other clearance falls back to Default.
  */
-export function hubThemeBootScript(allowDarkKnight: boolean): string {
-  const allow = allowDarkKnight ? "true" : "false";
+export function hubThemeBootScript(allowMasterThemes: boolean): string {
+  const allow = allowMasterThemes ? "true" : "false";
   const key = JSON.stringify(HUB_THEME_KEY);
-  const publics = PUBLIC_THEME_IDS.map((id) => `c===${JSON.stringify(id)}`).join("||");
-  return `(function(){try{var allow=${allow};var c=localStorage.getItem(${key});var ok=${publics}||(c==="dark-knight"&&allow);if(!ok)c="light";var r=document.documentElement;r.dataset.theme=c;r.dataset.themeChoice=c;r.classList.toggle("dark",c==="dark"||c==="dark-knight");}catch(e){}})();`;
+  const publics = PUBLIC_THEME_IDS.map((id) => `c===${JSON.stringify(id)}`).join(
+    "||"
+  );
+  const masters = MASTER_THEME_IDS.map((id) => `c===${JSON.stringify(id)}`).join(
+    "||"
+  );
+  const darkClass = DARK_CLASS_THEME_IDS.map(
+    (id) => `c===${JSON.stringify(id)}`
+  ).join("||");
+  return `(function(){try{var allow=${allow};var c=localStorage.getItem(${key});var ok=${publics}||((${masters})&&allow);if(!ok)c="light";var r=document.documentElement;r.dataset.theme=c;r.dataset.themeChoice=c;r.classList.toggle("dark",${darkClass});}catch(e){}})();`;
 }

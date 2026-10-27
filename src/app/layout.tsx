@@ -4,7 +4,7 @@ import { auth } from "@/auth";
 import { AppShell } from "@/components/app-shell";
 import { Providers } from "@/components/providers";
 import { COMPANY_NAME, HUB_NAME } from "@/lib/types";
-import { hubThemeBootScript, sessionAllowsDarkKnight } from "@/lib/hub-theme";
+import { hubThemeBootScript, sessionAllowsMasterThemes } from "@/lib/hub-theme";
 import "./globals.css";
 
 const display = Barlow_Condensed({
@@ -36,7 +36,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const session = await auth();
-  const themeBoot = hubThemeBootScript(sessionAllowsDarkKnight(session));
+  const themeBoot = hubThemeBootScript(sessionAllowsMasterThemes(session));
 
   return (
     <html lang="en" suppressHydrationWarning>

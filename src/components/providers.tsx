@@ -10,6 +10,7 @@ import {
 } from "@/lib/store";
 import { ConfirmPanel } from "@/components/confirm-panel";
 import { HubThemeSync } from "@/components/hub-theme";
+import { MatrixRain } from "@/components/matrix-rain";
 import { SaveNotice } from "@/components/save-notice";
 
 function WorkspaceHydrator({ children }: { children: React.ReactNode }) {
@@ -50,6 +51,7 @@ export function Providers({
   return (
     <SessionProvider session={session} refetchOnWindowFocus={false}>
       <HubThemeSync />
+      <MatrixRain />
       <WorkspaceHydrator>{children}</WorkspaceHydrator>
       <ConfirmPanel />
       <SaveNotice />
