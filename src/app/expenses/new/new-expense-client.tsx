@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
+import { HubReturnLink } from "@/components/hub-return-link";
 import { useRouter } from "next/navigation";
 import { addExpense, listExpenseCategories, useFlowhubData } from "@/lib/store";
 import { confirmWorkspaceSave } from "@/lib/save-notice";
@@ -92,12 +92,12 @@ export function NewExpenseClient({ actorName }: { actorName: string }) {
         <h1 className="font-[family-name:var(--font-display)] text-4xl font-semibold text-[var(--fh-steel)]">
           Add expense
         </h1>
-        <Link
+        <HubReturnLink
           href="/expenses"
           className={cn(buttonVariants({ variant: "outline" }))}
         >
           Back to expenses
-        </Link>
+        </HubReturnLink>
       </div>
 
       <section className="space-y-4 rounded-xl border border-[var(--fh-line)] bg-white p-5">
@@ -179,12 +179,12 @@ export function NewExpenseClient({ actorName }: { actorName: string }) {
             <Button type="submit" {...entrySaveProps} className="bg-[var(--fh-steel)]">
               Add expense
             </Button>
-            <Link
+            <HubReturnLink
               href="/expenses"
               className={cn(buttonVariants({ variant: "outline" }))}
             >
               Cancel
-            </Link>
+            </HubReturnLink>
           </div>
         </form>
         {err && <p className="text-sm text-[var(--destructive)]">{err}</p>}

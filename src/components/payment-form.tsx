@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { HubReturnLink } from "@/components/hub-return-link";
 import { formatMoney } from "@/lib/format-money";
 import {
   entryAccountedTowardInvoice,
@@ -362,12 +362,12 @@ export function PaymentForm({
           {pending ? "Saving…" : submitLabel}
         </Button>
         {cancelHref ? (
-          <Link
+          <HubReturnLink
             href={cancelHref}
             className={cn(buttonVariants({ variant: "outline" }))}
           >
             Cancel
-          </Link>
+          </HubReturnLink>
         ) : null}
       </div>
     </form>

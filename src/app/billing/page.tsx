@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { Suspense, useMemo } from "react";
+import { useViewQuery } from "@/lib/use-view-query";
 import {
   invoiceBalanceLabel,
   invoiceDueDate,
@@ -30,12 +31,38 @@ function formatMoney(n: number) {
 }
 
 export default function BillingHomePage() {
-  const data = useFlowhubData();
+  return (
+    <Suspense fallback={null}>
+      <BillingHomeInner />
+    </Suspense>
+  );
+}
 
-  const [q, setQ] = useState("");
-  const [typeFilter, setTypeFilter] = useState<"ALL" | "PI" | "TI">("ALL");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+function BillingHomeInner() {
+  const data = useFlowhubData();
+  const { get, commit } = useViewQuery();
+  const q = get("q");
+  const typeRaw = get("type");
+  const typeFilter: "ALL" | "PI" | "TI" =
+    typeRaw === "PI" || typeRaw === "TI" ? typeRaw : "ALL";
+  const from = get("from");
+  const to = get("to");
+
+  function setQ(value: string) {
+    commit({ q: value || null });
+  }
+
+  function setTypeFilter(next: "ALL" | "PI" | "TI") {
+    commit({ type: next === "ALL" ? null : next });
+  }
+
+  function setFrom(value: string) {
+    commit({ from: value || null });
+  }
+
+  function setTo(value: string) {
+    commit({ to: value || null });
+  }
 
   const filtered = listIsFiltered({
     search: q,
@@ -106,7 +133,9 @@ export default function BillingHomePage() {
               <select
                 className="flex h-8 w-full rounded-lg border border-input px-2 text-sm"
                 value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)}
+                onChange={(e) =>
+                  setTypeFilter(e.target.value === "PI" || e.target.value === "TI" ? e.target.value : "ALL")
+                }
               >
                 <option value="ALL">All</option>
                 <option value="PI">Proforma Invoice</option>

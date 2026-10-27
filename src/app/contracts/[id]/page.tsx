@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import Link from "next/link";
+import { HubReturnLink } from "@/components/hub-return-link";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
@@ -224,9 +224,9 @@ export default function ContractDetailPage() {
     return (
       <div className="mx-auto max-w-3xl space-y-4">
         <p className="text-[var(--fh-muted)]">Contract not found.</p>
-        <Link href="/contracts" className={cn(buttonVariants({ variant: "outline" }))}>
+        <HubReturnLink href="/contracts" className={cn(buttonVariants({ variant: "outline" }))}>
           Back to contracts
-        </Link>
+        </HubReturnLink>
       </div>
     );
   }

@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState, type FormEvent } from "react";
+import { Suspense, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useViewQuery } from "@/lib/use-view-query";
 import { useSession } from "next-auth/react";
 import {
   flushWorkspace,
@@ -70,7 +70,7 @@ import {
 
 type Tab = "collections" | "guarantees" | "retentions" | "expenses";
 
-function parseTab(raw: string | null): Tab {
+function parseTab(raw: string): Tab {
   if (raw === "guarantees") return "guarantees";
   if (raw === "retentions") return "retentions";
   if (raw === "expenses") return "expenses";
@@ -90,32 +90,41 @@ function AccountsReportInner() {
   const ready = useWorkspaceReady();
   const { data: session } = useSession();
   const canRecover = canMarkRetentionRecovered(session?.user?.clearance);
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const [tab, setTab] = useState<Tab>(() => parseTab(searchParams.get("tab")));
-  const [q, setQ] = useState("");
-  const [collectionFrom, setCollectionFrom] = useState("");
-  const [collectionTo, setCollectionTo] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const { get, commit } = useViewQuery();
+  const tab = parseTab(get("tab"));
+  const q = get("q");
+  const collectionFrom = get("cfrom");
+  const collectionTo = get("cto");
+  const dateFrom = get("from");
+  const dateTo = get("to");
   const [recoveringId, setRecoveringId] = useState<string | null>(null);
   const [recoverDate, setRecoverDate] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
 
-  useEffect(() => {
-    setTab(parseTab(searchParams.get("tab")));
-  }, [searchParams]);
-
   function selectTab(next: Tab) {
-    setTab(next);
     setMsg(null);
     setRecoveringId(null);
-    const params = new URLSearchParams(searchParams.toString());
-    if (next === "collections") params.delete("tab");
-    else params.set("tab", next);
-    const qs = params.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    commit({ tab: next === "collections" ? null : next });
+  }
+
+  function setQ(value: string) {
+    commit({ q: value || null });
+  }
+
+  function setCollectionFrom(value: string) {
+    commit({ cfrom: value || null });
+  }
+
+  function setCollectionTo(value: string) {
+    commit({ cto: value || null });
+  }
+
+  function setDateFrom(value: string) {
+    commit({ from: value || null });
+  }
+
+  function setDateTo(value: string) {
+    commit({ to: value || null });
   }
 
   const allCollectionRows = useMemo(() => buildCollectionRows(data), [data]);

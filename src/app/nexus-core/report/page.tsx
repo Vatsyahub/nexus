@@ -1,7 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo } from "react";
 import Link from "next/link";
+import { useListFilters } from "@/lib/use-view-query";
+import { HubReturnLink } from "@/components/hub-return-link";
 import { useFlowhubData, useWorkspaceReady } from "@/lib/store";
 import {
   buildCoreReportRows,
@@ -39,9 +41,17 @@ const MONEY_KEYS = [
 ] as const;
 
 export default function CoreReportPage() {
+  return (
+    <Suspense fallback={null}>
+      <CoreReportInner />
+    </Suspense>
+  );
+}
+
+function CoreReportInner() {
   const data = useFlowhubData();
   const ready = useWorkspaceReady();
-  const [q, setQ] = useState("");
+  const { q, setQ } = useListFilters();
   const today = todayIso();
 
   const allRows = useMemo(
@@ -114,12 +124,12 @@ export default function CoreReportPage() {
             Core report
           </h1>
         </div>
-        <Link
+        <HubReturnLink
           href="/nexus-core"
           className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
         >
           Back to Nexus Core
-        </Link>
+        </HubReturnLink>
       </div>
 
       <div className="flex shrink-0 flex-wrap items-start gap-3">

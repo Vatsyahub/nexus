@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo } from "react";
+import { useViewQuery } from "@/lib/use-view-query";
 import Link from "next/link";
 import { useFlowhubData, useWorkspaceReady } from "@/lib/store";
 import { GST_RATE } from "@/lib/types";
@@ -42,15 +43,44 @@ const TOTALS_NOTE =
   "Paid amount is the accounted total on each tax invoice: net + GST + retention + TDS + deduction + recovered on payments linked to that invoice, plus the same FIFO slice of unlinked net + GST + deduction that outstanding counts. Unlinked retention and TDS stay in Actual retention and Actual TDS. Recoverable-link cash is not included. Outstanding is unchanged: once a payment is linked it compares that full accounted sum to the invoice final, and stays expected cash when nothing is linked.";
 
 export default function ReconciliationReportPage() {
+  return (
+    <Suspense fallback={<ReportsLoading />}>
+      <ReconciliationReportInner />
+    </Suspense>
+  );
+}
+
+function ReconciliationReportInner() {
   const data = useFlowhubData();
   const ready = useWorkspaceReady();
-  const [scope, setScope] = useState<Scope>("all");
-  const [contractId, setContractId] = useState("");
-  const [q, setQ] = useState("");
+  const { get, commit, retreatSamePage } = useViewQuery();
+  const scope: Scope = get("scope") === "one" ? "one" : "all";
+  const contractId = get("contract");
+  const q = get("q");
 
   function openDetail(id: string) {
-    setContractId(id);
-    setScope("one");
+    commit({ scope: "one", contract: id }, "push");
+  }
+
+  function setScope(next: Scope) {
+    if (next === "all") {
+      if (!retreatSamePage()) commit({ scope: null, contract: null });
+      return;
+    }
+    commit({ scope: "one" }, scope === "one" ? "replace" : "push");
+  }
+
+  function setContractId(id: string) {
+    if (!id) {
+      commit({ contract: null });
+      return;
+    }
+    if (scope === "one") commit({ scope: "one", contract: id });
+    else commit({ scope: "one", contract: id }, "push");
+  }
+
+  function setQ(value: string) {
+    commit({ q: value || null });
   }
 
   const contracts = useMemo(
@@ -107,7 +137,7 @@ export default function ReconciliationReportPage() {
             <select
               className="flex h-8 w-full rounded-lg border border-input px-2 text-sm"
               value={scope}
-              onChange={(e) => setScope(e.target.value as Scope)}
+              onChange={(e) => setScope(e.target.value === "one" ? "one" : "all")}
             >
               <option value="all">All contracts (summary)</option>
               <option value="one">One contract (detail)</option>

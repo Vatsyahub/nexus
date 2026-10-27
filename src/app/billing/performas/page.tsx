@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo } from "react";
 import Link from "next/link";
+import { useListFilters } from "@/lib/use-view-query";
 import { useFlowhubData } from "@/lib/store";
 import { buttonVariants } from "@/components/ui/button";
 import { ListSearchBar } from "@/components/list-search";
@@ -27,8 +28,16 @@ function daysSince(isoDate: string) {
 }
 
 export default function OpenPerformasPage() {
+  return (
+    <Suspense fallback={null}>
+      <OpenPerformasInner />
+    </Suspense>
+  );
+}
+
+function OpenPerformasInner() {
   const data = useFlowhubData();
-  const [q, setQ] = useState("");
+  const { q, setQ } = useListFilters();
 
   const openPis = useMemo(() => {
     return data.invoices

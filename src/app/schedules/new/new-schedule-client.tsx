@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
+import { HubReturnLink } from "@/components/hub-return-link";
 import { useRouter } from "next/navigation";
 import { isContractScheduleComplete, useFlowhubData } from "@/lib/store";
 import { ADD_CONTRACT_MATCH_LIMIT } from "@/lib/add-contract-matches";
@@ -34,12 +34,12 @@ export function NewScheduleClient() {
 
   return (
     <div className="mx-auto max-w-xl space-y-6">
-      <Link
+      <HubReturnLink
         href="/schedules"
         className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
       >
         Back to schedules
-      </Link>
+      </HubReturnLink>
 
       <div
         className="space-y-4 rounded-xl border border-[var(--fh-line)] bg-white p-6"
@@ -118,12 +118,12 @@ export function NewScheduleClient() {
           >
             Continue
           </Button>
-          <Link
+          <HubReturnLink
             href="/schedules"
             className={cn(buttonVariants({ variant: "outline" }))}
           >
             Cancel
-          </Link>
+          </HubReturnLink>
         </div>
       </div>
     </div>

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { HubReturnLink } from "@/components/hub-return-link";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
@@ -79,12 +80,12 @@ export default function ScheduleDetailPage() {
     return (
       <div className="space-y-3">
         <p className="text-sm text-[var(--fh-muted)]">Schedule line not found.</p>
-        <Link
+        <HubReturnLink
           href="/schedules"
           className={cn(buttonVariants({ variant: "outline" }))}
         >
           Back
-        </Link>
+        </HubReturnLink>
       </div>
     );
   }
@@ -237,12 +238,12 @@ export default function ScheduleDetailPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Link
+        <HubReturnLink
           href="/schedules"
           className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
         >
           Back to schedules
-        </Link>
+        </HubReturnLink>
         <div className="flex flex-wrap gap-2">
           <Badge variant="secondary">
             {line.committed ? "Committed" : "Uncommitted"}

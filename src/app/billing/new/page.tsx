@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { HubReturnLink } from "@/components/hub-return-link";
 import { useRouter } from "next/navigation";
 import {
   addInvoice,
@@ -234,12 +235,12 @@ export default function NewInvoicePage() {
           >
             One-click PI → TI
           </Link>
-          <Link
+          <HubReturnLink
             href="/billing"
             className={cn(buttonVariants({ variant: "outline" }))}
           >
             Back to billing
-          </Link>
+          </HubReturnLink>
         </div>
       </div>
 

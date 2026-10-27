@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useViewQuery } from "@/lib/use-view-query";
 import { useFlowhubData, useWorkspaceReady } from "@/lib/store";
 import { HubPage } from "@/components/hub-scroll";
 import {
@@ -15,7 +14,7 @@ import {
   type OtherSub,
 } from "../execution/report-tabs";
 
-function parseSub(raw: string | null): OtherSub {
+function parseSub(raw: string): OtherSub {
   if (raw === "tasks" || raw === "amendments" || raw === "advances") return raw;
   return "workorders";
 }
@@ -23,24 +22,17 @@ function parseSub(raw: string | null): OtherSub {
 export default function OtherReportsClient() {
   const data = useFlowhubData();
   const ready = useWorkspaceReady();
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const [sub, setSub] = useState<OtherSub>(() =>
-    parseSub(searchParams.get("tab"))
-  );
-
-  useEffect(() => {
-    setSub(parseSub(searchParams.get("tab")));
-  }, [searchParams]);
+  const { get, commit } = useViewQuery();
+  const sub = parseSub(get("tab"));
 
   function selectSub(next: OtherSub) {
-    setSub(next);
-    const params = new URLSearchParams(searchParams.toString());
-    if (next === "workorders") params.delete("tab");
-    else params.set("tab", next);
-    const qs = params.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    commit({
+      tab: next === "workorders" ? null : next,
+      q: null,
+      from: null,
+      to: null,
+      contract: null,
+    });
   }
 
   return (

@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
+import { useViewQuery } from "@/lib/use-view-query";
 import Link from "next/link";
 import {
   clearAllExpenseHistory,
@@ -58,7 +59,21 @@ const emptyDraft = (): Draft => ({
   category: "",
 });
 
-export function ExpensesClient({
+export function ExpensesClient(props: {
+  canAdd?: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+  canViewHistory: boolean;
+  actorName: string;
+}) {
+  return (
+    <Suspense fallback={null}>
+      <ExpensesClientInner {...props} />
+    </Suspense>
+  );
+}
+
+function ExpensesClientInner({
   canAdd = true,
   canEdit,
   canDelete,
@@ -72,8 +87,17 @@ export function ExpensesClient({
   actorName: string;
 }) {
   const data = useFlowhubData();
-  const [q, setQ] = useState("");
-  const [showDeleted, setShowDeleted] = useState(false);
+  const { get, commit } = useViewQuery();
+  const q = get("q");
+  const showDeleted = get("deleted") === "1";
+
+  function setQ(value: string) {
+    commit({ q: value || null });
+  }
+
+  function setShowDeleted(next: boolean) {
+    commit({ deleted: next ? "1" : null });
+  }
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [editing, setEditing] = useState<{
     contractId: string;

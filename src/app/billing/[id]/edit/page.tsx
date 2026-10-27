@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { HubReturnLink } from "@/components/hub-return-link";
 import { useParams, useRouter } from "next/navigation";
 import {
   flushWorkspace,
@@ -238,9 +239,9 @@ export default function EditInvoicePage() {
     return (
       <div className="space-y-3">
         <p className="text-sm text-[var(--fh-muted)]">Invoice not found.</p>
-        <Link href="/billing" className={cn(buttonVariants({ variant: "outline" }))}>
+        <HubReturnLink href="/billing" className={cn(buttonVariants({ variant: "outline" }))}>
           Back
-        </Link>
+        </HubReturnLink>
       </div>
     );
   }

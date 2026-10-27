@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { HubReturnLink } from "@/components/hub-return-link";
 import { useRouter } from "next/navigation";
 import {
   contractScheduleCoverage,
@@ -375,9 +376,9 @@ export function SchedulePlanner({
     return (
       <div className="space-y-3">
         <p className="text-sm text-[var(--fh-muted)]">Contract not found.</p>
-        <Link href="/schedules" className={cn(buttonVariants({ variant: "outline" }))}>
+        <HubReturnLink href="/schedules" className={cn(buttonVariants({ variant: "outline" }))}>
           Back to schedules
-        </Link>
+        </HubReturnLink>
       </div>
     );
   }
@@ -435,12 +436,12 @@ export function SchedulePlanner({
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Link
+        <HubReturnLink
           href="/schedules"
           className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
         >
           Back to schedules
-        </Link>
+        </HubReturnLink>
         {mode === "edit" && (
           <Link
             href={`/schedules/plan/${contract.id}?mode=view`}
@@ -703,12 +704,12 @@ export function SchedulePlanner({
                 onClick={() => void onDelete()}
               />
             )}
-          <Link
+          <HubReturnLink
             href="/schedules"
             className={cn(buttonVariants({ variant: "outline" }))}
           >
             Cancel
-          </Link>
+          </HubReturnLink>
         </div>
       </div>
     </div>

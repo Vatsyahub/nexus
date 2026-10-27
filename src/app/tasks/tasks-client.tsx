@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useViewQuery } from "@/lib/use-view-query";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import {
   addSubtask,
@@ -94,6 +94,29 @@ type ViewFilter =
   | "overdue"
   | "no_deadline"
   | "completed";
+
+function parseTaskView(raw: string): ViewFilter {
+  if (raw === "my" || raw === "mine") return "my";
+  if (raw === "pending" || raw === "open") return "open";
+  if (raw === "overdue") return "overdue";
+  if (raw === "completed") return "completed";
+  if (raw === "unassigned") return "unassigned";
+  if (raw === "no_deadline") return "no_deadline";
+  return "all";
+}
+
+function taskFilterParam(view: ViewFilter): string | null {
+  if (view === "all") return null;
+  if (view === "open") return "pending";
+  return view;
+}
+
+function parseTaskPriority(raw: string): "all" | TaskPriority {
+  if (raw === "low" || raw === "normal" || raw === "high" || raw === "urgent") {
+    return raw;
+  }
+  return "all";
+}
 
 function todayIso() {
   const t = new Date();
@@ -309,28 +332,39 @@ function TasksPageInner({
   canEditTasks: boolean;
 }) {
   const data = useFlowhubData();
-  const search = useSearchParams();
-  const urlFilter = search.get("filter") || "";
-  const contractId = search.get("contractId") || "";
-  const focusTaskId =
-    search.get("task") || search.get("highlight") || "";
-  const [q, setQ] = useState("");
-  const [view, setView] = useState<ViewFilter>(() => {
-    if (focusTaskId) return "all";
-    if (urlFilter === "my" || urlFilter === "mine") return "my";
-    if (urlFilter === "pending") return "open";
-    if (urlFilter === "overdue") return "overdue";
-    if (urlFilter === "completed") return "completed";
-    return "all";
-  });
-  const [priorityFilter, setPriorityFilter] = useState<"all" | TaskPriority>(
-    "all"
-  );
+  const { get, commit } = useViewQuery();
+  const contractId = get("contractId");
+  const focusTaskId = get("task") || get("highlight");
+  const q = get("q");
+  const urlFilter = get("filter");
+  const view = focusTaskId ? "all" : parseTaskView(get("view") || urlFilter);
+  const priorityFilter = focusTaskId ? "all" : parseTaskPriority(get("priority"));
+  const showLog = get("log") === "1";
   const [expandedId, setExpandedId] = useState<string | null>(
     focusTaskId || null
   );
   const [expandedSubId, setExpandedSubId] = useState<string | null>(null);
-  const [showLog, setShowLog] = useState(false);
+
+  function setQ(value: string) {
+    commit({ q: value || null });
+  }
+
+  function setView(next: ViewFilter) {
+    commit({
+      view: taskFilterParam(next),
+      filter: null,
+      task: null,
+      highlight: null,
+    });
+  }
+
+  function setPriorityFilter(next: "all" | TaskPriority) {
+    commit({ priority: next === "all" ? null : next, task: null, highlight: null });
+  }
+
+  function setShowLog(next: boolean) {
+    commit({ log: next ? "1" : null });
+  }
   const canViewDeadlineLog = role === "master" || role === "director";
   const isMaster = role === "master";
 
@@ -361,8 +395,6 @@ function TasksPageInner({
     const target = data.tasks.find((t) => t.id === focusTaskId);
     if (!target || target.deletedAt) return;
     const rootId = target.parentId || target.id;
-    setView("all");
-    setPriorityFilter("all");
     setExpandedId(rootId);
     if (target.parentId) setExpandedSubId(target.id);
     const t = window.setTimeout(() => {
@@ -591,7 +623,7 @@ function TasksPageInner({
                   ? "bg-[var(--fh-steel)] text-white hover:bg-[#244a5e]"
                   : undefined
               }
-              onClick={() => setShowLog((open) => !open)}
+              onClick={() => setShowLog(!showLog)}
             >
               Change log
               <span className="ml-1.5 tabular-nums opacity-80">

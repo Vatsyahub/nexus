@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, type FormEvent } from "react";
+import { useListFilters } from "@/lib/use-view-query";
 import { Trash2 } from "lucide-react";
 import type { FlowhubData } from "@/lib/types";
 import { SCHEDULE_KIND_LABELS } from "@/lib/types";
@@ -99,9 +100,14 @@ function qtyWithUnit(qty: number, unit: string) {
 }
 
 export function SchedulesTab({ data }: { data: FlowhubData }) {
-  const [q, setQ] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const {
+    q,
+    from: dateFrom,
+    to: dateTo,
+    setQ,
+    setFrom: setDateFrom,
+    setTo: setDateTo,
+  } = useListFilters();
   const all = useMemo(() => buildScheduleFulfilmentRows(data), [data]);
   const rows = useMemo(() => {
     const today = todayIso();
@@ -265,7 +271,7 @@ export function SchedulesTab({ data }: { data: FlowhubData }) {
 }
 
 export function SummaryTab({ data }: { data: FlowhubData }) {
-  const [q, setQ] = useState("");
+  const { q, setQ } = useListFilters();
   const all = useMemo(() => buildExecutionSummaryRows(data), [data]);
   const rows = useMemo(() => filterExecutionSummaryRows(all, q), [all, q]);
 
@@ -389,7 +395,7 @@ export function ItemListTab({
   data: FlowhubData;
   canRename?: boolean;
 }) {
-  const [q, setQ] = useState("");
+  const { q, setQ } = useListFilters();
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [unitDraft, setUnitDraft] = useState("");
@@ -716,7 +722,7 @@ function workorderTone(s: WorkorderStatus): "muted" | "warn" | "ok" {
 }
 
 function WorkordersTable({ data }: { data: FlowhubData }) {
-  const [q, setQ] = useState("");
+  const { q, setQ } = useListFilters();
   const all = useMemo(() => buildWorkorderRows(data), [data]);
   const rows = useMemo(() => {
     const needle = q.trim();
@@ -861,7 +867,7 @@ function WorkordersTable({ data }: { data: FlowhubData }) {
 }
 
 function TasksTable({ data }: { data: FlowhubData }) {
-  const [q, setQ] = useState("");
+  const { q, setQ } = useListFilters();
   const all = useMemo(() => buildProjectTaskRows(data), [data]);
   const rows = useMemo(() => {
     const needle = q.trim();
@@ -981,9 +987,14 @@ function DcRecordsTable({
   data: FlowhubData;
   canEdit: boolean;
 }) {
-  const [q, setQ] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const {
+    q,
+    from: dateFrom,
+    to: dateTo,
+    setQ,
+    setFrom: setDateFrom,
+    setTo: setDateTo,
+  } = useListFilters();
   const [msg, setMsg] = useState<Msg>(null);
   const all = useMemo(() => buildSupplyDetailRows(data), [data]);
   const filtered = listIsFiltered({ search: q, from: dateFrom, to: dateTo });

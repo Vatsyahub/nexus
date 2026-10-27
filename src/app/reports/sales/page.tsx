@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useMemo } from "react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useViewQuery } from "@/lib/use-view-query";
 import { useFlowhubData, useWorkspaceReady } from "@/lib/store";
 import { formatMoney } from "@/lib/format-money";
 import { formatDisplayDate } from "@/lib/dates";
@@ -43,7 +43,7 @@ import {
 
 type Tab = "invoices" | "contracts";
 
-function parseTab(raw: string | null): Tab {
+function parseTab(raw: string): Tab {
   if (raw === "contracts") return "contracts";
   return "invoices";
 }
@@ -59,25 +59,26 @@ export default function SalesReportPage() {
 function SalesReportInner() {
   const data = useFlowhubData();
   const ready = useWorkspaceReady();
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const [tab, setTab] = useState<Tab>(() => parseTab(searchParams.get("tab")));
-  const [q, setQ] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-
-  useEffect(() => {
-    setTab(parseTab(searchParams.get("tab")));
-  }, [searchParams]);
+  const { get, commit } = useViewQuery();
+  const tab = parseTab(get("tab"));
+  const q = get("q");
+  const dateFrom = get("from");
+  const dateTo = get("to");
 
   function selectTab(next: Tab) {
-    setTab(next);
-    const params = new URLSearchParams(searchParams.toString());
-    if (next === "invoices") params.delete("tab");
-    else params.set("tab", next);
-    const qs = params.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    commit({ tab: next === "invoices" ? null : next });
+  }
+
+  function setQ(value: string) {
+    commit({ q: value || null });
+  }
+
+  function setDateFrom(value: string) {
+    commit({ from: value || null });
+  }
+
+  function setDateTo(value: string) {
+    commit({ to: value || null });
   }
 
   const allInvoiceRows = useMemo(() => buildSalesInvoiceRows(data), [data]);
