@@ -56,6 +56,7 @@ function outstandingRow(
     finalAmount: 1000,
     expected: 1000,
     paid: 0,
+    paidPaymentIds: [],
     outstanding,
     daysUntilDue: 0,
     status: outstandingIsStillDue(outstanding) ? "due" : "paid",
