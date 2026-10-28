@@ -3,6 +3,7 @@ import {
   canConfirmTaskVerification,
   clearanceKey,
   completesImmediately,
+  managerOfDepartment,
   sameDepartment,
   type TaskActor,
 } from "@/lib/task-notices";
@@ -64,19 +65,16 @@ function managesDepartment(
   actor: TaskActor,
   department: string | null | undefined
 ): boolean {
-  return (
-    clearanceKey(actor.clearance) === "manager" &&
-    sameDepartment(actor.department, department)
-  );
+  return managerOfDepartment(actor, department);
 }
 
 /**
  * Deadline and priority on a task that already exists, and priority on a new
  * task. The due date submitted with a new parent task or subtask is kept;
  * this check does not remove it. Master, any Director, a person already named
- * on this task, or the manager of this task’s own department. Before a
- * department is saved, a manager is not included. A subtask uses its own
- * department and its own assignees.
+ * on this task, or the manager of this task’s own department (either
+ * department that manager holds). Before a department is saved, a manager is
+ * not included. A subtask uses its own department and its own assignees.
  */
 export function canEditTaskSchedule(
   actor: TaskActor | null | undefined,
@@ -87,7 +85,7 @@ export function canEditTaskSchedule(
   if (role === "master" || role === "director") return true;
   if (namedOnTask(actor, task)) return true;
   if (!departmentIsSet(task.department)) return false;
-  return role === "manager" && sameDepartment(actor.department, task.department);
+  return managerOfDepartment(actor, task.department);
 }
 
 /** Master, Director, or any login with manager clearance. */
@@ -98,7 +96,7 @@ export function canSetEmptyParentDepartment(actor: TaskActor): boolean {
 
 /**
  * Master, someone named on the subtask, or a manager — and a manager only
- * receives the department they manage.
+ * receives a department they manage, including their second department.
  */
 export function departmentsASubtaskMayTake(
   actor: TaskActor,
@@ -108,7 +106,7 @@ export function departmentsASubtaskMayTake(
   if (clearanceKey(actor.clearance) === "master") return departments;
   if (namedOnTask(actor, { assignees })) return departments;
   if (clearanceKey(actor.clearance) !== "manager") return [];
-  return departments.filter((name) => sameDepartment(actor.department, name));
+  return departments.filter((name) => managerOfDepartment(actor, name));
 }
 
 function canClearSubtaskDepartment(
@@ -240,7 +238,10 @@ function isAssignablePerson(person: TaskDirectoryPerson): boolean {
   return role === "user" || role === "manager";
 }
 
-/** Users and managers whose department matches the one selected on the task. */
+/**
+ * Users and managers whose own department matches the one selected on the task.
+ * A manager’s second department does not put them on that task’s name list.
+ */
 export function peopleNamedInDepartment<T extends TaskDirectoryPerson>(
   people: T[],
   department: string | null | undefined
@@ -256,8 +257,9 @@ export function peopleNamedInDepartment<T extends TaskDirectoryPerson>(
 
 /**
  * Master and Director can update any task.
- * A task with a department can also be updated by that department’s manager
- * and by a person named on that same task. The parent’s department is not used.
+ * A task with a department can also be updated by a manager of that
+ * department (either of the manager’s departments) and by a person named
+ * on that same task. The parent’s department is not used.
  * While the department is empty, anyone who can open the task can still edit
  * other fields. Setting the department follows resolveTaskDepartment.
  */
@@ -268,9 +270,7 @@ export function canUpdateTask(
   const role = clearanceKey(actor.clearance);
   if (role === "master" || role === "director") return true;
   if (!departmentIsSet(task.department)) return true;
-  if (role === "manager" && sameDepartment(actor.department, task.department)) {
-    return true;
-  }
+  if (managerOfDepartment(actor, task.department)) return true;
   return namedOnTask(actor, task);
 }
 

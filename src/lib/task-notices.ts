@@ -6,6 +6,8 @@ import type { HubNotification, Task } from "@/lib/types";
 export type NoticeViewer = {
   name: string | null | undefined;
   department: string | null | undefined;
+  /** Manager's other department. Ignored for every other clearance. */
+  secondDepartment?: string | null;
   /** Session role or Prisma clearance. Compared case-insensitively. */
   clearance?: string | null;
 };
@@ -15,6 +17,8 @@ export type TaskActor = {
   name?: string | null;
   clearance?: string | null;
   department?: string | null;
+  /** Manager's other department. Ignored for every other clearance. */
+  secondDepartment?: string | null;
 };
 
 export function clearanceKey(value: string | null | undefined): string {
@@ -28,6 +32,26 @@ export function sameDepartment(
   const left = (a || "").trim().toLowerCase();
   const right = (b || "").trim().toLowerCase();
   return left.length > 0 && left === right;
+}
+
+/**
+ * True when this person is a manager and either stored department is the one
+ * being asked about. User, Director, and Master do not match through a
+ * second department.
+ */
+export function managerOfDepartment(
+  person: {
+    clearance?: string | null;
+    department?: string | null;
+    secondDepartment?: string | null;
+  },
+  department: string | null | undefined
+): boolean {
+  if (clearanceKey(person.clearance) !== "manager") return false;
+  return (
+    sameDepartment(person.department, department) ||
+    sameDepartment(person.secondDepartment, department)
+  );
 }
 
 /**
@@ -65,7 +89,8 @@ export function taskAlertAudience(
 
 /**
  * Due-today warning: named assignees and the managers of the task's
- * department. One row covers both, so a person who is an assignee and a
+ * department. A manager matches when either of their departments is that
+ * one department. One row covers both, so a person who is an assignee and a
  * manager of that department is not notified twice. Department-only tasks
  * still reach that department's managers.
  */
@@ -80,8 +105,9 @@ export function taskDueTodayAudience(
 
 /**
  * Named people match the person. Department matches managers of that
- * department. A row may set both (due-today): either audience sees the
- * one notice. audienceClearance "master" is the no-department fallback.
+ * department, including a manager's second department. A row may set both
+ * (due-today): either audience sees the one notice. audienceClearance
+ * "master" is the no-department fallback.
  */
 export function notificationVisibleTo(
   n: HubNotification,
@@ -98,8 +124,7 @@ export function notificationVisibleTo(
     }
   }
   if (n.audienceDepartment) {
-    if (clearanceKey(user.clearance) !== "manager") return false;
-    return sameDepartment(user.department, n.audienceDepartment);
+    return managerOfDepartment(user, n.audienceDepartment);
   }
   return false;
 }
@@ -184,8 +209,7 @@ export function canConfirmTaskVerification(
   if (task.status !== "awaiting_verification") return false;
   const role = clearanceKey(actor.clearance);
   if (role === "master") return true;
-  if (role !== "manager") return false;
-  return sameDepartment(actor.department, task.verificationDepartment);
+  return managerOfDepartment(actor, task.verificationDepartment);
 }
 
 function dueKey(value: string | null | undefined): string {

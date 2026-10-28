@@ -20,6 +20,7 @@ import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { sameDepartment } from "@/lib/task-notices";
 import { departmentDisplayName } from "@/lib/types";
 import { HubDataScroll, HubPage } from "@/components/hub-scroll";
 import { cn } from "@/lib/utils";
@@ -180,7 +181,14 @@ export function DepartmentsClient({ users }: { users: UserRow[] }) {
 
       <HubDataScroll className="space-y-4">
         {departments.map((dept) => {
-          const members = users.filter((u) => u.department === dept);
+          const primary = users.filter((u) => u.department === dept);
+          const alsoManaging = users.filter(
+            (u) =>
+              u.clearance === "MANAGER" &&
+              sameDepartment(u.secondDepartment, dept) &&
+              !primary.some((row) => row.id === u.id)
+          );
+          const members = [...primary, ...alsoManaging];
           const managers = members.filter(
             (u) => u.clearance === "MANAGER" || u.clearance === "MASTER"
           );

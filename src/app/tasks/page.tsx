@@ -33,7 +33,7 @@ export default async function TasksPage() {
   const currentUserName = session.user.name?.trim() || "";
   const me = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { department: true },
+    select: { department: true, secondDepartment: true },
   });
 
   return (
@@ -42,6 +42,7 @@ export default async function TasksPage() {
       role={role}
       currentUserName={currentUserName}
       currentUserDepartment={me?.department ?? null}
+      currentUserSecondDepartment={me?.secondDepartment ?? null}
       canDeleteTasks={role === "master" && session.user.impersonating !== true}
       canEditTasks={canEditTasks}
     />

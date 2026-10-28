@@ -17,6 +17,7 @@ export default async function UsersPage() {
       email: true,
       clearance: true,
       department: true,
+      secondDepartment: true,
       mustChangePassword: true,
       createdAt: true,
     },
@@ -28,6 +29,7 @@ export default async function UsersPage() {
     email: u.email,
     clearance: u.clearance,
     department: u.department,
+    secondDepartment: u.secondDepartment,
     mustChangePassword: u.mustChangePassword,
     createdAt: u.createdAt.toISOString(),
   }));
