@@ -867,3 +867,229 @@ test("a crafted save finishes a subtask, keeps a parent waiting, and locks sched
   assert.equal(blocked.tasks[0]?.notes, "named");
   assert.equal(blocked.tasks[0]?.department, "Contracts Department");
 });
+
+test("a creator keeps the deadline on a new task, and moving it later stays limited", () => {
+  const user = {
+    name: "New Joiner",
+    clearance: "user",
+    department: "Contracts Department",
+  };
+  const contractsManager = {
+    name: "Priya Manager",
+    clearance: "manager",
+    department: "Contracts Department",
+  };
+  const drawingsManager = {
+    name: "Drawing Manager",
+    clearance: "manager",
+    department: "Drawings Department",
+  };
+  const director = { name: "Deepa", clearance: "director", department: null };
+  const edit = (role: "user" | "manager" | "director") => ({
+    ...defaultAccess(role),
+    tasks: "edit" as const,
+  });
+
+  const byUser = mergeWorkspaceSave(
+    file({ tasks: [] }),
+    file({
+      tasks: [
+        task({
+          id: "by-user",
+          department: "Contracts Department",
+          assignees: ["New Joiner"],
+          dueDate: "2026-12-01",
+          priority: "urgent",
+          notes: "created",
+        }),
+      ],
+    }),
+    edit("user"),
+    "user",
+    { actor: user, people }
+  );
+  assert.equal(byUser.tasks.length, 1);
+  assert.equal(byUser.tasks[0]?.dueDate, "2026-12-01");
+  assert.equal(byUser.tasks[0]?.priority, "normal");
+  assert.equal(byUser.tasks[0]?.department, null);
+  assert.deepEqual(byUser.tasks[0]?.assignees, []);
+  assert.equal(byUser.tasks[0]?.notes, "created");
+  assert.equal(byUser.taskDeadlineChangeLog.length, 0);
+
+  const userLater = mergeWorkspaceSave(
+    byUser,
+    file({
+      tasks: [
+        task({
+          ...byUser.tasks[0],
+          dueDate: "2027-01-01",
+          priority: "high",
+          notes: "still editing",
+        }),
+      ],
+    }),
+    edit("user"),
+    "user",
+    { actor: user, people }
+  );
+  assert.equal(userLater.tasks[0]?.dueDate, "2026-12-01");
+  assert.equal(userLater.tasks[0]?.priority, "normal");
+  assert.equal(userLater.tasks[0]?.notes, "still editing");
+
+  const byManager = mergeWorkspaceSave(
+    file({ tasks: [] }),
+    file({
+      tasks: [
+        task({
+          id: "by-manager",
+          department: "Drawings Department",
+          assignees: ["Anil User"],
+          dueDate: "2026-11-20",
+          priority: "high",
+        }),
+      ],
+    }),
+    edit("manager"),
+    "manager",
+    { actor: contractsManager, people }
+  );
+  assert.equal(byManager.tasks[0]?.department, "Drawings Department");
+  assert.deepEqual(byManager.tasks[0]?.assignees, ["Anil User"]);
+  assert.equal(byManager.tasks[0]?.dueDate, "2026-11-20");
+  assert.equal(byManager.tasks[0]?.priority, "normal");
+
+  const managerLater = mergeWorkspaceSave(
+    byManager,
+    file({
+      tasks: [
+        task({
+          ...byManager.tasks[0],
+          dueDate: "2027-02-01",
+          priority: "urgent",
+          notes: "not my department",
+        }),
+      ],
+    }),
+    edit("manager"),
+    "manager",
+    { actor: contractsManager, people }
+  );
+  assert.equal(managerLater.tasks[0]?.dueDate, "2026-11-20");
+  assert.equal(managerLater.tasks[0]?.priority, "normal");
+  assert.equal(managerLater.tasks[0]?.notes, "");
+  assert.equal(managerLater.tasks[0]?.department, "Drawings Department");
+
+  const drawingsLater = mergeWorkspaceSave(
+    managerLater,
+    file({
+      tasks: [
+        task({
+          ...managerLater.tasks[0],
+          dueDate: "2026-12-15",
+          priority: "high",
+        }),
+      ],
+      taskDeadlineChangeLog: [
+        {
+          id: "drawings-move",
+          at: "2026-10-05T00:00:00.000Z",
+          by: "Drawing Manager",
+          taskId: "by-manager",
+          contractId: "c1",
+          taskTitle: "Check site",
+          fromDate: "2026-11-20",
+          toDate: "2026-12-15",
+          reason: "Drawings manager",
+        },
+      ],
+    }),
+    edit("manager"),
+    "manager",
+    { actor: drawingsManager, people }
+  );
+  assert.equal(drawingsLater.tasks[0]?.dueDate, "2026-12-15");
+  assert.equal(drawingsLater.tasks[0]?.priority, "high");
+
+  const sub = mergeWorkspaceSave(
+    file({ tasks: [] }),
+    file({
+      tasks: [
+        task({
+          id: "new-sub",
+          parentId: "parent",
+          department: "Drawings Department",
+          assignees: ["Anil User"],
+          dueDate: "2026-10-15",
+          priority: "urgent",
+        }),
+      ],
+    }),
+    edit("manager"),
+    "manager",
+    { actor: contractsManager, people }
+  );
+  assert.equal(sub.tasks[0]?.dueDate, "2026-10-15");
+  assert.equal(sub.tasks[0]?.priority, "normal");
+  assert.equal(sub.tasks[0]?.department, null);
+  assert.deepEqual(sub.tasks[0]?.assignees, []);
+
+  const byDirector = mergeWorkspaceSave(
+    file({ tasks: [] }),
+    file({
+      tasks: [
+        task({
+          id: "by-director",
+          department: null,
+          dueDate: "2026-09-01",
+          priority: "high",
+        }),
+      ],
+    }),
+    edit("director"),
+    "director",
+    { actor: director, people }
+  );
+  assert.equal(byDirector.tasks[0]?.dueDate, "2026-09-01");
+  assert.equal(byDirector.tasks[0]?.priority, "high");
+
+  const systemSaved = mergeWorkspaceSave(
+    file({ tasks: [] }),
+    file({
+      tasks: [
+        task({
+          id: "gad-new",
+          source: "system",
+          catalogKey: "gad",
+          department: "Drawings Department",
+          dueDate: "2026-08-01",
+          priority: "urgent",
+          parentId: null,
+        }),
+      ],
+    }),
+    edit("user"),
+    "user",
+    { actor: user, people }
+  );
+  assert.equal(systemSaved.tasks[0]?.dueDate, "2026-08-01");
+  assert.equal(systemSaved.tasks[0]?.priority, "urgent");
+  assert.equal(systemSaved.tasks[0]?.department, "Drawings Department");
+
+  const kept = task({ id: "kept", dueDate: null, notes: "stay" });
+  const viewOnly = mergeWorkspaceSave(
+    file({ tasks: [kept] }),
+    file({
+      tasks: [
+        task({ ...kept, dueDate: "2026-12-01", notes: "changed" }),
+        task({ id: "view-new", dueDate: "2026-12-01", notes: "created" }),
+      ],
+    }),
+    { ...defaultAccess("user"), tasks: "view" },
+    "user",
+    { actor: user, people }
+  );
+  assert.equal(viewOnly.tasks.length, 1);
+  assert.equal(viewOnly.tasks[0]?.id, "kept");
+  assert.equal(viewOnly.tasks[0]?.dueDate, null);
+  assert.equal(viewOnly.tasks[0]?.notes, "stay");
+});
