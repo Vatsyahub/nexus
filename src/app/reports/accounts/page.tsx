@@ -18,6 +18,7 @@ import {
   EXPENSE_REPORT_EXPORT_HEADERS,
   RETENTION_EXPORT_HEADERS,
   bankGuaranteeExportRow,
+  bankGuaranteeTotalExportRow,
   buildBankGuaranteeRows,
   buildCollectionRows,
   buildExpenseReportRows,
@@ -29,6 +30,7 @@ import {
   filterExpenseReportRows,
   filterRetentionHeldRows,
   retentionExportRow,
+  sumBankGuaranteeValue,
   sumCollectionColumns,
   type BankGuaranteeRow,
   type CollectionColumnTotals,
@@ -606,6 +608,8 @@ function GuaranteesTable({
   rows: BankGuaranteeRow[];
   filters: string;
 }) {
+  const totalValue = sumBankGuaranteeValue(rows);
+  const exportRows = rows.map(bankGuaranteeExportRow);
   return (
     <>
       <ReportsTableScroll className="mt-4">
@@ -676,6 +680,17 @@ function GuaranteesTable({
               ))
             )}
           </tbody>
+          {rows.length > 0 ? (
+            <tfoot className="border-t border-[var(--fh-line)] bg-[var(--fh-bg)] font-medium">
+              <tr>
+                <td className={reportTd} colSpan={4}>
+                  Total
+                </td>
+                <td className={reportMoney}>{formatMoney(totalValue)}</td>
+                <td className={reportTd} colSpan={4} />
+              </tr>
+            </tfoot>
+          ) : null}
         </table>
       </ReportsTableScroll>
       <ReportExportIcons
@@ -683,7 +698,11 @@ function GuaranteesTable({
         title="Accounts Report — Bank guarantees"
         filters={filters}
         headers={[...BANK_GUARANTEE_EXPORT_HEADERS]}
-        rows={rows.map(bankGuaranteeExportRow)}
+        rows={
+          rows.length > 0
+            ? [...exportRows, bankGuaranteeTotalExportRow(totalValue)]
+            : exportRows
+        }
       />
     </>
   );

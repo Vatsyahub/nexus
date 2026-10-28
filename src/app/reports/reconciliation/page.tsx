@@ -640,7 +640,7 @@ function SummaryView({
           <tfoot className="border-t border-[var(--fh-line)] bg-[var(--fh-bg)] text-sm font-medium">
             <tr>
               <td className={reportTd} colSpan={2}>
-                Portfolio totals
+                Total
               </td>
               <td className={reportMoney}>{formatMoney(totals.invoiced)}</td>
               <td className={reportMoney}>{formatMoney(totals.expected)}</td>
@@ -682,7 +682,7 @@ function SummaryView({
             row.outstanding,
           ]),
           [
-            "Portfolio totals",
+            "Total",
             "",
             totals.invoiced,
             totals.expected,
