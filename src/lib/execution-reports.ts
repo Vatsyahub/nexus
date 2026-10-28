@@ -17,7 +17,12 @@ import {
   yetToCollectAmount,
   type ContractStatusLabel,
 } from "@/lib/nexus-core";
-import { installedQty, suppliedQty, taskIsOpen } from "@/lib/store";
+import {
+  installedQty,
+  invoiceOutstanding,
+  suppliedQty,
+  taskIsOpen,
+} from "@/lib/store";
 
 function todayIso(): string {
   const d = new Date();
@@ -372,19 +377,21 @@ export type WorkorderRow = {
   yetToBill: number;
   /** Cash still to come in. Same figure as the Core report. */
   yetToCollect: number;
+  /**
+   * Sales → Contracts total outstanding: invoiceOutstanding summed over
+   * this contract’s tax invoices.
+   */
+  currentDue: number;
 };
 
 export const WORKORDER_SUMMARY_EXPORT_HEADERS = [
   "Project",
   "Project no.",
   "City",
-  "WO no.",
-  "WO date",
   "WO value",
-  "Amendments",
   "Yet to Bill",
   "Yet to Collect",
-  "Latest amendment",
+  "Current Due",
   "Status",
   "Handover",
   "DLP end",
@@ -402,6 +409,15 @@ function contractWorkorderStatus(
 
 function handoverDate(data: FlowhubData, contractId: string): string | null {
   return handoverDateForContract(data, contractId);
+}
+
+/** Same sum as Sales → Contracts total outstanding. Proformas stay out. */
+function contractCurrentDue(data: FlowhubData, contractId: string): number {
+  return data.invoices
+    .filter(
+      (invoice) => invoice.type === "TI" && invoice.contractId === contractId
+    )
+    .reduce((sum, invoice) => sum + invoiceOutstanding(invoice, data), 0);
 }
 
 export function buildWorkorderRows(data: FlowhubData): WorkorderRow[] {
@@ -430,6 +446,7 @@ export function buildWorkorderRows(data: FlowhubData): WorkorderRow[] {
         latestAmendmentDate: latest?.date || null,
         yetToBill: yetToBillAmount(workOrder, taxInvoiceNet(data, c.id)),
         yetToCollect: yetToCollectAmount(c, payments),
+        currentDue: contractCurrentDue(data, c.id),
       };
     })
     .sort((a, b) => a.projectNo.localeCompare(b.projectNo));
@@ -442,15 +459,10 @@ export function workorderSummaryExportRow(
     row.projectName,
     row.projectNo,
     row.city,
-    row.woNo,
-    formatDisplayDate(row.woDate),
     row.woValue,
-    row.amendmentCount,
     wholeRupees(row.yetToBill),
     wholeRupees(row.yetToCollect),
-    row.amendmentCount === 0
-      ? ""
-      : `${row.latestAmendmentNo} · ${formatDisplayDate(row.latestAmendmentDate)}`,
+    row.currentDue,
     WORKORDER_STATUS_LABELS[row.status],
     formatDisplayDate(row.handoverDate),
     formatDisplayDate(row.dlpEndDate),

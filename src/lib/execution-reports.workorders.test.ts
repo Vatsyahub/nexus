@@ -14,6 +14,7 @@ import {
   yetToBillAmount,
   yetToCollectAmount,
 } from "@/lib/nexus-core";
+import { buildSalesContractRows } from "@/lib/reports";
 import type { Contract, FlowhubData, Invoice, Payment } from "@/lib/types";
 
 /**
@@ -70,9 +71,36 @@ test("work order summary matches the core report for Chalet Hotel C4940", async 
     otherDeductions: 0,
   } as Payment);
   const invoices = [
-    { id: "ti-1", type: "TI", contractId: contract.id, netAmount: 1000000 },
-    { id: "ti-2", type: "TI", contractId: contract.id, netAmount: 950100 },
-    { id: "pi-1", type: "PI", contractId: contract.id, netAmount: 800000 },
+    {
+      id: "ti-1",
+      type: "TI",
+      contractId: contract.id,
+      number: "TI-1",
+      date: "2026-02-01",
+      createdAt: "2026-02-01T00:00:00.000Z",
+      netAmount: 1000000,
+      finalAmount: 1180000,
+    },
+    {
+      id: "ti-2",
+      type: "TI",
+      contractId: contract.id,
+      number: "TI-2",
+      date: "2026-03-01",
+      createdAt: "2026-03-01T00:00:00.000Z",
+      netAmount: 950100,
+      finalAmount: 1121118,
+    },
+    {
+      id: "pi-1",
+      type: "PI",
+      contractId: contract.id,
+      number: "PI-1",
+      date: "2026-01-20",
+      createdAt: "2026-01-20T00:00:00.000Z",
+      netAmount: 800000,
+      finalAmount: 944000,
+    },
   ] as Invoice[];
   const data = {
     contracts: [other, contract],
@@ -101,17 +129,36 @@ test("work order summary matches the core report for Chalet Hotel C4940", async 
   assert.equal(row.yetToCollect, core.yetToCollect);
   assert.equal(formatWholeRupees(row.yetToCollect), "₹26,38,952");
   assert.equal(formatWholeRupees(row.yetToBill), "₹19,42,100");
+  const sales = buildSalesContractRows(data).find(
+    (item) => item.contractId === contract.id
+  );
+  assert.ok(sales);
+  assert.equal(row.currentDue, sales.totalOutstanding);
+  assert.notEqual(row.currentDue, row.yetToCollect);
+  assert.notEqual(row.currentDue, sales.totalOutstandingNet);
 
   const headers = [...WORKORDER_SUMMARY_EXPORT_HEADERS];
-  const amendmentsAt = headers.indexOf("Amendments");
-  assert.deepEqual(headers.slice(amendmentsAt, amendmentsAt + 3), [
-    "Amendments",
+  const valueAt = headers.indexOf("WO value");
+  assert.deepEqual(headers.slice(valueAt, valueAt + 4), [
+    "WO value",
     "Yet to Bill",
     "Yet to Collect",
+    "Current Due",
   ]);
+  const removed: string[] = [
+    "WO no.",
+    "WO date",
+    "Amendments",
+    "Latest amendment",
+  ];
+  assert.equal(
+    headers.some((header) => removed.includes(header)),
+    false
+  );
   const exported = workorderSummaryExportRow(row);
-  assert.equal(exported[amendmentsAt + 1], 1942100);
-  assert.equal(exported[amendmentsAt + 2], 2638952);
+  assert.equal(exported[valueAt + 1], 1942100);
+  assert.equal(exported[valueAt + 2], 2638952);
+  assert.equal(exported[valueAt + 3], sales.totalOutstanding);
 
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(
@@ -130,6 +177,7 @@ test("work order summary matches the core report for Chalet Hotel C4940", async 
   const headerValues = headers.map((_, index) => headerRow.getCell(index + 1).value);
   assert.deepEqual(headerValues, headers);
   const dataRow = sheet.getRow(6);
-  assert.equal(dataRow.getCell(amendmentsAt + 2).value, 1942100);
-  assert.equal(dataRow.getCell(amendmentsAt + 3).value, 2638952);
+  assert.equal(dataRow.getCell(valueAt + 2).value, 1942100);
+  assert.equal(dataRow.getCell(valueAt + 3).value, 2638952);
+  assert.equal(dataRow.getCell(valueAt + 4).value, sales.totalOutstanding);
 });

@@ -735,17 +735,13 @@ function WorkordersTable({ data }: { data: FlowhubData }) {
         r.projectNo,
         r.projectName,
         r.city,
-        r.woNo,
-        r.woDate,
-        formatDisplayDate(r.woDate),
         r.woValue,
         WORKORDER_STATUS_LABELS[r.status],
         formatDisplayDate(r.handoverDate),
         formatDisplayDate(r.dlpEndDate),
-        r.latestAmendmentNo,
-        formatDisplayDate(r.latestAmendmentDate),
         r.yetToBill,
         r.yetToCollect,
+        r.currentDue,
       ])
     );
   }, [all, q]);
@@ -756,33 +752,29 @@ function WorkordersTable({ data }: { data: FlowhubData }) {
         className="mt-4"
         value={q}
         onChange={setQ}
-        placeholder="Search project, city, WO no., status…"
+        placeholder="Search project, city, status…"
       />
       <ReportsTableScroll className="mt-4">
         <table className="w-full table-fixed text-left text-sm">
           <colgroup>
-            <col className="w-[15%]" />
-            <col className="w-[7%]" />
+            <col className="w-[18%]" />
+            <col className="w-[8%]" />
+            <col className="w-[12%]" />
+            <col className="w-[12%]" />
+            <col className="w-[13%]" />
+            <col className="w-[12%]" />
             <col className="w-[9%]" />
             <col className="w-[8%]" />
-            <col className="w-[9%]" />
             <col className="w-[8%]" />
-            <col className="w-[10%]" />
-            <col className="w-[11%]" />
-            <col className="w-[8%]" />
-            <col className="w-[8%]" />
-            <col className="w-[7%]" />
           </colgroup>
           <thead className={theadClass}>
             <tr>
               <th className={reportTh}>Project</th>
               <th className={reportTh}>City</th>
-              <th className={reportTh}>WO no.</th>
-              <th className={reportTh}>WO date</th>
               <th className={cn(reportTh, "text-right")}>WO value</th>
-              <th className={reportTh}>Amendments</th>
               <th className={cn(reportTh, "text-right")}>Yet to Bill</th>
               <th className={cn(reportTh, "text-right")}>Yet to Collect</th>
+              <th className={cn(reportTh, "text-right")}>Current Due</th>
               <th className={reportTh}>Status</th>
               <th className={reportTh}>Handover</th>
               <th className={reportTh}>DLP end</th>
@@ -790,7 +782,7 @@ function WorkordersTable({ data }: { data: FlowhubData }) {
           </thead>
           <tbody className="divide-y divide-[var(--fh-line)]">
             {rows.length === 0 ? (
-              <EmptyRow colSpan={11} text="No matching workorders." />
+              <EmptyRow colSpan={9} text="No matching workorders." />
             ) : (
               rows.map((r) => (
                 <tr key={r.contractId}>
@@ -802,27 +794,13 @@ function WorkordersTable({ data }: { data: FlowhubData }) {
                     />
                   </td>
                   <td className={reportTd}>{r.city}</td>
-                  <td className={cn(reportTd, "break-all")}>{r.woNo}</td>
-                  <td className={cn(reportTd, "tabular-nums")}>
-                    {formatDisplayDate(r.woDate)}
-                  </td>
                   <td className={reportMoney}>{formatMoney(r.woValue)}</td>
-                  <td className={cn(reportTd, "tabular-nums")}>
-                    {r.amendmentCount === 0 ? (
-                      <span className="text-[var(--fh-muted)]">—</span>
-                    ) : (
-                      <>
-                        <span className="font-medium">{r.amendmentCount}</span>
-                        <span className="block text-xs text-[var(--fh-muted)]">
-                          {r.latestAmendmentNo} ·{" "}
-                          {formatDisplayDate(r.latestAmendmentDate)}
-                        </span>
-                      </>
-                    )}
-                  </td>
                   <td className={reportMoney}>{formatWholeRupees(r.yetToBill)}</td>
                   <td className={reportMoney}>
                     {formatWholeRupees(r.yetToCollect)}
+                  </td>
+                  <td className={cn(reportMoney, "font-medium")}>
+                    {formatMoney(r.currentDue)}
                   </td>
                   <td className={reportTd}>
                     <StatusPill
