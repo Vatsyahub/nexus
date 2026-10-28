@@ -5210,7 +5210,8 @@ opts?: { actor?: TaskActor }
     });
     department = decision.ok ? decision.department : null;
   }
-  const maySetSchedule =
+  // Priority on create stays with Master and Director. The due date does not.
+  const maySetPriority =
     !opts?.actor ||
     canEditTaskSchedule(opts.actor, { department: null, assignees: [] });
   const full: Task = {
@@ -5221,11 +5222,11 @@ opts?: { actor?: TaskActor }
     assignees,
     status:
       input.department || assignees.length > 0 ? "in_progress" : "pending",
-    dueDate: maySetSchedule ? input.dueDate || null : null,
+    dueDate: input.dueDate || null,
     parentId: input.parentId ?? null,
     source: input.source ?? "manual",
     catalogKey: input.catalogKey ?? "custom",
-    priority: maySetSchedule ? (input.priority ?? "normal") : "normal",
+    priority: maySetPriority ? (input.priority ?? "normal") : "normal",
     notes: input.notes?.trim() ?? "",
     notesUpdatedAt: input.notes?.trim() ? new Date().toISOString() : null,
     completedAt: null,

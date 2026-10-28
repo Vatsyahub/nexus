@@ -55,7 +55,7 @@ export function NewTaskClient({
   const router = useRouter();
   const departments = useMemo(() => listDepartments(data), [data]);
   const assignPeople = canAssignPeople(role);
-  const maySetSchedule = canEditTaskSchedule(
+  const maySetPriority = canEditTaskSchedule(
     { name: "", clearance: role, department: null },
     { department: null, assignees: [] }
   );
@@ -143,8 +143,8 @@ export function NewTaskClient({
             )
           )
         : [],
-      dueDate: maySetSchedule ? dueDate || null : null,
-      priority: maySetSchedule ? priority : "normal",
+      dueDate: dueDate || null,
+      priority: maySetPriority ? priority : "normal",
       catalogKey,
       source: catalog?.system ? "system" : "manual",
     }, { actor: { name: "", clearance: role, department: null } });
@@ -242,21 +242,15 @@ export function NewTaskClient({
           </div>
           <div className="space-y-1">
             <Label>Deadline</Label>
-            {maySetSchedule ? (
-              <Input
-                type="date"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-              />
-            ) : (
-              <p className="flex h-9 items-center text-sm text-[var(--fh-muted)]">
-                No deadline
-              </p>
-            )}
+            <Input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+            />
           </div>
           <div className="space-y-1">
             <Label>Priority</Label>
-            {maySetSchedule ? (
+            {maySetPriority ? (
               <select
                 className="flex h-9 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
                 value={priority}
