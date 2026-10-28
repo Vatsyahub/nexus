@@ -469,6 +469,57 @@ export function workorderSummaryExportRow(
   ];
 }
 
+export type WorkorderMoneyTotals = {
+  woValue: number;
+  yetToBill: number;
+  yetToCollect: number;
+  currentDue: number;
+};
+
+/** WO value, Yet to Bill, Yet to Collect, and Current Due on the listed rows. */
+export function sumWorkorderMoneyColumns(
+  rows: readonly Pick<
+    WorkorderRow,
+    "woValue" | "yetToBill" | "yetToCollect" | "currentDue"
+  >[]
+): WorkorderMoneyTotals {
+  const totals: WorkorderMoneyTotals = {
+    woValue: 0,
+    yetToBill: 0,
+    yetToCollect: 0,
+    currentDue: 0,
+  };
+  for (const row of rows) {
+    totals.woValue += row.woValue;
+    totals.yetToBill += row.yetToBill;
+    totals.yetToCollect += row.yetToCollect;
+    totals.currentDue += row.currentDue;
+  }
+  return totals;
+}
+
+/**
+ * Total line for the work-order summary.
+ * Yet to Bill and Yet to Collect are the column sums, rounded to a rupee
+ * the way those columns display. Status, handover, and DLP stay blank.
+ */
+export function workorderMoneyTotalExportRow(
+  totals: WorkorderMoneyTotals
+): (string | number)[] {
+  return [
+    "Total",
+    "",
+    "",
+    totals.woValue,
+    wholeRupees(totals.yetToBill),
+    wholeRupees(totals.yetToCollect),
+    totals.currentDue,
+    "",
+    "",
+    "",
+  ];
+}
+
 export type ProjectTaskRow = {
   contractId: string;
   projectNo: string;

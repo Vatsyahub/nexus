@@ -27,6 +27,8 @@ import {
   itemListExportRow,
   itemListHeaders,
   WORKORDER_SUMMARY_EXPORT_HEADERS,
+  sumWorkorderMoneyColumns,
+  workorderMoneyTotalExportRow,
   workorderSummaryExportRow,
   type ScheduleFulfilmentStatus,
   type WorkorderStatus,
@@ -745,6 +747,8 @@ function WorkordersTable({ data }: { data: FlowhubData }) {
       ])
     );
   }, [all, q]);
+  const totals = sumWorkorderMoneyColumns(rows);
+  const exportRows = rows.map((r) => workorderSummaryExportRow(r));
 
   return (
     <>
@@ -818,6 +822,26 @@ function WorkordersTable({ data }: { data: FlowhubData }) {
               ))
             )}
           </tbody>
+          {rows.length > 0 ? (
+            <tfoot className="border-t border-[var(--fh-line)] bg-[var(--fh-bg)] font-medium">
+              <tr>
+                <td className={reportTd} colSpan={2}>
+                  Total
+                </td>
+                <td className={reportMoney}>{formatMoney(totals.woValue)}</td>
+                <td className={reportMoney}>
+                  {formatWholeRupees(totals.yetToBill)}
+                </td>
+                <td className={reportMoney}>
+                  {formatWholeRupees(totals.yetToCollect)}
+                </td>
+                <td className={reportMoney}>
+                  {formatMoney(totals.currentDue)}
+                </td>
+                <td className={reportTd} colSpan={3} />
+              </tr>
+            </tfoot>
+          ) : null}
         </table>
       </ReportsTableScroll>
       <ReportExportIcons
@@ -825,7 +849,11 @@ function WorkordersTable({ data }: { data: FlowhubData }) {
         title="Other Reports — Workorders summary"
         filters={reportFilterSummary({ tab: "Workorders summary", search: q })}
         headers={[...WORKORDER_SUMMARY_EXPORT_HEADERS]}
-        rows={rows.map((r) => workorderSummaryExportRow(r))}
+        rows={
+          rows.length > 0
+            ? [...exportRows, workorderMoneyTotalExportRow(totals)]
+            : exportRows
+        }
       />
     </>
   );

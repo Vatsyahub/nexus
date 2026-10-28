@@ -7,12 +7,17 @@ import { useFlowhubData, useWorkspaceReady } from "@/lib/store";
 import { formatMoney } from "@/lib/format-money";
 import { formatDisplayDate } from "@/lib/dates";
 import {
+  SALES_CONTRACT_EXPORT_HEADERS,
   SALES_INVOICE_EXPORT_HEADERS,
   buildSalesContractRows,
   buildSalesInvoiceRows,
   filterSalesContractRows,
   filterSalesInvoiceRows,
+  salesContractTotalExportRow,
   salesInvoiceExportRow,
+  salesInvoiceTotalExportRow,
+  sumSalesContractMoneyColumns,
+  sumSalesInvoiceColumns,
   sumSalesInvoiceNet,
 } from "@/lib/reports";
 import { ListWindowNote } from "@/components/list-window-note";
@@ -270,6 +275,8 @@ function InvoicesTable({
   rows: ReturnType<typeof buildSalesInvoiceRows>;
   filters: string;
 }) {
+  const totals = sumSalesInvoiceColumns(rows);
+  const exportRows = rows.map(salesInvoiceExportRow);
   return (
     <>
       <ReportsTableScroll className="mt-4">
@@ -335,6 +342,19 @@ function InvoicesTable({
               ))
             )}
           </tbody>
+          {rows.length > 0 ? (
+            <tfoot className="border-t border-[var(--fh-line)] bg-[var(--fh-bg)] font-medium">
+              <tr>
+                <td className={reportTd} colSpan={3}>
+                  Total
+                </td>
+                <td className={reportMoney}>{formatMoney(totals.net)}</td>
+                <td className={reportMoney}>{formatMoney(totals.gst)}</td>
+                <td className={reportMoney}>{formatMoney(totals.other)}</td>
+                <td className={reportMoney}>{formatMoney(totals.total)}</td>
+              </tr>
+            </tfoot>
+          ) : null}
         </table>
       </ReportsTableScroll>
       <ReportExportIcons
@@ -342,7 +362,11 @@ function InvoicesTable({
         title="Sales Report — Invoices"
         filters={filters}
         headers={[...SALES_INVOICE_EXPORT_HEADERS]}
-        rows={rows.map(salesInvoiceExportRow)}
+        rows={
+          rows.length > 0
+            ? [...exportRows, salesInvoiceTotalExportRow(totals)]
+            : exportRows
+        }
       />
     </>
   );
@@ -355,6 +379,17 @@ function ContractsTable({
   rows: ReturnType<typeof buildSalesContractRows>;
   filters: string;
 }) {
+  const totals = sumSalesContractMoneyColumns(rows);
+  const exportRows = rows.map((r) => [
+    r.projectName,
+    r.projectNo,
+    r.city,
+    r.woValue,
+    r.totalInvoiceNet,
+    r.leftoverBilling,
+    r.totalPaid,
+    r.totalOutstanding,
+  ]);
   return (
     <>
       <ReportsTableScroll className="mt-4">
@@ -415,32 +450,38 @@ function ContractsTable({
               ))
             )}
           </tbody>
+          {rows.length > 0 ? (
+            <tfoot className="border-t border-[var(--fh-line)] bg-[var(--fh-bg)] font-medium">
+              <tr>
+                <td className={reportTd} colSpan={2}>
+                  Total
+                </td>
+                <td className={reportMoney}>{formatMoney(totals.woValue)}</td>
+                <td className={reportMoney}>
+                  {formatMoney(totals.totalInvoice)}
+                </td>
+                <td className={reportMoney}>
+                  {formatMoney(totals.leftoverBilling)}
+                </td>
+                <td className={reportMoney}>{formatMoney(totals.totalPaid)}</td>
+                <td className={reportMoney}>
+                  {formatMoney(totals.totalOutstanding)}
+                </td>
+              </tr>
+            </tfoot>
+          ) : null}
         </table>
       </ReportsTableScroll>
       <ReportExportIcons
         filename="sales-contracts"
         title="Sales Report — Contracts"
         filters={filters}
-        headers={[
-          "Project",
-          "Project no.",
-          "City",
-          "WO value",
-          "Total invoice",
-          "Leftover billing",
-          "Total paid",
-          "Total outstanding",
-        ]}
-        rows={rows.map((r) => [
-          r.projectName,
-          r.projectNo,
-          r.city,
-          r.woValue,
-          r.totalInvoiceNet,
-          r.leftoverBilling,
-          r.totalPaid,
-          r.totalOutstanding,
-        ])}
+        headers={[...SALES_CONTRACT_EXPORT_HEADERS]}
+        rows={
+          rows.length > 0
+            ? [...exportRows, salesContractTotalExportRow(totals)]
+            : exportRows
+        }
       />
     </>
   );

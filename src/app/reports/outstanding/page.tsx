@@ -12,9 +12,15 @@ import {
 import { formatMoney } from "@/lib/format-money";
 import { formatDisplayDate, isDateInInclusiveRange } from "@/lib/dates";
 import {
+  INVOICE_LIST_EXPORT_HEADERS,
+  OPEN_PROFORMA_EXPORT_HEADERS,
   buildInvoiceOutstandingRows,
   buildOpenPiRows,
+  invoiceListTotalExportRow,
+  proformaTotalExportRow,
+  sumInvoiceListColumns,
   sumOpenOutstanding,
+  sumProformaFinalAmounts,
   type InvoiceOutstandingStatus,
 } from "@/lib/reports";
 import { matchesAny } from "@/lib/list-search";
@@ -375,6 +381,20 @@ function InvoicesTable({
   title: string;
   filters: string;
 }) {
+  const totals = sumInvoiceListColumns(rows);
+  const exportRows = rows.map((r) => [
+    r.projectName,
+    r.projectNo,
+    r.city,
+    r.number,
+    formatDisplayDate(r.date),
+    r.finalAmount,
+    r.paid > 0.005 ? r.paid : 0,
+    r.outstanding,
+    formatDisplayDate(r.dueDate),
+    r.status === "paid" ? "" : r.daysUntilDue,
+    capitalize(r.status),
+  ]);
   return (
     <>
       <ReportsTableScroll className="mt-4">
@@ -461,38 +481,33 @@ function InvoicesTable({
               ))
             )}
           </tbody>
+          {rows.length > 0 ? (
+            <tfoot className="border-t border-[var(--fh-line)] bg-[var(--fh-bg)] font-medium">
+              <tr>
+                <td className={reportTd} colSpan={4}>
+                  Total
+                </td>
+                <td className={reportMoney}>{formatMoney(totals.tiAmount)}</td>
+                <td className={reportMoney}>{formatMoney(totals.paid)}</td>
+                <td className={reportMoney}>
+                  {formatMoney(totals.outstanding)}
+                </td>
+                <td className={reportTd} colSpan={3} />
+              </tr>
+            </tfoot>
+          ) : null}
         </table>
       </ReportsTableScroll>
       <ReportExportIcons
         filename={`invoices-${title}`}
         title={`Invoices and Outstandings — ${title}`}
         filters={filters}
-        headers={[
-          "Project",
-          "Project no.",
-          "City",
-          "TI no.",
-          "TI date",
-          "TI amount",
-          "Paid",
-          "Outstanding",
-          "Due date",
-          "Due days",
-          "Status",
-        ]}
-        rows={rows.map((r) => [
-          r.projectName,
-          r.projectNo,
-          r.city,
-          r.number,
-          formatDisplayDate(r.date),
-          r.finalAmount,
-          r.paid > 0.005 ? r.paid : 0,
-          r.outstanding,
-          formatDisplayDate(r.dueDate),
-          r.status === "paid" ? "" : r.daysUntilDue,
-          capitalize(r.status),
-        ])}
+        headers={[...INVOICE_LIST_EXPORT_HEADERS]}
+        rows={
+          rows.length > 0
+            ? [...exportRows, invoiceListTotalExportRow(totals)]
+            : exportRows
+        }
       />
     </>
   );
@@ -509,6 +524,16 @@ function ProformasTable({
   rows: ReturnType<typeof buildOpenPiRows>;
   filters: string;
 }) {
+  const finalAmount = sumProformaFinalAmounts(rows);
+  const exportRows = rows.map((row) => [
+    row.projectName,
+    row.projectNo,
+    row.city,
+    row.number,
+    formatDisplayDate(row.date),
+    row.finalAmount,
+    row.daysOpen,
+  ]);
   return (
     <>
       <ReportsTableScroll className="mt-4">
@@ -571,30 +596,29 @@ function ProformasTable({
               ))
             )}
           </tbody>
+          {rows.length > 0 ? (
+            <tfoot className="border-t border-[var(--fh-line)] bg-[var(--fh-bg)] font-medium">
+              <tr>
+                <td className={reportTd} colSpan={4}>
+                  Total
+                </td>
+                <td className={reportMoney}>{formatMoney(finalAmount)}</td>
+                <td className={reportTd} />
+              </tr>
+            </tfoot>
+          ) : null}
         </table>
       </ReportsTableScroll>
       <ReportExportIcons
         filename="open-proformas"
         title="Invoices and Outstandings — Open proformas"
         filters={filters}
-        headers={[
-          "Project",
-          "Project no.",
-          "City",
-          "PI number",
-          "Date",
-          "Final amount",
-          "Days open",
-        ]}
-        rows={rows.map((row) => [
-          row.projectName,
-          row.projectNo,
-          row.city,
-          row.number,
-          formatDisplayDate(row.date),
-          row.finalAmount,
-          row.daysOpen,
-        ])}
+        headers={[...OPEN_PROFORMA_EXPORT_HEADERS]}
+        rows={
+          rows.length > 0
+            ? [...exportRows, proformaTotalExportRow(finalAmount)]
+            : exportRows
+        }
       />
     </>
   );

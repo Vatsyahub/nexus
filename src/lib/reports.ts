@@ -454,6 +454,66 @@ export function sumOpenOutstanding(rows: InvoiceOutstandingRow[]): number {
   );
 }
 
+export type InvoiceListColumnTotals = {
+  tiAmount: number;
+  paid: number;
+  outstanding: number;
+};
+
+/**
+ * TI amount, Paid, and Outstanding on the rows currently listed.
+ * Paid matches the cell: within half a paisa counts as zero. Due days stay out.
+ */
+export function sumInvoiceListColumns(
+  rows: readonly Pick<InvoiceOutstandingRow, "finalAmount" | "paid" | "outstanding">[]
+): InvoiceListColumnTotals {
+  const totals: InvoiceListColumnTotals = {
+    tiAmount: 0,
+    paid: 0,
+    outstanding: 0,
+  };
+  for (const row of rows) {
+    totals.tiAmount += row.finalAmount;
+    totals.paid += row.paid > 0.005 ? row.paid : 0;
+    totals.outstanding += row.outstanding;
+  }
+  return totals;
+}
+
+/** Excel / PDF columns for Invoices and Outstandings → All and Outstandings. */
+export const INVOICE_LIST_EXPORT_HEADERS = [
+  "Project",
+  "Project no.",
+  "City",
+  "TI no.",
+  "TI date",
+  "TI amount",
+  "Paid",
+  "Outstanding",
+  "Due date",
+  "Due days",
+  "Status",
+] as const;
+
+/** Total line for those columns. Due date, due days, and status stay blank. */
+export function invoiceListTotalExportRow(
+  totals: InvoiceListColumnTotals
+): (string | number)[] {
+  return [
+    "Total",
+    "",
+    "",
+    "",
+    "",
+    totals.tiAmount,
+    totals.paid,
+    totals.outstanding,
+    "",
+    "",
+    "",
+  ];
+}
+
 export type OpenPiRow = {
   invoiceId: string;
   contractId: string;
@@ -513,6 +573,31 @@ export function buildOpenPiRows(
       (a, b) =>
         b.daysOpen - a.daysOpen || a.projectNo.localeCompare(b.projectNo)
     );
+}
+
+/** Final amount on the proforma rows currently listed. Days open stay out. */
+export function sumProformaFinalAmounts(
+  rows: readonly Pick<OpenPiRow, "finalAmount">[]
+): number {
+  return rows.reduce((sum, row) => sum + row.finalAmount, 0);
+}
+
+/** Excel / PDF columns for Invoices and Outstandings → Proformas. */
+export const OPEN_PROFORMA_EXPORT_HEADERS = [
+  "Project",
+  "Project no.",
+  "City",
+  "PI number",
+  "Date",
+  "Final amount",
+  "Days open",
+] as const;
+
+/** Total line for those columns. Days open stays blank. */
+export function proformaTotalExportRow(
+  finalAmount: number
+): (string | number)[] {
+  return ["Total", "", "", "", "", finalAmount, ""];
 }
 
 export function listCities(data: FlowhubData): string[] {
@@ -579,6 +664,48 @@ export function buildSalesInvoiceRows(data: FlowhubData): SalesInvoiceRow[] {
 
 export function sumSalesInvoiceNet(rows: SalesInvoiceRow[]): number {
   return rows.reduce((s, r) => s + r.net, 0);
+}
+
+export type SalesInvoiceColumnTotals = {
+  net: number;
+  gst: number;
+  other: number;
+  total: number;
+};
+
+/** Net, GST, other, and total on the sales invoice rows currently listed. */
+export function sumSalesInvoiceColumns(
+  rows: readonly Pick<SalesInvoiceRow, "net" | "gst" | "other" | "total">[]
+): SalesInvoiceColumnTotals {
+  const totals: SalesInvoiceColumnTotals = {
+    net: 0,
+    gst: 0,
+    other: 0,
+    total: 0,
+  };
+  for (const row of rows) {
+    totals.net += row.net;
+    totals.gst += row.gst;
+    totals.other += row.other;
+    totals.total += row.total;
+  }
+  return totals;
+}
+
+/** Total line for Sales → Invoices. Project and invoice identity stay blank. */
+export function salesInvoiceTotalExportRow(
+  totals: SalesInvoiceColumnTotals
+): (string | number)[] {
+  return [
+    "Total",
+    "",
+    "",
+    "",
+    totals.net,
+    totals.gst,
+    totals.other,
+    totals.total,
+  ];
 }
 
 /** Excel / PDF columns for Sales → Invoices. City is searchable and stays off this sheet. */
@@ -812,6 +939,73 @@ export function filterSalesContractRows(
   );
 }
 
+export type SalesContractMoneyTotals = {
+  woValue: number;
+  totalInvoice: number;
+  leftoverBilling: number;
+  totalPaid: number;
+  totalOutstanding: number;
+};
+
+/**
+ * Money columns on the Sales → Contracts rows currently listed.
+ * Total outstanding net is not a column and is not summed.
+ */
+export function sumSalesContractMoneyColumns(
+  rows: readonly Pick<
+    SalesContractRow,
+    | "woValue"
+    | "totalInvoiceNet"
+    | "leftoverBilling"
+    | "totalPaid"
+    | "totalOutstanding"
+  >[]
+): SalesContractMoneyTotals {
+  const totals: SalesContractMoneyTotals = {
+    woValue: 0,
+    totalInvoice: 0,
+    leftoverBilling: 0,
+    totalPaid: 0,
+    totalOutstanding: 0,
+  };
+  for (const row of rows) {
+    totals.woValue += row.woValue;
+    totals.totalInvoice += row.totalInvoiceNet;
+    totals.leftoverBilling += row.leftoverBilling;
+    totals.totalPaid += row.totalPaid;
+    totals.totalOutstanding += row.totalOutstanding;
+  }
+  return totals;
+}
+
+/** Excel / PDF columns for Sales → Contracts. */
+export const SALES_CONTRACT_EXPORT_HEADERS = [
+  "Project",
+  "Project no.",
+  "City",
+  "WO value",
+  "Total invoice",
+  "Leftover billing",
+  "Total paid",
+  "Total outstanding",
+] as const;
+
+/** Total line for those columns. Total outstanding net stays off the sheet. */
+export function salesContractTotalExportRow(
+  totals: SalesContractMoneyTotals
+): (string | number)[] {
+  return [
+    "Total",
+    "",
+    "",
+    totals.woValue,
+    totals.totalInvoice,
+    totals.leftoverBilling,
+    totals.totalPaid,
+    totals.totalOutstanding,
+  ];
+}
+
 /* ——— Accounts report ——— */
 
 export type BankGuaranteeStatus = "active" | "retrieved" | "expired";
@@ -971,6 +1165,18 @@ export function filterBankGuaranteeRows(
       r.retrievalDate ? formatDisplayDate(r.retrievalDate) : "",
     ])
   );
+}
+
+/** Value on the bank-guarantee rows currently listed. */
+export function sumBankGuaranteeValue(
+  rows: readonly Pick<BankGuaranteeRow, "value">[]
+): number {
+  return rows.reduce((sum, row) => sum + row.value, 0);
+}
+
+/** Total line for Accounts → Bank guarantees. Only Value is summed. */
+export function bankGuaranteeTotalExportRow(value: number): (string | number)[] {
+  return ["Total", "", "", "", "", value, "", "", "", ""];
 }
 
 export type RetentionReportStatus =
