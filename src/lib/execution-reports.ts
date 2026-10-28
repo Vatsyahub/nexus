@@ -10,7 +10,11 @@ import { matchesAny } from "@/lib/list-search";
 import {
   contractDisplayStatus,
   handoverDateForContract,
+  taxInvoiceNet,
   todayIso as coreTodayIso,
+  wholeRupees,
+  yetToBillAmount,
+  yetToCollectAmount,
   type ContractStatusLabel,
 } from "@/lib/nexus-core";
 import { installedQty, suppliedQty, taskIsOpen } from "@/lib/store";
@@ -364,7 +368,27 @@ export type WorkorderRow = {
   amendmentCount: number;
   latestAmendmentNo: string | null;
   latestAmendmentDate: string | null;
+  /** Work-order value minus tax-invoice nets. Same figure as the Core report. */
+  yetToBill: number;
+  /** Cash still to come in. Same figure as the Core report. */
+  yetToCollect: number;
 };
+
+export const WORKORDER_SUMMARY_EXPORT_HEADERS = [
+  "Project",
+  "Project no.",
+  "City",
+  "WO no.",
+  "WO date",
+  "WO value",
+  "Amendments",
+  "Yet to Bill",
+  "Yet to Collect",
+  "Latest amendment",
+  "Status",
+  "Handover",
+  "DLP end",
+] as const;
 
 function contractWorkorderStatus(
   data: FlowhubData,
@@ -386,6 +410,10 @@ export function buildWorkorderRows(data: FlowhubData): WorkorderRow[] {
       const handover = handoverDate(data, c.id);
       const amendments = c.amendments ?? [];
       const latest = amendments[amendments.length - 1] ?? null;
+      const workOrder = Number(c.orderValue) || 0;
+      const payments = data.payments.filter(
+        (payment) => payment.contractId === c.id
+      );
       return {
         contractId: c.id,
         projectNo: c.projectNo,
@@ -393,16 +421,40 @@ export function buildWorkorderRows(data: FlowhubData): WorkorderRow[] {
         city: c.city || "—",
         woNo: c.orderNos || "—",
         woDate: c.orderDate,
-        woValue: Number(c.orderValue) || 0,
+        woValue: workOrder,
         status: contractWorkorderStatus(data, c),
         handoverDate: handover,
         dlpEndDate: handover ? addMonthsIso(handover, c.dlpMonths || 0) : null,
         amendmentCount: amendments.length,
         latestAmendmentNo: latest?.number ?? null,
         latestAmendmentDate: latest?.date || null,
+        yetToBill: yetToBillAmount(workOrder, taxInvoiceNet(data, c.id)),
+        yetToCollect: yetToCollectAmount(c, payments),
       };
     })
     .sort((a, b) => a.projectNo.localeCompare(b.projectNo));
+}
+
+export function workorderSummaryExportRow(
+  row: WorkorderRow
+): (string | number)[] {
+  return [
+    row.projectName,
+    row.projectNo,
+    row.city,
+    row.woNo,
+    formatDisplayDate(row.woDate),
+    row.woValue,
+    row.amendmentCount,
+    wholeRupees(row.yetToBill),
+    wholeRupees(row.yetToCollect),
+    row.amendmentCount === 0
+      ? ""
+      : `${row.latestAmendmentNo} · ${formatDisplayDate(row.latestAmendmentDate)}`,
+    WORKORDER_STATUS_LABELS[row.status],
+    formatDisplayDate(row.handoverDate),
+    formatDisplayDate(row.dlpEndDate),
+  ];
 }
 
 export type ProjectTaskRow = {

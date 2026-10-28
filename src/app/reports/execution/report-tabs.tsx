@@ -26,9 +26,12 @@ import {
   itemListCities,
   itemListExportRow,
   itemListHeaders,
+  WORKORDER_SUMMARY_EXPORT_HEADERS,
+  workorderSummaryExportRow,
   type ScheduleFulfilmentStatus,
   type WorkorderStatus,
 } from "@/lib/execution-reports";
+import { formatWholeRupees } from "@/lib/nexus-core";
 import {
   matchesAny,
   matchesAnyRespectingCommitment,
@@ -741,6 +744,8 @@ function WorkordersTable({ data }: { data: FlowhubData }) {
         formatDisplayDate(r.dlpEndDate),
         r.latestAmendmentNo,
         formatDisplayDate(r.latestAmendmentDate),
+        r.yetToBill,
+        r.yetToCollect,
       ])
     );
   }, [all, q]);
@@ -756,15 +761,17 @@ function WorkordersTable({ data }: { data: FlowhubData }) {
       <ReportsTableScroll className="mt-4">
         <table className="w-full table-fixed text-left text-sm">
           <colgroup>
-            <col className="w-[18%]" />
+            <col className="w-[15%]" />
+            <col className="w-[7%]" />
             <col className="w-[9%]" />
-            <col className="w-[12%]" />
+            <col className="w-[8%]" />
+            <col className="w-[9%]" />
+            <col className="w-[8%]" />
             <col className="w-[10%]" />
             <col className="w-[11%]" />
-            <col className="w-[11%]" />
-            <col className="w-[9%]" />
-            <col className="w-[10%]" />
-            <col className="w-[10%]" />
+            <col className="w-[8%]" />
+            <col className="w-[8%]" />
+            <col className="w-[7%]" />
           </colgroup>
           <thead className={theadClass}>
             <tr>
@@ -774,6 +781,8 @@ function WorkordersTable({ data }: { data: FlowhubData }) {
               <th className={reportTh}>WO date</th>
               <th className={cn(reportTh, "text-right")}>WO value</th>
               <th className={reportTh}>Amendments</th>
+              <th className={cn(reportTh, "text-right")}>Yet to Bill</th>
+              <th className={cn(reportTh, "text-right")}>Yet to Collect</th>
               <th className={reportTh}>Status</th>
               <th className={reportTh}>Handover</th>
               <th className={reportTh}>DLP end</th>
@@ -781,7 +790,7 @@ function WorkordersTable({ data }: { data: FlowhubData }) {
           </thead>
           <tbody className="divide-y divide-[var(--fh-line)]">
             {rows.length === 0 ? (
-              <EmptyRow colSpan={9} text="No matching workorders." />
+              <EmptyRow colSpan={11} text="No matching workorders." />
             ) : (
               rows.map((r) => (
                 <tr key={r.contractId}>
@@ -811,6 +820,10 @@ function WorkordersTable({ data }: { data: FlowhubData }) {
                       </>
                     )}
                   </td>
+                  <td className={reportMoney}>{formatWholeRupees(r.yetToBill)}</td>
+                  <td className={reportMoney}>
+                    {formatWholeRupees(r.yetToCollect)}
+                  </td>
                   <td className={reportTd}>
                     <StatusPill
                       label={WORKORDER_STATUS_LABELS[r.status]}
@@ -833,34 +846,8 @@ function WorkordersTable({ data }: { data: FlowhubData }) {
         filename="workorders-summary"
         title="Other Reports — Workorders summary"
         filters={reportFilterSummary({ tab: "Workorders summary", search: q })}
-        headers={[
-          "Project",
-          "Project no.",
-          "City",
-          "WO no.",
-          "WO date",
-          "WO value",
-          "Amendments",
-          "Latest amendment",
-          "Status",
-          "Handover",
-          "DLP end",
-        ]}
-        rows={rows.map((r) => [
-          r.projectName,
-          r.projectNo,
-          r.city,
-          r.woNo,
-          formatDisplayDate(r.woDate),
-          r.woValue,
-          r.amendmentCount,
-          r.amendmentCount === 0
-            ? ""
-            : `${r.latestAmendmentNo} · ${formatDisplayDate(r.latestAmendmentDate)}`,
-          WORKORDER_STATUS_LABELS[r.status],
-          formatDisplayDate(r.handoverDate),
-          formatDisplayDate(r.dlpEndDate),
-        ])}
+        headers={[...WORKORDER_SUMMARY_EXPORT_HEADERS]}
+        rows={rows.map((r) => workorderSummaryExportRow(r))}
       />
     </>
   );
