@@ -26,8 +26,9 @@ export function deadlineReasonLine(value: string | null | undefined): string {
 /**
  * Who may set or change a deadline. Same people as priority.
  * Master, any Director, a person named on this task, or the manager of this
- * task’s own department. Before a department is saved, only Master, any
- * Director, or someone already named. A subtask uses its own row.
+ * task’s own department — either department that manager holds. Before a
+ * department is saved, only Master, any Director, or someone already named.
+ * A subtask uses its own row.
  */
 export function canMoveTaskDeadline(
   actor: TaskActor | null | undefined,

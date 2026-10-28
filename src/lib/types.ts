@@ -540,10 +540,11 @@ export type HubNotification = {
   /** Matched to session user name (case-insensitive). */
   audienceUserNames: string[];
   /**
-   * Managers whose department matches. Used alone when nobody is named.
-   * Due-today rows set this together with audienceUserNames so assignees
-   * and department managers share one notice. Users in the department do
-   * not see department rows unless they are also named.
+   * Managers of that department, including a manager whose second department
+   * matches. Used alone when nobody is named. Due-today rows set this
+   * together with audienceUserNames so assignees and department managers
+   * share one notice. Users in the department do not see department rows
+   * unless they are also named.
    */
   audienceDepartment: string | null;
   /**

@@ -84,12 +84,19 @@ const accountActions = {
 
 async function audienceMembers(): Promise<NoticeAudienceMember[]> {
   const users = await prisma.user.findMany({
-    select: { id: true, name: true, department: true, clearance: true },
+    select: {
+      id: true,
+      name: true,
+      department: true,
+      secondDepartment: true,
+      clearance: true,
+    },
   });
   return users.map((u) => ({
     id: u.id,
     name: u.name,
     department: u.department,
+    secondDepartment: u.secondDepartment,
     clearance: String(u.clearance).toLowerCase(),
   }));
 }
@@ -227,6 +234,7 @@ export async function PUT(req: Request) {
       name: actorMember?.name ?? session.user.name,
       clearance,
       department: actorMember?.department ?? null,
+      secondDepartment: actorMember?.secondDepartment ?? null,
     },
     people: members,
   };

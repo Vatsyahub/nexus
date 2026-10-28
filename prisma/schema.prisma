@@ -24,6 +24,12 @@ model User {
   clearance          Clearance
   /** Required for USER and MANAGER; null for DIRECTOR / MASTER */
   department         String?
+  /**
+   * Second department a Manager covers. Null when they manage one department,
+   * and always null for User, Director, and Master. The first department is
+   * left as stored.
+   */
+  secondDepartment   String?
   mustChangePassword Boolean    @default(true)
   /** Per-door block | view | edit. Null uses the kind defaults. */
   access             Json?

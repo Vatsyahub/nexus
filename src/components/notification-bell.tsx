@@ -28,6 +28,7 @@ type Me = {
   id: string;
   name: string | null;
   department: string | null;
+  secondDepartment?: string | null;
   clearance: string | null;
 };
 
@@ -104,6 +105,7 @@ export function NotificationBell({
       id: session.user.id,
       name: me?.name ?? session.user.name ?? null,
       department: me?.department ?? null,
+      secondDepartment: me?.secondDepartment ?? null,
       clearance: me?.clearance ?? session.user.clearance ?? null,
     };
   }, [session?.user?.id, session?.user?.name, session?.user?.clearance, me]);

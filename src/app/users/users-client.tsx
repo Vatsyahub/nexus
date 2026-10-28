@@ -47,6 +47,7 @@ function UsersClientInner({
         u.email.toLowerCase().includes(needle) ||
         clearance.includes(needle) ||
         (u.department ?? "").toLowerCase().includes(needle) ||
+        (u.secondDepartment ?? "").toLowerCase().includes(needle) ||
         u.createdAt.toLowerCase().includes(needle)
       );
     });

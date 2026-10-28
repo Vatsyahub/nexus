@@ -4,7 +4,10 @@ import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { auth } from "@/auth";
-import { sameDepartment } from "@/lib/task-notices";
+import {
+  departmentsAfterRename,
+  resolveUserDepartments,
+} from "@/lib/user-departments";
 import { prisma } from "@/lib/prisma";
 
 const clearanceSchema = z.enum(["USER", "MANAGER", "DIRECTOR", "MASTER"]);
@@ -14,6 +17,7 @@ const createSchema = z.object({
   email: z.string().trim().email("Enter a valid email"),
   clearance: clearanceSchema,
   department: z.string().trim().optional(),
+  secondDepartment: z.string().trim().optional(),
   tempPassword: z
     .string()
     .min(8, "Temporary password must be at least 8 characters"),
@@ -25,6 +29,7 @@ const editSchema = z.object({
   email: z.string().trim().email("Enter a valid email"),
   clearance: clearanceSchema,
   department: z.string().trim().optional(),
+  secondDepartment: z.string().trim().optional(),
 });
 
 const resetSchema = z.object({
@@ -48,18 +53,6 @@ async function requireMaster() {
   return session;
 }
 
-function departmentFor(
-  clearance: z.infer<typeof clearanceSchema>,
-  department?: string
-): { error?: string; department: string | null } {
-  const needsDept = clearance === "USER" || clearance === "MANAGER";
-  if (needsDept && !department) {
-    return { error: "Department is required for Users and Managers.", department: null };
-  }
-  // Master/Director may optionally be assigned a department on paper.
-  return { department: department || null };
-}
-
 export async function createUser(
   _prev: UserActionState,
   formData: FormData
@@ -72,13 +65,18 @@ export async function createUser(
     email: formData.get("email"),
     clearance: formData.get("clearance"),
     department: formData.get("department") || undefined,
+    secondDepartment: formData.get("secondDepartment") || undefined,
     tempPassword: formData.get("tempPassword"),
   });
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
   }
 
-  const dept = departmentFor(parsed.data.clearance, parsed.data.department);
+  const dept = resolveUserDepartments(
+    parsed.data.clearance,
+    parsed.data.department,
+    parsed.data.secondDepartment
+  );
   if (dept.error) return { error: dept.error };
 
   const email = parsed.data.email.toLowerCase();
@@ -94,6 +92,7 @@ export async function createUser(
       email,
       clearance: parsed.data.clearance,
       department: dept.department,
+      secondDepartment: dept.secondDepartment,
       passwordHash,
       mustChangePassword: true,
     },
@@ -117,12 +116,17 @@ export async function updateUser(
     email: formData.get("email"),
     clearance: formData.get("clearance"),
     department: formData.get("department") || undefined,
+    secondDepartment: formData.get("secondDepartment") || undefined,
   });
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
   }
 
-  const dept = departmentFor(parsed.data.clearance, parsed.data.department);
+  const dept = resolveUserDepartments(
+    parsed.data.clearance,
+    parsed.data.department,
+    parsed.data.secondDepartment
+  );
   if (dept.error) return { error: dept.error };
 
   const email = parsed.data.email.toLowerCase();
@@ -138,6 +142,7 @@ export async function updateUser(
       email,
       clearance: parsed.data.clearance,
       department: dept.department,
+      secondDepartment: dept.secondDepartment,
     },
   });
 
@@ -169,7 +174,11 @@ export async function deleteUser(
   return { ok: true, createdEmail: user.email };
 }
 
-/** Move every person stored on `from` to `to`, or clear the department when `to` is null. */
+/**
+ * Move every person stored on `from` to `to`, or clear that department when `to` is null.
+ * The first department changes only when it matches. The second department changes
+ * only when it matches, so one rename does not rewrite the other.
+ */
 export async function reassignDepartmentMembers(
   from: string,
   to: string | null
@@ -184,15 +193,25 @@ export async function reassignDepartmentMembers(
   if (next === fromName) return { ok: true };
 
   const rows = await prisma.user.findMany({
-    select: { id: true, department: true },
+    select: { id: true, department: true, secondDepartment: true },
   });
-  const ids = rows
-    .filter((row) => sameDepartment(row.department, fromName))
-    .map((row) => row.id);
-  if (ids.length > 0) {
+  const primaryIds: string[] = [];
+  const secondIds: string[] = [];
+  for (const row of rows) {
+    const updated = departmentsAfterRename(row, fromName, next);
+    if (updated.department !== row.department) primaryIds.push(row.id);
+    if (updated.secondDepartment !== row.secondDepartment) secondIds.push(row.id);
+  }
+  if (primaryIds.length > 0) {
     await prisma.user.updateMany({
-      where: { id: { in: ids } },
+      where: { id: { in: primaryIds } },
       data: { department: next },
+    });
+  }
+  if (secondIds.length > 0) {
+    await prisma.user.updateMany({
+      where: { id: { in: secondIds } },
+      data: { secondDepartment: next },
     });
   }
 

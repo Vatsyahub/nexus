@@ -288,6 +288,7 @@ export default function TasksClient({
   role,
   currentUserName,
   currentUserDepartment,
+  currentUserSecondDepartment,
   canDeleteTasks,
   canEditTasks,
 }: {
@@ -295,6 +296,7 @@ export default function TasksClient({
   role: ClearanceRole;
   currentUserName: string;
   currentUserDepartment: string | null;
+  currentUserSecondDepartment: string | null;
   canDeleteTasks: boolean;
   canEditTasks: boolean;
 }) {
@@ -309,6 +311,7 @@ export default function TasksClient({
         role={role}
         currentUserName={currentUserName}
         currentUserDepartment={currentUserDepartment}
+        currentUserSecondDepartment={currentUserSecondDepartment}
         canDeleteTasks={canDeleteTasks}
         canEditTasks={canEditTasks}
       />
@@ -321,6 +324,7 @@ function TasksPageInner({
   role,
   currentUserName,
   currentUserDepartment,
+  currentUserSecondDepartment,
   canDeleteTasks,
   canEditTasks,
 }: {
@@ -328,6 +332,7 @@ function TasksPageInner({
   role: ClearanceRole;
   currentUserName: string;
   currentUserDepartment: string | null;
+  currentUserSecondDepartment: string | null;
   canDeleteTasks: boolean;
   canEditTasks: boolean;
 }) {
@@ -376,8 +381,14 @@ function TasksPageInner({
       name: currentUserName,
       clearance: role,
       department: currentUserDepartment,
+      secondDepartment: currentUserSecondDepartment,
     }),
-    [currentUserName, role, currentUserDepartment]
+    [
+      currentUserName,
+      role,
+      currentUserDepartment,
+      currentUserSecondDepartment,
+    ]
   );
 
   const contractLabel = contractId

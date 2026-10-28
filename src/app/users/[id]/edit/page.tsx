@@ -25,6 +25,7 @@ export default async function EditUserPage({
       email: true,
       clearance: true,
       department: true,
+      secondDepartment: true,
       mustChangePassword: true,
       createdAt: true,
       access: true,
@@ -49,6 +50,7 @@ export default async function EditUserPage({
     email: u.email,
     clearance: u.clearance,
     department: u.department,
+    secondDepartment: u.secondDepartment,
     mustChangePassword: u.mustChangePassword,
     createdAt: u.createdAt.toISOString(),
   };

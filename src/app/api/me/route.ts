@@ -14,6 +14,7 @@ export async function GET() {
       name: true,
       email: true,
       department: true,
+      secondDepartment: true,
       clearance: true,
     },
   });

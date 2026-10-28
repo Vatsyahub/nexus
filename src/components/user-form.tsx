@@ -8,6 +8,7 @@ import {
   type UserActionState,
 } from "@/app/actions/users";
 import { listDepartments, useFlowhubData } from "@/lib/store";
+import { sameDepartment } from "@/lib/task-notices";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,8 +27,23 @@ export function UserForm({ existing }: { existing?: UserRow }) {
   const [clearance, setClearance] = useState<UserRow["clearance"]>(
     existing?.clearance ?? "USER"
   );
+  const [primary, setPrimary] = useState(existing?.department ?? "");
+  const [second, setSecond] = useState(() => {
+    const value = existing?.secondDepartment ?? "";
+    return sameDepartment(existing?.department, value) ? "" : value;
+  });
   const needsDept = clearance === "USER" || clearance === "MANAGER";
   const optionalDept = clearance === "MASTER" || clearance === "DIRECTOR";
+  const isManager = clearance === "MANAGER";
+  const primaryOptions =
+    primary && !departments.includes(primary) ? [primary, ...departments] : departments;
+  const secondChoices = departments.filter((name) => !sameDepartment(name, primary));
+  const secondOptions =
+    second &&
+    !sameDepartment(second, primary) &&
+    !secondChoices.some((name) => sameDepartment(name, second))
+      ? [second, ...secondChoices]
+      : secondChoices;
 
   return (
     <form
@@ -83,19 +99,46 @@ export function UserForm({ existing }: { existing?: UserRow }) {
             id="department"
             name="department"
             required={needsDept}
-            defaultValue={existing?.department ?? ""}
+            value={primary}
+            onChange={(e) => {
+              const next = e.target.value;
+              setPrimary(next);
+              if (sameDepartment(next, second)) setSecond("");
+            }}
             className="flex h-9 w-full rounded-md border border-[var(--fh-line)] bg-white px-3 text-sm"
           >
             <option value="">
               {needsDept ? "Select department…" : "None"}
             </option>
-            {departments.map((d) => (
+            {primaryOptions.map((d) => (
               <option key={d} value={d}>
                 {d}
               </option>
             ))}
           </select>
         </div>
+        {isManager && (
+          <div className="space-y-2">
+            <Label htmlFor="secondDepartment">Second department (optional)</Label>
+            <select
+              id="secondDepartment"
+              name="secondDepartment"
+              value={sameDepartment(second, primary) ? "" : second}
+              onChange={(e) => setSecond(e.target.value)}
+              className="flex h-9 w-full rounded-md border border-[var(--fh-line)] bg-white px-3 text-sm"
+            >
+              <option value="">None</option>
+              {secondOptions.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-[var(--fh-muted)]">
+              Leave this empty to manage one department. The two departments must be different.
+            </p>
+          </div>
+        )}
         {!existing && (
           <div className="space-y-2 sm:col-span-2">
             <Label htmlFor="tempPassword">Temporary password</Label>

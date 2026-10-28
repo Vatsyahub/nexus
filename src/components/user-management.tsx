@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { KeyRound, VenetianMask, X } from "lucide-react";
 import { resetUserPassword, type UserActionState } from "@/app/actions/users";
+import { formatUserDepartments } from "@/lib/user-departments";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +24,7 @@ export type UserRow = {
   email: string;
   clearance: "USER" | "MANAGER" | "DIRECTOR" | "MASTER";
   department: string | null;
+  secondDepartment: string | null;
   mustChangePassword: boolean;
   createdAt: string;
 };
@@ -192,7 +194,7 @@ export function UsersTable({
                   </span>
                 </td>
                 <td className="px-3 py-1.5 whitespace-nowrap text-[var(--fh-muted)]">
-                  {u.department || "—"}
+                  {formatUserDepartments(u.department, u.secondDepartment) || "—"}
                 </td>
                 <td className="px-3 py-1.5 whitespace-nowrap">
                   {clearanceLabel[u.clearance]}

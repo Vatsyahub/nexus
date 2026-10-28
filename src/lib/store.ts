@@ -626,12 +626,7 @@ function notifyForTasks(
 }
 
 export function notificationsForUser(
-  user: {
-    id: string;
-    name: string | null | undefined;
-    department: string | null | undefined;
-    clearance?: string | null;
-  },
+  user: NoticeAudienceMember,
   data?: FlowhubData
 ): HubNotification[] {
   const d = data ?? read();
@@ -645,12 +640,7 @@ export function notificationsForUser(
 }
 
 export function unreadNotificationCount(
-  user: {
-    id: string;
-    name: string | null | undefined;
-    department: string | null | undefined;
-    clearance?: string | null;
-  },
+  user: NoticeAudienceMember,
   data?: FlowhubData
 ): number {
   return notificationsForUser(user, data).filter(
@@ -682,12 +672,10 @@ export function markNotificationRead(id: string, userId: string) {
   });
 }
 
-export function markAllNotificationsRead(userId: string, user: {
-  id: string;
-  name: string | null | undefined;
-  department: string | null | undefined;
-  clearance?: string | null;
-}) {
+export function markAllNotificationsRead(
+  userId: string,
+  user: NoticeAudienceMember
+) {
   const data = read();
   const now = new Date().toISOString();
   write({
