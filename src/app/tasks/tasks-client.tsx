@@ -1356,10 +1356,6 @@ function TaskEditor({
     canEditTasks
   );
   const mayEditSchedule = canEditTaskSchedule(actor, task);
-  const maySetNewSubDeadline = canEditTaskSchedule(actor, {
-    department: null,
-    assignees: [],
-  });
   const deadlineLocked = !mayEditSchedule;
   const canName = canNamePeople(actor, task, canAssignPeople);
   const selectable = peopleForDepartment(people, department);
@@ -2134,7 +2130,6 @@ function TaskEditor({
             />
           </div>
           )}
-          {maySetNewSubDeadline && (
           <div className="space-y-1">
             <Label className="text-xs">Deadline</Label>
             <Input
@@ -2144,7 +2139,6 @@ function TaskEditor({
               onChange={(e) => setSubDue(e.target.value)}
             />
           </div>
-          )}
           <Button
             size="sm"
             variant="outline"
@@ -2157,7 +2151,7 @@ function TaskEditor({
                 {
                   title: subTitle,
                   department: chosenDepartment(newSubControl, subDept),
-                  dueDate: maySetNewSubDeadline ? subDue || null : null,
+                  dueDate: subDue || null,
                 },
                 { actor }
               );

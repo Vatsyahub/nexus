@@ -69,11 +69,12 @@ function managesDepartment(
 }
 
 /**
- * Deadline and priority, set or changed.
- * Master, any Director, a person already named on this task, or the manager
- * of this task’s own department (either department that manager holds).
- * Before a department is saved, a manager is not included. A subtask uses
- * its own department and its own assignees.
+ * Deadline and priority on a task that already exists, and priority on a new
+ * task. The due date submitted with a new parent task or subtask is kept;
+ * this check does not remove it. Master, any Director, a person already named
+ * on this task, or the manager of this task’s own department (either
+ * department that manager holds). Before a department is saved, a manager is
+ * not included. A subtask uses its own department and its own assignees.
  */
 export function canEditTaskSchedule(
   actor: TaskActor | null | undefined,
@@ -527,15 +528,17 @@ function sanitizeNewTask(
     nextAssignees: next.assignees,
     people,
   });
-  const scheduleLocked =
+  // Due date and priority used to share this lock. Only priority stays locked
+  // on create. The due date is the one the creator submitted.
+  const priorityLocked =
     !isAppSystemTask(next) &&
     !canEditTaskSchedule(actor, { department: null, assignees: [] });
   const drafted: Task = {
     ...next,
     department,
     assignees,
-    dueDate: scheduleLocked ? null : next.dueDate,
-    priority: scheduleLocked ? "normal" : next.priority,
+    dueDate: next.dueDate,
+    priority: priorityLocked ? "normal" : next.priority,
   };
   return settleTaskCompletion(
     { ...drafted, status: "pending", completedAt: null },
