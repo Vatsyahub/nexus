@@ -120,10 +120,6 @@ function SalesReportInner() {
     invoiceFiltered
   );
 
-  const contractOutstandingNetTotal = useMemo(
-    () => contractRows.reduce((s, r) => s + r.totalOutstandingNet, 0),
-    [contractRows]
-  );
   const contractOutstandingTotal = useMemo(
     () => contractRows.reduce((s, r) => s + r.totalOutstanding, 0),
     [contractRows]
@@ -181,14 +177,6 @@ function SalesReportInner() {
                   </p>
                   <p className="mt-0.5 font-[family-name:var(--font-display)] text-xl tabular-nums text-[var(--fh-steel)]">
                     {formatMoney(contractLeftoverTotal)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-[var(--fh-muted)]">
-                    Total outstanding net
-                  </p>
-                  <p className="mt-0.5 font-[family-name:var(--font-display)] text-xl tabular-nums text-[var(--fh-steel)]">
-                    {formatMoney(contractOutstandingNetTotal)}
                   </p>
                 </div>
                 <div>
@@ -372,14 +360,13 @@ function ContractsTable({
       <ReportsTableScroll className="mt-4">
         <table className="w-full table-fixed text-left text-sm">
           <colgroup>
-            <col className="w-[12%]" />
-            <col className="w-[6%]" />
-            <col className="w-[13%]" />
-            <col className="w-[13%]" />
+            <col className="w-[16%]" />
+            <col className="w-[8%]" />
             <col className="w-[14%]" />
-            <col className="w-[13%]" />
-            <col className="w-[15%]" />
             <col className="w-[14%]" />
+            <col className="w-[16%]" />
+            <col className="w-[14%]" />
+            <col className="w-[18%]" />
           </colgroup>
           <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] uppercase tracking-wide text-[var(--fh-muted)]">
             <tr>
@@ -389,9 +376,6 @@ function ContractsTable({
               <th className={cn(reportTh, "text-right")}>Total invoice</th>
               <th className={cn(reportTh, "text-right")}>Leftover billing</th>
               <th className={cn(reportTh, "text-right")}>Total paid</th>
-              <th className={cn(reportTh, "text-right")}>
-                Total outstanding net
-              </th>
               <th className={cn(reportTh, "text-right")}>Total outstanding</th>
             </tr>
           </thead>
@@ -399,7 +383,7 @@ function ContractsTable({
             {rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={7}
                   className="px-3 py-6 text-center text-[var(--fh-muted)]"
                 >
                   No matching contracts.
@@ -425,9 +409,6 @@ function ContractsTable({
                   </td>
                   <td className={reportMoney}>{formatMoney(r.totalPaid)}</td>
                   <td className={cn(reportMoney, "font-medium")}>
-                    {formatMoney(r.totalOutstandingNet)}
-                  </td>
-                  <td className={cn(reportMoney, "font-medium")}>
                     {formatMoney(r.totalOutstanding)}
                   </td>
                 </tr>
@@ -448,7 +429,6 @@ function ContractsTable({
           "Total invoice",
           "Leftover billing",
           "Total paid",
-          "Total outstanding net",
           "Total outstanding",
         ]}
         rows={rows.map((r) => [
@@ -459,7 +439,6 @@ function ContractsTable({
           r.totalInvoiceNet,
           r.leftoverBilling,
           r.totalPaid,
-          r.totalOutstandingNet,
           r.totalOutstanding,
         ])}
       />

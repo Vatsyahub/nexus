@@ -10,10 +10,19 @@ import { matchesAny } from "@/lib/list-search";
 import {
   contractDisplayStatus,
   handoverDateForContract,
+  taxInvoiceNet,
   todayIso as coreTodayIso,
+  wholeRupees,
+  yetToBillAmount,
+  yetToCollectAmount,
   type ContractStatusLabel,
 } from "@/lib/nexus-core";
-import { installedQty, suppliedQty, taskIsOpen } from "@/lib/store";
+import {
+  installedQty,
+  invoiceOutstanding,
+  suppliedQty,
+  taskIsOpen,
+} from "@/lib/store";
 
 function todayIso(): string {
   const d = new Date();
@@ -364,7 +373,29 @@ export type WorkorderRow = {
   amendmentCount: number;
   latestAmendmentNo: string | null;
   latestAmendmentDate: string | null;
+  /** Work-order value minus tax-invoice nets. Same figure as the Core report. */
+  yetToBill: number;
+  /** Cash still to come in. Same figure as the Core report. */
+  yetToCollect: number;
+  /**
+   * Sales → Contracts total outstanding: invoiceOutstanding summed over
+   * this contract’s tax invoices.
+   */
+  currentDue: number;
 };
+
+export const WORKORDER_SUMMARY_EXPORT_HEADERS = [
+  "Project",
+  "Project no.",
+  "City",
+  "WO value",
+  "Yet to Bill",
+  "Yet to Collect",
+  "Current Due",
+  "Status",
+  "Handover",
+  "DLP end",
+] as const;
 
 function contractWorkorderStatus(
   data: FlowhubData,
@@ -380,12 +411,25 @@ function handoverDate(data: FlowhubData, contractId: string): string | null {
   return handoverDateForContract(data, contractId);
 }
 
+/** Same sum as Sales → Contracts total outstanding. Proformas stay out. */
+function contractCurrentDue(data: FlowhubData, contractId: string): number {
+  return data.invoices
+    .filter(
+      (invoice) => invoice.type === "TI" && invoice.contractId === contractId
+    )
+    .reduce((sum, invoice) => sum + invoiceOutstanding(invoice, data), 0);
+}
+
 export function buildWorkorderRows(data: FlowhubData): WorkorderRow[] {
   return data.contracts
     .map((c) => {
       const handover = handoverDate(data, c.id);
       const amendments = c.amendments ?? [];
       const latest = amendments[amendments.length - 1] ?? null;
+      const workOrder = Number(c.orderValue) || 0;
+      const payments = data.payments.filter(
+        (payment) => payment.contractId === c.id
+      );
       return {
         contractId: c.id,
         projectNo: c.projectNo,
@@ -393,16 +437,36 @@ export function buildWorkorderRows(data: FlowhubData): WorkorderRow[] {
         city: c.city || "—",
         woNo: c.orderNos || "—",
         woDate: c.orderDate,
-        woValue: Number(c.orderValue) || 0,
+        woValue: workOrder,
         status: contractWorkorderStatus(data, c),
         handoverDate: handover,
         dlpEndDate: handover ? addMonthsIso(handover, c.dlpMonths || 0) : null,
         amendmentCount: amendments.length,
         latestAmendmentNo: latest?.number ?? null,
         latestAmendmentDate: latest?.date || null,
+        yetToBill: yetToBillAmount(workOrder, taxInvoiceNet(data, c.id)),
+        yetToCollect: yetToCollectAmount(c, payments),
+        currentDue: contractCurrentDue(data, c.id),
       };
     })
     .sort((a, b) => a.projectNo.localeCompare(b.projectNo));
+}
+
+export function workorderSummaryExportRow(
+  row: WorkorderRow
+): (string | number)[] {
+  return [
+    row.projectName,
+    row.projectNo,
+    row.city,
+    row.woValue,
+    wholeRupees(row.yetToBill),
+    wholeRupees(row.yetToCollect),
+    row.currentDue,
+    WORKORDER_STATUS_LABELS[row.status],
+    formatDisplayDate(row.handoverDate),
+    formatDisplayDate(row.dlpEndDate),
+  ];
 }
 
 export type ProjectTaskRow = {

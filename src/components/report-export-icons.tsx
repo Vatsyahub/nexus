@@ -141,7 +141,7 @@ function rowLineCount(row: ReportExportCell[]): number {
  * Recoverable advances uses ADVANCE, RECOVERED, and LEFT TO RECOVER.
  */
 const MONEY_HEADER =
-  /%|\bret\.|\b(?:amount|value|rate|costs?|expenses?|profit|loss|paid|pay|outstanding|outst|retention|tds|gst|cash|net|extras?|deductions?|billing|invoic\w*|received|recover(?:ed)?|advance|expected|price|final|other)\b/i;
+  /%|\bret\.|\bcurrent due\b|\b(?:amount|value|rate|costs?|expenses?|profit|loss|paid|pay|outstanding|outst|retention|tds|gst|cash|net|extras?|deductions?|billing|invoic\w*|received|recover(?:ed)?|advance|expected|price|final|other)\b/i;
 
 function isMoneyHeader(header: string): boolean {
   return MONEY_HEADER.test(header);
