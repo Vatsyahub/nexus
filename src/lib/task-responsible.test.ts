@@ -1,11 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { taskOverdueAudience } from "@/lib/task-notices";
-import {
-  isResponsiblePerson,
-  responsiblePerson,
-  storedResponsible,
-} from "@/lib/task-responsible";
+import { storedResponsible } from "@/lib/task-responsible";
 import { applyTaskEditPolicy } from "@/lib/task-permissions";
 import type { Task } from "@/lib/types";
 
@@ -31,28 +27,13 @@ function task(partial: Partial<Task> = {}): Task {
   };
 }
 
-test("the first named person is responsible until someone chooses another", () => {
-  assert.equal(responsiblePerson(task()), "Ada");
-  assert.equal(isResponsiblePerson(task(), "Ada"), true);
-  assert.equal(isResponsiblePerson(task(), "Bea"), false);
-  assert.equal(
-    responsiblePerson(task({ responsible: "Bea" })),
-    "Bea"
-  );
-  assert.equal(isResponsiblePerson(task({ responsible: "Bea" }), "Bea"), true);
-  assert.equal(
-    responsiblePerson(task({ responsible: "Gone" })),
-    "Ada"
-  );
-});
-
-test("overdue follows the responsible person and my tasks would too", () => {
+test("overdue notices follow every named person", () => {
   assert.deepEqual(taskOverdueAudience(task()), {
-    names: ["Ada"],
+    names: ["Ada", "Bea"],
     department: null,
   });
   assert.deepEqual(taskOverdueAudience(task({ responsible: "Bea" })), {
-    names: ["Bea"],
+    names: ["Ada", "Bea"],
     department: null,
   });
   assert.deepEqual(

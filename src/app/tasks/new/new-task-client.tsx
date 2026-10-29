@@ -84,7 +84,6 @@ export function NewTaskClient({
   const [contractId, setContractId] = useState(defaultContractId);
   const [department, setDepartment] = useState("none");
   const [assignees, setAssignees] = useState<string[]>([]);
-  const [responsible, setResponsible] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("normal");
   const [error, setError] = useState<string | null>(null);
@@ -94,17 +93,11 @@ export function NewTaskClient({
   function onDepartmentChange(next: string) {
     setDepartment(next);
     const allowed = peopleForDepartment(people, next);
-    setAssignees((prev) => {
-      const kept = prev.filter((name) =>
+    setAssignees((prev) =>
+      prev.filter((name) =>
         allowed.some((person) => samePerson(person.name, name))
-      );
-      setResponsible((current) =>
-        current && kept.some((name) => samePerson(name, current))
-          ? current
-          : (kept[0] ?? null)
-      );
-      return kept;
-    });
+      )
+    );
   }
 
   function submit(e: FormEvent) {
@@ -134,7 +127,6 @@ export function NewTaskClient({
       contractId,
       department: chosen,
       assignees: named,
-      responsible: assignPeople ? responsible : null,
       dueDate: dueDate || null,
       priority: maySetPriority ? priority : "normal",
       catalogKey: "custom",
@@ -242,11 +234,7 @@ export function NewTaskClient({
               <PeoplePicker
                 people={selectable}
                 assignees={assignees}
-                responsible={responsible}
-                onChange={(next) => {
-                  setAssignees(next.assignees);
-                  setResponsible(next.responsible);
-                }}
+                onChange={setAssignees}
               />
             </div>
           )}

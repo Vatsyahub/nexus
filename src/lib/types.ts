@@ -287,14 +287,13 @@ export type Task = {
    */
   department: string | null;
   /**
-   * People named on this task. One of them is responsible: `responsible`
-   * when that name is still in this list, otherwise the first name.
-   * Overdue notices and My tasks follow that one person.
+   * People named on this task. They are equal: My tasks and overdue
+   * notices follow every name here.
    */
   assignees: string[];
   /**
-   * Explicit responsible person. Empty means the first named person
-   * stays responsible until someone chooses another.
+   * Unused. Older rows may still store a name. My tasks and notices
+   * do not read it.
    */
   responsible?: string | null;
   status: TaskStatus;
