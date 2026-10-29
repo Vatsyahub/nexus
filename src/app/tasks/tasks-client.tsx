@@ -81,7 +81,6 @@ import {
   assembleMatchedRows,
   assembleSubtaskView,
   subtasksOnlyLines,
-  type SubtaskListView,
   type TaskListRow,
 } from "@/lib/task-list";
 import { samePerson } from "@/lib/task-responsible";
@@ -100,25 +99,20 @@ type ViewFilter =
   | "dept"
   | "all"
   | "unassigned"
-  | "open"
   | "overdue"
-  | "no_deadline"
   | "completed";
 
 function parseTaskView(raw: string): ViewFilter {
   if (raw === "my" || raw === "mine") return "my";
   if (raw === "dept") return "dept";
-  if (raw === "pending" || raw === "open") return "open";
   if (raw === "overdue") return "overdue";
   if (raw === "completed") return "completed";
   if (raw === "unassigned") return "unassigned";
-  if (raw === "no_deadline") return "no_deadline";
   return "all";
 }
 
 function taskFilterParam(view: ViewFilter): string | null {
   if (view === "all") return null;
-  if (view === "open") return "pending";
   return view;
 }
 
@@ -320,6 +314,8 @@ function TasksPageInner({
   const focusTaskId = get("task") || get("highlight");
   const q = get("q");
   const urlFilter = get("filter");
+  const homeFilter =
+    urlFilter && parseTaskView(urlFilter) !== "all" ? urlFilter : null;
   const showDept = role === "user" || role === "manager";
   const requestedView = focusTaskId
     ? "all"
@@ -441,14 +437,17 @@ function TasksPageInner({
     };
   }, [q, contractId, priorityFilter, contractById, data.tasks]);
 
+  const openSubtasksByParent = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const task of data.tasks) {
+      if (!task.parentId || !taskIsOpen(task)) continue;
+      counts.set(task.parentId, (counts.get(task.parentId) ?? 0) + 1);
+    }
+    return counts;
+  }, [data.tasks]);
+
   const subtaskViews = useMemo(() => {
-    const ids = [
-      "unassigned",
-      "open",
-      "overdue",
-      "no_deadline",
-      "completed",
-    ] as const;
+    const ids = ["unassigned", "overdue", "completed"] as const;
     const compare = (a: Task, b: Task) => sortTasks(a, b, today);
     const tasks = data.tasks.filter(
       (t) => !t.deletedAt && (!contractId || t.contractId === contractId)
@@ -464,7 +463,10 @@ function TasksPageInner({
           compare,
         }),
       ])
-    ) as Record<SubtaskListView, ReturnType<typeof assembleSubtaskView>>;
+    ) as Record<
+      "unassigned" | "overdue" | "completed",
+      ReturnType<typeof assembleSubtaskView>
+    >;
   }, [data.tasks, today, contractId, matchesHubRow]);
 
   const deptDepartments = useMemo(() => {
@@ -509,9 +511,7 @@ function TasksPageInner({
       dept: deptView.counted.length,
       all: roots.length,
       unassigned: subtaskViews.unassigned.counted.length,
-      open: subtaskViews.open.counted.length,
       overdue: subtaskViews.overdue.counted.length,
-      no_deadline: subtaskViews.no_deadline.counted.length,
       completed: subtaskViews.completed.counted.length,
     };
   }, [roots, myView, deptView, subtaskViews]);
@@ -520,18 +520,18 @@ function TasksPageInner({
     return roots.slice().sort((a, b) => sortTasks(a, b, today));
   }, [roots, today]);
 
-  const activeSubtaskView: SubtaskListView | null =
-    view === "unassigned" ||
-    view === "open" ||
-    view === "overdue" ||
-    view === "no_deadline" ||
-    view === "completed"
-      ? view
+  const listView: ViewFilter =
+    view === "unassigned" && counts.unassigned === 0 ? "all" : view;
+  const activeSubtaskView =
+    listView === "unassigned" ||
+    listView === "overdue" ||
+    listView === "completed"
+      ? listView
       : null;
   const visibleRows: TaskListRow[] =
-    view === "dept"
+    listView === "dept"
       ? deptView.rows
-      : view === "my"
+      : listView === "my"
         ? myView.rows
         : activeSubtaskView
           ? subtaskViews[activeSubtaskView].rows
@@ -543,21 +543,16 @@ function TasksPageInner({
     ? subtasksOnlyLines(visibleRows).map((line) => ({
         task: line.task,
         parent: line.parent,
-        nested: false,
       }))
-    : visibleRows.flatMap((row) => [
-        { task: row.parent, parent: null as Task | null, nested: false },
-        ...row.subtasks.map((task) => ({
-          task,
-          parent: row.parent,
-          nested: true,
-        })),
-      ]);
+    : visibleRows.map((row) => ({
+        task: row.parent,
+        parent: null as Task | null,
+      }));
 
   function listPath() {
     const params = new URLSearchParams();
     if (contractId) params.set("contractId", contractId);
-    const viewParam = taskFilterParam(view);
+    const viewParam = taskFilterParam(listView);
     if (viewParam) params.set("view", viewParam);
     if (q) params.set("q", q);
     if (priorityFilter !== "all") params.set("priority", priorityFilter);
@@ -619,10 +614,16 @@ function TasksPageInner({
 
   const views: { id: ViewFilter; label: string; count: number }[] = [
     { id: "all", label: "All", count: counts.all },
-    { id: "unassigned", label: "Unassigned", count: counts.unassigned },
-    { id: "open", label: "Open", count: counts.open },
+    ...(counts.unassigned > 0
+      ? [
+          {
+            id: "unassigned" as const,
+            label: "Unassigned",
+            count: counts.unassigned,
+          },
+        ]
+      : []),
     { id: "overdue", label: "Overdue", count: counts.overdue },
-    { id: "no_deadline", label: "No deadline", count: counts.no_deadline },
     { id: "completed", label: "Done", count: counts.completed },
     { id: "my", label: "My tasks", count: counts.my },
     ...(showDept
@@ -637,11 +638,11 @@ function TasksPageInner({
           <h1 className="font-[family-name:var(--font-display)] text-4xl font-semibold tracking-tight text-[var(--fh-steel)]">
             Tasks
           </h1>
-          {(contractId || urlFilter) && (
+          {(contractId || homeFilter) && (
             <p className="mt-2 text-sm text-[var(--fh-steel)]">
               {contractLabel ? `Contract ${contractLabel}` : null}
-              {contractLabel && urlFilter ? " · " : null}
-              {urlFilter ? `Filter from home: ${urlFilter}` : null}{" "}
+              {contractLabel && homeFilter ? " · " : null}
+              {homeFilter ? `Filter from home: ${homeFilter}` : null}{" "}
               <Link href="/tasks" className="underline">
                 Clear
               </Link>
@@ -732,7 +733,7 @@ function TasksPageInner({
             onClick={() => setView(v.id)}
             className={cn(
               "rounded-md px-3 py-1.5 text-sm transition-colors",
-              view === v.id
+              listView === v.id
                 ? "bg-[var(--fh-steel)] text-white"
                 : "bg-white text-[var(--fh-steel)] ring-1 ring-[var(--fh-line)] hover:bg-[var(--fh-bg)]"
             )}
@@ -741,7 +742,7 @@ function TasksPageInner({
             <span
               className={cn(
                 "ml-1.5 tabular-nums",
-                view === v.id ? "text-white/80" : "text-[var(--fh-muted)]"
+                listView === v.id ? "text-white/80" : "text-[var(--fh-muted)]"
               )}
             >
               {v.count}
@@ -786,17 +787,24 @@ function TasksPageInner({
                 href={taskPageHref(line.task, line.parent)}
                 className={cn(
                   "grid gap-2 border bg-white px-4 py-3 text-left hover:bg-[var(--fh-bg)]/60 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1.1fr)_minmax(0,0.9fr)_8rem_7.5rem] lg:items-center",
-                  line.nested && "ml-6 border-dashed",
                   overdue
                     ? "border-[var(--destructive)]/35"
                     : "border-[var(--fh-line)]"
                 )}
               >
                 <span className="min-w-0">
-                  <span className="block truncate font-medium text-[var(--fh-steel)]">
-                    {line.task.title}
-                    {line.parent && !line.nested ? (
-                      <span className="ml-2 text-xs font-normal text-[var(--fh-muted)]">
+                  <span className="flex min-w-0 items-baseline gap-2">
+                    <span className="truncate font-medium text-[var(--fh-steel)]">
+                      {line.task.title}
+                    </span>
+                    {!line.parent &&
+                    (openSubtasksByParent.get(line.task.id) ?? 0) > 0 ? (
+                      <span className="shrink-0 tabular-nums text-xs font-normal text-[var(--fh-muted)]">
+                        +{openSubtasksByParent.get(line.task.id)}
+                      </span>
+                    ) : null}
+                    {line.parent ? (
+                      <span className="truncate text-xs font-normal text-[var(--fh-muted)]">
                         {line.parent.title}
                       </span>
                     ) : null}
@@ -841,7 +849,7 @@ function TasksPageInner({
         filename="tasks"
         title="Tasks"
         filters={reportFilterSummary({
-          tab: views.find((v) => v.id === view)?.label ?? null,
+          tab: views.find((v) => v.id === listView)?.label ?? null,
           contract: contractLabel ?? null,
           search: q,
           extra: [
@@ -856,8 +864,13 @@ function TasksPageInner({
           const contract = line.task.contractId
             ? contractById.get(line.task.contractId)
             : null;
+          const openSubtasks = line.parent
+            ? 0
+            : (openSubtasksByParent.get(line.task.id) ?? 0);
           return [
-            line.task.title,
+            openSubtasks > 0
+              ? `${line.task.title} +${openSubtasks}`
+              : line.task.title,
             line.parent?.title ?? "",
             contract?.projectName ?? "",
             contract?.projectNo ?? "",
