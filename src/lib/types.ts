@@ -286,8 +286,17 @@ export type Task = {
    * subtask rules, never switched to another department in one save.
    */
   department: string | null;
-  /** Equal owners from the department; empty = department-only / unassigned people. */
+  /**
+   * People named on this task. One of them is responsible: `responsible`
+   * when that name is still in this list, otherwise the first name.
+   * Overdue notices and My tasks follow that one person.
+   */
   assignees: string[];
+  /**
+   * Explicit responsible person. Empty means the first named person
+   * stays responsible until someone chooses another.
+   */
+  responsible?: string | null;
   status: TaskStatus;
   dueDate: string | null;
   parentId: string | null;

@@ -98,6 +98,7 @@ import {
   planDueNotices,
   taskAlertAudience,
   taskDueTodayAudience,
+  taskOverdueAudience,
   taskVerifyNotice,
   type TaskActor,
 } from "@/lib/task-notices";
@@ -115,6 +116,7 @@ import {
   normalizeTaskDeadlineChangeLog,
   TASK_DEADLINE_MOVE_DENIED,
 } from "@/lib/task-deadline-log";
+import { storedResponsible } from "@/lib/task-responsible";
 import {
   billingTermsTotal,
   billingTermsTotalIs100,
@@ -380,6 +382,7 @@ function normalizeTask(t: Task & { assignee?: string | null }): Task {
       ? (t.verificationRequestedBy ?? null)
       : null,
     deletedAt: t.deletedAt ? String(t.deletedAt) : null,
+    responsible: t.responsible ? String(t.responsible).trim() || null : null,
     status,
   };
 }
@@ -583,7 +586,7 @@ function buildDatedNotice(
   const audience =
     which === "due_today"
       ? taskDueTodayAudience(task)
-      : taskAlertAudience(task);
+      : taskOverdueAudience(task);
   if (!audience) return null;
   return blankNotification(task, {
     kind: which === "overdue" ? "task_overdue" : "task_due_today",
@@ -4771,6 +4774,7 @@ export function assignTask(
     department: string | null;
     assignees?: string[];
     dueDate?: string | null;
+    responsible?: string | null;
   },
   opts?: {
     by?: string | null;
@@ -4817,6 +4821,10 @@ export function assignTask(
     ...current,
     department,
     assignees: names.assignees,
+    responsible:
+      assignment.responsible !== undefined
+        ? storedResponsible(names.assignees, assignment.responsible)
+        : storedResponsible(names.assignees, current.responsible),
     dueDate,
     status:
       current.status === "pending" &&
@@ -5029,6 +5037,7 @@ export function updateTask(
       | "title"
       | "department"
       | "assignees"
+      | "responsible"
       | "status"
       | "dueDate"
       | "priority"
@@ -5070,6 +5079,11 @@ export function updateTask(
     if (!names.ok) return null;
     assignees = names.assignees;
   }
+  const nextAssignees = assignees ?? current.assignees;
+  const responsible =
+    patch.responsible !== undefined
+      ? storedResponsible(nextAssignees, patch.responsible)
+      : storedResponsible(nextAssignees, current.responsible);
   const deadline = decideTaskDeadline({
     currentDue: current.dueDate,
     nextDue: patch.dueDate === undefined ? current.dueDate : patch.dueDate,
@@ -5090,7 +5104,8 @@ export function updateTask(
     ...current,
     ...patch,
     department,
-    assignees: assignees ?? current.assignees,
+    assignees: nextAssignees,
+    responsible,
     dueDate,
     priority,
   };
@@ -5176,6 +5191,7 @@ export function addManualTask(input: {
   contractId: string;
   department?: string | null;
   assignees?: string[];
+  responsible?: string | null;
   dueDate?: string | null;
   priority?: Task["priority"];
   notes?: string;
@@ -5208,6 +5224,7 @@ opts?: { actor?: TaskActor }
     contractId: input.contractId,
     department,
     assignees,
+    responsible: storedResponsible(assignees, input.responsible),
     status:
       input.department || assignees.length > 0 ? "in_progress" : "pending",
     dueDate: input.dueDate || null,
@@ -5233,13 +5250,14 @@ export function addSubtask(
     title: string;
     department?: string | null;
     assignees?: string[];
+    responsible?: string | null;
     dueDate?: string | null;
   },
   opts?: { actor?: TaskActor }
 ): Task | null {
   const data = read();
   const parent = data.tasks.find((t) => t.id === parentId);
-  if (!parent?.contractId) return null;
+  if (!parent?.contractId || parent.parentId) return null;
   if (opts?.actor && !canUpdateTask(opts.actor, parent)) return null;
   return addManualTask(
     {
@@ -5247,6 +5265,7 @@ export function addSubtask(
       contractId: parent.contractId,
       department: input.department ?? null,
       assignees: input.assignees,
+      responsible: input.responsible,
       dueDate: input.dueDate,
       parentId,
       priority: parent.priority,

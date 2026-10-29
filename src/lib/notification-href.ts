@@ -17,10 +17,10 @@ export function taskNotificationHref(task: Task): string {
     case "collect_retention":
       return contractId ? `/contracts/${contractId}#retention` : "/payments";
     default: {
-      const params = new URLSearchParams();
-      if (contractId) params.set("contractId", contractId);
-      params.set("task", task.id);
-      return `/tasks?${params.toString()}`;
+      if (task.parentId) {
+        return `/tasks/${task.parentId}?sub=${encodeURIComponent(task.id)}`;
+      }
+      return `/tasks/${task.id}`;
     }
   }
 }

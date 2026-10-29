@@ -1,35 +1,14 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { defaultAccess } from "@/lib/access";
 import type { ClearanceRole } from "@/lib/clearance";
-import TasksClient, { type AssignablePerson } from "./tasks-client";
+import TasksClient from "./tasks-client";
 
 export default async function TasksPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
-  const rows = await prisma.user.findMany({
-    where: { clearance: { in: ["USER", "MANAGER"] } },
-    orderBy: { name: "asc" },
-    select: {
-      id: true,
-      name: true,
-      department: true,
-      clearance: true,
-    },
-  });
-
-  const people: AssignablePerson[] = rows.map((u) => ({
-    id: u.id,
-    name: u.name,
-    department: u.department,
-    clearance: u.clearance as AssignablePerson["clearance"],
-  }));
-
   const role = (session.user.clearance ?? "user") as ClearanceRole;
-  const access = session.user.access ?? defaultAccess(role);
-  const canEditTasks = access.tasks === "edit";
   const currentUserName = session.user.name?.trim() || "";
   const me = await prisma.user.findUnique({
     where: { id: session.user.id },
@@ -38,13 +17,10 @@ export default async function TasksPage() {
 
   return (
     <TasksClient
-      people={people}
       role={role}
       currentUserName={currentUserName}
       currentUserDepartment={me?.department ?? null}
       currentUserSecondDepartment={me?.secondDepartment ?? null}
-      canDeleteTasks={role === "master" && session.user.impersonating !== true}
-      canEditTasks={canEditTasks}
     />
   );
 }

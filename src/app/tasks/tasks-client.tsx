@@ -3,13 +3,14 @@
 import {
   Suspense,
   useEffect,
+  useId,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useViewQuery } from "@/lib/use-view-query";
-import { ChevronDown, ChevronRight } from "lucide-react";
 import {
   addSubtask,
   afterGadCompleted,
@@ -23,8 +24,6 @@ import {
   deleteSubtask,
   deleteTask,
   flushWorkspace,
-  formatAssignees,
-  listDepartments,
   taskIsOpen,
   taskVisibleInLists,
   updateTask,
@@ -75,7 +74,20 @@ import {
   TASK_SAVE_DENIED,
   type TaskDepartmentControl,
 } from "@/lib/task-permissions";
-import { assembleSubtaskView, type SubtaskListView } from "@/lib/task-list";
+import {
+  assembleDepartmentView,
+  assembleMatchedRows,
+  assembleSubtaskView,
+  subtasksOnlyLines,
+  type SubtaskListView,
+  type TaskListRow,
+} from "@/lib/task-list";
+import {
+  isResponsiblePerson,
+  responsiblePerson,
+  samePerson,
+  storedResponsible,
+} from "@/lib/task-responsible";
 import { HubDataScroll, HubPage } from "@/components/hub-scroll";
 import { cn } from "@/lib/utils";
 
@@ -88,6 +100,7 @@ export type AssignablePerson = {
 
 type ViewFilter =
   | "my"
+  | "dept"
   | "all"
   | "unassigned"
   | "open"
@@ -97,6 +110,7 @@ type ViewFilter =
 
 function parseTaskView(raw: string): ViewFilter {
   if (raw === "my" || raw === "mine") return "my";
+  if (raw === "dept") return "dept";
   if (raw === "pending" || raw === "open") return "open";
   if (raw === "overdue") return "overdue";
   if (raw === "completed") return "completed";
@@ -123,10 +137,6 @@ function todayIso() {
   const m = String(t.getMonth() + 1).padStart(2, "0");
   const d = String(t.getDate()).padStart(2, "0");
   return `${t.getFullYear()}-${m}-${d}`;
-}
-
-function canAssignPeople(role: ClearanceRole) {
-  return role === "manager" || role === "director" || role === "master";
 }
 
 function peopleForDepartment(
@@ -210,11 +220,6 @@ function DepartmentField({
   );
 }
 
-function isAssignedTo(t: Task, userName: string) {
-  if (!userName) return false;
-  return t.assignees.includes(userName);
-}
-
 function isOverdue(t: Task, today: string) {
   return taskIsOpen(t) && !!t.dueDate && t.dueDate < today;
 }
@@ -247,16 +252,6 @@ function peopleLabel(names: string[]) {
   return names.join(", ");
 }
 
-function subtaskAsText(s: Task) {
-  const parts = [
-    TASK_STATUS_LABELS[s.status],
-    s.department ? departmentDisplayName(s.department) : null,
-    s.assignees.length ? s.assignees.join(", ") : null,
-    s.dueDate ? formatDisplayDate(s.dueDate) : null,
-  ].filter(Boolean);
-  return parts.length ? `${s.title} — ${parts.join(" · ")}` : s.title;
-}
-
 const WORK_STATUSES: TaskStatus[] = [
   "pending",
   "in_progress",
@@ -284,21 +279,15 @@ function waitingForCopy(task: Task): string {
 }
 
 export default function TasksClient({
-  people,
   role,
   currentUserName,
   currentUserDepartment,
   currentUserSecondDepartment,
-  canDeleteTasks,
-  canEditTasks,
 }: {
-  people: AssignablePerson[];
   role: ClearanceRole;
   currentUserName: string;
   currentUserDepartment: string | null;
   currentUserSecondDepartment: string | null;
-  canDeleteTasks: boolean;
-  canEditTasks: boolean;
 }) {
   return (
     <Suspense
@@ -307,48 +296,42 @@ export default function TasksClient({
       }
     >
       <TasksPageInner
-        people={people}
         role={role}
         currentUserName={currentUserName}
         currentUserDepartment={currentUserDepartment}
         currentUserSecondDepartment={currentUserSecondDepartment}
-        canDeleteTasks={canDeleteTasks}
-        canEditTasks={canEditTasks}
       />
     </Suspense>
   );
 }
 
 function TasksPageInner({
-  people,
   role,
   currentUserName,
   currentUserDepartment,
   currentUserSecondDepartment,
-  canDeleteTasks,
-  canEditTasks,
 }: {
-  people: AssignablePerson[];
   role: ClearanceRole;
   currentUserName: string;
   currentUserDepartment: string | null;
   currentUserSecondDepartment: string | null;
-  canDeleteTasks: boolean;
-  canEditTasks: boolean;
 }) {
   const data = useFlowhubData();
+  const router = useRouter();
   const { get, commit } = useViewQuery();
   const contractId = get("contractId");
   const focusTaskId = get("task") || get("highlight");
   const q = get("q");
   const urlFilter = get("filter");
-  const view = focusTaskId ? "all" : parseTaskView(get("view") || urlFilter);
+  const showDept = role === "user" || role === "manager";
+  const requestedView = focusTaskId
+    ? "all"
+    : parseTaskView(get("view") || urlFilter);
+  const view: ViewFilter =
+    requestedView === "dept" && !showDept ? "all" : requestedView;
   const priorityFilter = focusTaskId ? "all" : parseTaskPriority(get("priority"));
   const showLog = get("log") === "1";
-  const [expandedId, setExpandedId] = useState<string | null>(
-    focusTaskId || null
-  );
-  const [expandedSubId, setExpandedSubId] = useState<string | null>(null);
+  const subtasksOnly = get("subs") === "1";
 
   function setQ(value: string) {
     commit({ q: value || null });
@@ -370,26 +353,14 @@ function TasksPageInner({
   function setShowLog(next: boolean) {
     commit({ log: next ? "1" : null });
   }
+
+  function setSubtasksOnly(next: boolean) {
+    commit({ subs: next ? "1" : null });
+  }
   const canViewDeadlineLog = role === "master" || role === "director";
   const isMaster = role === "master";
 
-  const departments = useMemo(() => listDepartments(data), [data]);
   const today = todayIso();
-  const assignPeople = canAssignPeople(role);
-  const actor = useMemo<TaskActor>(
-    () => ({
-      name: currentUserName,
-      clearance: role,
-      department: currentUserDepartment,
-      secondDepartment: currentUserSecondDepartment,
-    }),
-    [
-      currentUserName,
-      role,
-      currentUserDepartment,
-      currentUserSecondDepartment,
-    ]
-  );
 
   const contractLabel = contractId
     ? data.contracts.find((c) => c.id === contractId)?.projectNo
@@ -400,21 +371,19 @@ function TasksPageInner({
     return map;
   }, [data.contracts]);
 
-  // Open the task from a notification deep-link so data can be entered.
   useEffect(() => {
     if (!focusTaskId) return;
-    const target = data.tasks.find((t) => t.id === focusTaskId);
-    if (!target || target.deletedAt) return;
-    const rootId = target.parentId || target.id;
-    setExpandedId(rootId);
-    if (target.parentId) setExpandedSubId(target.id);
-    const t = window.setTimeout(() => {
-      document
-        .getElementById(`task-row-${rootId}`)
-        ?.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, 80);
-    return () => window.clearTimeout(t);
-  }, [focusTaskId, data.tasks]);
+    const target = data.tasks.find((t) => t.id === focusTaskId && !t.deletedAt);
+    if (!target) return;
+    const parentId = target.parentId || target.id;
+    const params = new URLSearchParams();
+    if (target.parentId) params.set("sub", target.id);
+    router.replace(
+      params.size
+        ? `/tasks/${parentId}?${params.toString()}`
+        : `/tasks/${parentId}`
+    );
+  }, [focusTaskId, data.tasks, router]);
 
   const scoped = useMemo(() => {
     const needle = q.trim();
@@ -455,18 +424,6 @@ function TasksPageInner({
     [scoped]
   );
   const childrenOf = (id: string) => scoped.filter((t) => t.parentId === id);
-
-  const isMyTask = useMemo(() => {
-    const name = currentUserName.trim();
-    return (t: Task) => {
-      if (!name) return false;
-      if (isAssignedTo(t, name)) return true;
-      // Include parent when a subtask is appointed to this user
-      return scoped.some(
-        (s) => s.parentId === t.id && isAssignedTo(s, name)
-      );
-    };
-  }, [currentUserName, scoped]);
 
   const matchesHubRow = useMemo(() => {
     const needle = q.trim();
@@ -513,9 +470,45 @@ function TasksPageInner({
     ) as Record<SubtaskListView, ReturnType<typeof assembleSubtaskView>>;
   }, [data.tasks, today, contractId, matchesHubRow]);
 
+  const deptDepartments = useMemo(() => {
+    if (!showDept) return [];
+    const names = [currentUserDepartment];
+    if (role === "manager") names.push(currentUserSecondDepartment);
+    return names.map((name) => (name || "").trim()).filter(Boolean);
+  }, [showDept, role, currentUserDepartment, currentUserSecondDepartment]);
+
+  const listTasks = useMemo(
+    () =>
+      data.tasks.filter(
+        (t) => !t.deletedAt && (!contractId || t.contractId === contractId)
+      ),
+    [data.tasks, contractId]
+  );
+  const myView = useMemo(
+    () =>
+      assembleMatchedRows({
+        tasks: listTasks,
+        matchesTask: (task) =>
+          matchesHubRow(task) && isResponsiblePerson(task, currentUserName),
+        compare: (a, b) => sortTasks(a, b, today),
+      }),
+    [listTasks, matchesHubRow, currentUserName, today]
+  );
+  const deptView = useMemo(
+    () =>
+      assembleDepartmentView({
+        tasks: listTasks,
+        departments: deptDepartments,
+        matchesRow: matchesHubRow,
+        compare: (a, b) => sortTasks(a, b, today),
+      }),
+    [listTasks, deptDepartments, matchesHubRow, today]
+  );
+
   const counts = useMemo(() => {
     return {
-      my: roots.filter(isMyTask).length,
+      my: myView.counted.length,
+      dept: deptView.counted.length,
       all: roots.length,
       unassigned: subtaskViews.unassigned.counted.length,
       open: subtaskViews.open.counted.length,
@@ -523,17 +516,11 @@ function TasksPageInner({
       no_deadline: subtaskViews.no_deadline.counted.length,
       completed: subtaskViews.completed.counted.length,
     };
-  }, [roots, isMyTask, subtaskViews]);
+  }, [roots, myView, deptView, subtaskViews]);
 
   const visibleRoots = useMemo(() => {
-    return roots
-      .filter((t) => {
-        if (view === "my") return isMyTask(t);
-        return true;
-      })
-      .slice()
-      .sort((a, b) => sortTasks(a, b, today));
-  }, [roots, view, today, isMyTask]);
+    return roots.slice().sort((a, b) => sortTasks(a, b, today));
+  }, [roots, today]);
 
   const activeSubtaskView: SubtaskListView | null =
     view === "unassigned" ||
@@ -543,15 +530,51 @@ function TasksPageInner({
     view === "completed"
       ? view
       : null;
-  const visibleRows = activeSubtaskView
-    ? subtaskViews[activeSubtaskView].rows
-    : visibleRoots.map((parent) => ({
-        parent,
-        subtasks: childrenOf(parent.id),
-      }));
-  const exportTasks = activeSubtaskView
-    ? subtaskViews[activeSubtaskView].counted
-    : visibleRoots;
+  const visibleRows: TaskListRow[] =
+    view === "dept"
+      ? deptView.rows
+      : view === "my"
+        ? myView.rows
+        : activeSubtaskView
+          ? subtaskViews[activeSubtaskView].rows
+          : visibleRoots.map((parent) => ({
+              parent,
+              subtasks: childrenOf(parent.id),
+            }));
+  const displayLines = subtasksOnly
+    ? subtasksOnlyLines(visibleRows).map((line) => ({
+        task: line.task,
+        parent: line.parent,
+        nested: false,
+      }))
+    : visibleRows.flatMap((row) => [
+        { task: row.parent, parent: null as Task | null, nested: false },
+        ...row.subtasks.map((task) => ({
+          task,
+          parent: row.parent,
+          nested: true,
+        })),
+      ]);
+
+  function listPath() {
+    const params = new URLSearchParams();
+    if (contractId) params.set("contractId", contractId);
+    const viewParam = taskFilterParam(view);
+    if (viewParam) params.set("view", viewParam);
+    if (q) params.set("q", q);
+    if (priorityFilter !== "all") params.set("priority", priorityFilter);
+    if (subtasksOnly) params.set("subs", "1");
+    const search = params.toString();
+    return search ? `/tasks?${search}` : "/tasks";
+  }
+
+  function taskPageHref(task: Task, parent: Task | null) {
+    const params = new URLSearchParams();
+    params.set("from", listPath());
+    if (parent) params.set("sub", task.id);
+    const id = parent ? parent.id : task.id;
+    return `/tasks/${id}?${params.toString()}`;
+  }
 
   const deadlineLog = useMemo(() => {
     const tokens = parseSearchTokens(q);
@@ -604,6 +627,9 @@ function TasksPageInner({
     { id: "no_deadline", label: "No deadline", count: counts.no_deadline },
     { id: "completed", label: "Done", count: counts.completed },
     { id: "my", label: "My tasks", count: counts.my },
+    ...(showDept
+      ? [{ id: "dept" as const, label: "Dept tasks", count: counts.dept }]
+      : []),
   ];
 
   return (
@@ -643,11 +669,10 @@ function TasksPageInner({
             </Button>
           )}
           <Link
-            href={
-              contractId
-                ? `/tasks/new?contractId=${encodeURIComponent(contractId)}`
-                : "/tasks/new"
-            }
+            href={`/tasks/new?${new URLSearchParams({
+              ...(contractId ? { contractId } : {}),
+              from: listPath(),
+            }).toString()}`}
             className={cn(
               buttonVariants(),
               "bg-[var(--fh-accent)] text-[var(--fh-ink)] hover:bg-[#f0b01a]"
@@ -700,7 +725,8 @@ function TasksPageInner({
         />
       ) : (
       <>
-      <nav className="flex shrink-0 flex-wrap gap-1.5" aria-label="Task views">
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+      <nav className="flex flex-wrap gap-1.5" aria-label="Task views">
         {views.map((v) => (
           <button
             key={v.id}
@@ -725,63 +751,83 @@ function TasksPageInner({
           </button>
         ))}
       </nav>
+      <label className="ml-auto flex items-center gap-2 text-sm text-[var(--fh-steel)]">
+        <input
+          type="checkbox"
+          role="switch"
+          aria-checked={subtasksOnly}
+          checked={subtasksOnly}
+          onChange={(e) => setSubtasksOnly(e.target.checked)}
+        />
+        Subtasks only
+      </label>
+      </div>
 
-      <HubDataScroll className="space-y-3">
-        <div className="hidden gap-3 px-4 text-[11px] font-medium uppercase tracking-wide text-[var(--fh-muted)] lg:grid lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_7rem_minmax(0,1fr)_minmax(0,0.9fr)_5.5rem_4.5rem_5.5rem_6.5rem_2.5rem]">
-          <span>Project</span>
-          <span>Task</span>
+      <HubDataScroll className="space-y-2">
+        <div className="hidden gap-3 px-4 text-[11px] font-medium uppercase tracking-wide text-[var(--fh-muted)] lg:grid lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_8rem_7.5rem]">
+          <span>Task name</span>
+          <span>Contract</span>
           <span>Deadline</span>
-          <span>Department</span>
-          <span>Person</span>
-          <span>Priority</span>
-          <span>Subs</span>
-          <span>Updated</span>
           <span>Status</span>
-          <span className="sr-only">Expand</span>
         </div>
 
-        {visibleRows.length === 0 ? (
+        {displayLines.length === 0 ? (
           <div className="border border-dashed border-[var(--fh-line)] bg-white px-4 py-12 text-center text-sm text-[var(--fh-muted)]">
-            No tasks in this view.
+            {subtasksOnly ? "No subtasks in this view." : "No tasks in this view."}
           </div>
         ) : (
-          visibleRows.map(({ parent: t, subtasks: kids }) => {
-            const contract = t.contractId
-              ? contractById.get(t.contractId)
+          displayLines.map((line) => {
+            const contract = line.task.contractId
+              ? contractById.get(line.task.contractId)
               : null;
-            const overdue = isOverdue(t, today);
-            const expanded = expandedId === t.id;
+            const overdue = isOverdue(line.task, today);
             return (
-              <TaskBlock
-                key={t.id}
-                task={t}
-                contract={
-                  contract
-                    ? {
-                        id: contract.id,
-                        projectNo: contract.projectNo,
-                        projectName: contract.projectName,
-                      }
-                    : null
-                }
-                subtasks={kids}
-                showMatchingSubtasks={activeSubtaskView != null}
-                overdue={overdue}
-                people={people}
-                departments={departments}
-                canAssignPeople={assignPeople}
-                canDeleteTasks={canDeleteTasks}
-                canEditTasks={canEditTasks}
-                actor={actor}
-                expanded={expanded}
-                dimmed={expandedId != null && !expanded}
-                onToggle={() => {
-                  setExpandedSubId(null);
-                  setExpandedId((cur) => (cur === t.id ? null : t.id));
-                }}
-                expandedSubId={expandedSubId}
-                setExpandedSubId={setExpandedSubId}
-              />
+              <Link
+                key={`${line.parent?.id ?? "root"}-${line.task.id}`}
+                href={taskPageHref(line.task, line.parent)}
+                className={cn(
+                  "grid gap-2 border bg-white px-4 py-3 text-left hover:bg-[var(--fh-bg)]/60 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_8rem_7.5rem] lg:items-center",
+                  line.nested && "ml-6 border-dashed",
+                  overdue
+                    ? "border-[var(--destructive)]/35"
+                    : "border-[var(--fh-line)]"
+                )}
+              >
+                <span className="min-w-0">
+                  <span className="block truncate font-medium text-[var(--fh-steel)]">
+                    {line.task.title}
+                    {line.parent && !line.nested ? (
+                      <span className="ml-2 text-xs font-normal text-[var(--fh-muted)]">
+                        {line.parent.title}
+                      </span>
+                    ) : null}
+                  </span>
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm text-[var(--fh-steel)]">
+                    {contract?.projectName ?? "—"}
+                  </span>
+                  {contract ? (
+                    <span className="block truncate text-xs text-[var(--fh-muted)]">
+                      {contract.projectNo}
+                    </span>
+                  ) : null}
+                </span>
+                <span
+                  className={cn(
+                    "tabular-nums text-sm",
+                    overdue && "font-medium text-[var(--destructive)]",
+                    !line.task.dueDate && "text-[var(--fh-accent)]"
+                  )}
+                >
+                  {line.task.dueDate
+                    ? formatDisplayDate(line.task.dueDate)
+                    : "No deadline"}
+                </span>
+                <span>
+                  <StatusPill status={line.task.status} />
+                </span>
+              </Link>
             );
           })
         )}
@@ -801,44 +847,18 @@ function TasksPageInner({
             ],
           ],
         })}
-        headers={[
-          "Project",
-          "Project no.",
-          "Task",
-          "Deadline",
-          "Overdue",
-          "Department",
-          "Person",
-          "Priority",
-          "Subtasks",
-          "Updated",
-          "Status",
-        ]}
-        rows={exportTasks.map((t) => {
-          const contract = t.contractId ? contractById.get(t.contractId) : null;
-          const parent = t.parentId
-            ? data.tasks.find((row) => row.id === t.parentId)
+        headers={["Task name", "Parent", "Contract", "Project no.", "Deadline", "Status"]}
+        rows={displayLines.map((line) => {
+          const contract = line.task.contractId
+            ? contractById.get(line.task.contractId)
             : null;
-          const kids = t.parentId
-            ? []
-            : activeSubtaskView
-              ? (subtaskViews[activeSubtaskView].rows.find(
-                  (row) => row.parent.id === t.id
-                )?.subtasks ?? [])
-              : childrenOf(t.id);
-          const done = kids.filter((k) => !taskIsOpen(k)).length;
           return [
+            line.task.title,
+            line.parent?.title ?? "",
             contract?.projectName ?? "",
             contract?.projectNo ?? "",
-            parent ? `${parent.title} — ${t.title}` : t.title,
-            t.dueDate ? formatDisplayDate(t.dueDate) : "No deadline",
-            isOverdue(t, today) ? "Yes" : "",
-            t.department ? departmentDisplayName(t.department) : "",
-            formatAssignees(t.assignees),
-            TASK_PRIORITY_LABELS[t.priority],
-            kids.length === 0 ? "" : `${done}/${kids.length}`,
-            formatLastUpdated(t),
-            TASK_STATUS_LABELS[t.status],
+            line.task.dueDate ? formatDisplayDate(line.task.dueDate) : "No deadline",
+            TASK_STATUS_LABELS[line.task.status],
           ];
         })}
       />
@@ -958,260 +978,6 @@ function TaskDeadlineLogPanel({
   );
 }
 
-function TaskBlock({
-  task,
-  contract,
-  subtasks,
-  overdue,
-  people,
-  departments,
-  canAssignPeople,
-  canDeleteTasks,
-  canEditTasks,
-  showMatchingSubtasks = false,
-  actor,
-  expanded,
-  dimmed,
-  onToggle,
-  expandedSubId,
-  setExpandedSubId,
-}: {
-  task: Task;
-  contract: { id: string; projectNo: string; projectName: string } | null;
-  subtasks: Task[];
-  overdue: boolean;
-  people: AssignablePerson[];
-  departments: string[];
-  canAssignPeople: boolean;
-  canDeleteTasks: boolean;
-  canEditTasks: boolean;
-  showMatchingSubtasks?: boolean;
-  actor: TaskActor;
-  expanded: boolean;
-  dimmed: boolean;
-  onToggle: () => void;
-  expandedSubId: string | null;
-  setExpandedSubId: (id: string | null) => void;
-}) {
-  const openSubs = subtasks.filter(taskIsOpen).length;
-  const doneSubs = subtasks.length - openSubs;
-
-  return (
-    <article
-      id={`task-row-${task.id}`}
-      className={cn(
-        "overflow-hidden border bg-white transition-opacity",
-        expanded
-          ? "border-[var(--fh-steel)] shadow-sm"
-          : overdue
-            ? "border-[var(--destructive)]/35"
-            : "border-[var(--fh-line)]",
-        dimmed && "opacity-45"
-      )}
-    >
-      <button
-        type="button"
-        onClick={onToggle}
-        className={cn(
-          "grid w-full gap-2 px-4 py-3.5 text-left sm:gap-3",
-          "lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_7rem_minmax(0,1fr)_minmax(0,0.9fr)_5.5rem_4.5rem_5.5rem_6.5rem_2.5rem]",
-          expanded ? "bg-[var(--fh-steel)] text-white" : "hover:bg-[var(--fh-bg)]/60"
-        )}
-        aria-expanded={expanded}
-        aria-label={expanded ? "Hide task" : "Open task"}
-      >
-        <div className="min-w-0">
-          <p className="text-[10px] uppercase tracking-wide opacity-70 lg:hidden">
-            Project
-          </p>
-          {contract ? (
-            <span
-              className="block"
-              onClick={(e) => e.stopPropagation()}
-              onKeyDown={(e) => e.stopPropagation()}
-            >
-              <Link
-                href={`/contracts/${contract.id}`}
-                className={cn(
-                  "block truncate font-medium underline-offset-2 hover:underline",
-                  expanded ? "text-white" : "text-[var(--fh-steel)]"
-                )}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {contract.projectName}
-              </Link>
-              <span
-                className={cn(
-                  "block truncate text-xs",
-                  expanded ? "text-white/75" : "text-[var(--fh-muted)]"
-                )}
-              >
-                {contract.projectNo}
-              </span>
-            </span>
-          ) : (
-            <span className={expanded ? "text-white/70" : "text-[var(--fh-muted)]"}>
-              —
-            </span>
-          )}
-        </div>
-
-        <div className="min-w-0">
-          <p className="text-[10px] uppercase tracking-wide opacity-70 lg:hidden">
-            Task
-          </p>
-          <p className={cn("font-medium", !expanded && "text-[var(--fh-steel)]")}>
-            {task.title}
-          </p>
-          {showMatchingSubtasks && subtasks.length > 0 && (
-            <p
-              className={cn(
-                "truncate text-xs",
-                expanded ? "text-white/75" : "text-[var(--fh-muted)]"
-              )}
-            >
-              {subtasks.map((s) => s.title).join(", ")}
-            </p>
-          )}
-          {task.catalogKey && task.catalogKey !== "custom" && (
-            <span
-              className={cn(
-                "mt-1 inline-block text-[10px] uppercase tracking-wide",
-                expanded ? "text-white/70" : "text-[var(--fh-muted)]"
-              )}
-            >
-              Catalog
-            </span>
-          )}
-        </div>
-
-        <div>
-          <p className="text-[10px] uppercase tracking-wide opacity-70 lg:hidden">
-            Deadline
-          </p>
-          <p
-            className={cn(
-              "tabular-nums text-sm",
-              !expanded && overdue && "font-medium text-[var(--destructive)]",
-              !expanded && !task.dueDate && "text-[var(--fh-accent)]"
-            )}
-          >
-            {task.dueDate
-              ? formatDisplayDate(task.dueDate)
-              : "No deadline"}
-          </p>
-          {overdue && (
-            <span
-              className={cn(
-                "text-[10px] font-medium uppercase tracking-wide",
-                expanded ? "text-[var(--fh-accent)]" : "text-[var(--destructive)]"
-              )}
-            >
-              Overdue
-            </span>
-          )}
-        </div>
-
-        <div className="min-w-0">
-          <p className="text-[10px] uppercase tracking-wide opacity-70 lg:hidden">
-            Department
-          </p>
-          <p
-            className={cn(
-              "truncate text-sm",
-              expanded ? "text-white/85" : "text-[var(--fh-muted)]"
-            )}
-          >
-            {task.department ? departmentDisplayName(task.department) : "—"}
-          </p>
-        </div>
-
-        <div className="min-w-0">
-          <p className="text-[10px] uppercase tracking-wide opacity-70 lg:hidden">
-            Person
-          </p>
-          <p className="truncate text-sm">{formatAssignees(task.assignees)}</p>
-        </div>
-
-        <div>
-          <p className="text-[10px] uppercase tracking-wide opacity-70 lg:hidden">
-            Priority
-          </p>
-          {task.priority !== "normal" ? (
-            <PriorityPill priority={task.priority} onDark={expanded} />
-          ) : (
-            <span className={cn("text-sm", expanded ? "text-white/75" : "text-[var(--fh-muted)]")}>
-              Normal
-            </span>
-          )}
-        </div>
-
-        <div>
-          <p className="text-[10px] uppercase tracking-wide opacity-70 lg:hidden">
-            Subtasks
-          </p>
-          <p className="tabular-nums text-sm">
-            {subtasks.length === 0 ? "—" : `${doneSubs}/${subtasks.length}`}
-          </p>
-        </div>
-
-        <div>
-          <p className="text-[10px] uppercase tracking-wide opacity-70 lg:hidden">
-            Updated
-          </p>
-          <p
-            className={cn(
-              "text-sm",
-              expanded ? "text-white/75" : "text-[var(--fh-muted)]"
-            )}
-          >
-            {formatLastUpdated(task)}
-          </p>
-        </div>
-
-        <div>
-          <p className="text-[10px] uppercase tracking-wide opacity-70 lg:hidden">
-            Status
-          </p>
-          <StatusPill status={task.status} onDark={expanded} />
-        </div>
-
-        <div className="flex items-start justify-end pt-0.5">
-          {expanded ? (
-            <ChevronDown
-              className="size-4 shrink-0 text-[var(--fh-accent)]"
-              aria-hidden
-            />
-          ) : (
-            <ChevronRight
-              className="size-4 shrink-0 text-[var(--fh-steel)]"
-              aria-hidden
-            />
-          )}
-        </div>
-      </button>
-
-      {expanded && (
-        <div className="border-t-4 border-[var(--fh-accent)] bg-[var(--fh-bg)]/50 px-3 py-2">
-          <TaskEditor
-            task={task}
-            subtasks={subtasks}
-            people={people}
-            departments={departments}
-            canAssignPeople={canAssignPeople}
-            canDeleteTasks={canDeleteTasks}
-            canEditTasks={canEditTasks}
-            actor={actor}
-            expandedSubId={expandedSubId}
-            setExpandedSubId={setExpandedSubId}
-            onClose={onToggle}
-          />
-        </div>
-      )}
-    </article>
-  );
-}
-
 function StatusPill({
   status,
   onDark,
@@ -1243,31 +1009,6 @@ function StatusPill({
   );
 }
 
-function PriorityPill({
-  priority,
-  onDark,
-}: {
-  priority: TaskPriority;
-  onDark?: boolean;
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex rounded px-1.5 py-0.5 text-[11px] font-medium",
-        onDark
-          ? "bg-white/15 text-white"
-          : priority === "urgent"
-            ? "bg-[var(--destructive)]/10 text-[var(--destructive)]"
-            : priority === "high"
-              ? "bg-[var(--fh-accent)]/20 text-[var(--fh-ink)]"
-              : "bg-[var(--fh-bg)] text-[var(--fh-muted)]"
-      )}
-    >
-      {TASK_PRIORITY_LABELS[priority]}
-    </span>
-  );
-}
-
 function SummaryField({
   label,
   children,
@@ -1287,7 +1028,71 @@ function SummaryField({
   );
 }
 
-function TaskEditor({
+export function PeoplePicker({
+  people,
+  assignees,
+  responsible,
+  onChange,
+}: {
+  people: { id: string; name: string }[];
+  assignees: string[];
+  responsible: string | null;
+  onChange: (next: { assignees: string[]; responsible: string | null }) => void;
+}) {
+  const group = useId();
+  function toggle(name: string) {
+    const has = assignees.some((item) => samePerson(item, name));
+    const nextNames = has
+      ? assignees.filter((item) => !samePerson(item, name))
+      : [...assignees, name];
+    const nextResponsible =
+      nextNames.length === 0
+        ? null
+        : responsible && nextNames.some((item) => samePerson(item, responsible))
+          ? (nextNames.find((item) => samePerson(item, responsible)) ?? null)
+          : (nextNames[0] ?? null);
+    onChange({ assignees: nextNames, responsible: nextResponsible });
+  }
+  return (
+    <div className="flex flex-wrap gap-x-3 gap-y-1 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)]/40 px-2 py-1">
+      {people.length === 0 ? (
+        <p className="text-xs text-[var(--fh-muted)]">
+          No users/managers in this department.
+        </p>
+      ) : (
+        people.map((person) => {
+          const named = assignees.some((item) => samePerson(item, person.name));
+          return (
+            <span key={person.id} className="flex items-center gap-2 text-sm">
+              <label className="flex items-center gap-1.5">
+                <input
+                  type="checkbox"
+                  checked={named}
+                  onChange={() => toggle(person.name)}
+                />
+                {person.name}
+              </label>
+              <label className="flex items-center gap-1 text-xs text-[var(--fh-muted)]">
+                <input
+                  type="radio"
+                  name={group}
+                  checked={named && samePerson(responsible, person.name)}
+                  disabled={!named}
+                  onChange={() =>
+                    onChange({ assignees, responsible: person.name })
+                  }
+                />
+                Responsible
+              </label>
+            </span>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
+export function TaskEditor({
   task,
   subtasks,
   people,
@@ -1312,8 +1117,12 @@ function TaskEditor({
   setExpandedSubId: (id: string | null) => void;
   onClose: () => void;
 }) {
+  const [title, setTitle] = useState(task.title);
   const [department, setDepartment] = useState(task.department ?? "none");
   const [assignees, setAssignees] = useState<string[]>(task.assignees);
+  const [responsible, setResponsible] = useState<string | null>(
+    responsiblePerson(task)
+  );
   const [dueDate, setDueDate] = useState(task.dueDate ?? "");
   const [deadlineReason, setDeadlineReason] = useState("");
   const [priority, setPriority] = useState<TaskPriority>(task.priority);
@@ -1327,7 +1136,9 @@ function TaskEditor({
   const [subTitle, setSubTitle] = useState("");
   const [subDept, setSubDept] = useState("none");
   const [subDue, setSubDue] = useState("");
-  const [editing, setEditing] = useState(false);
+  const [subAssignees, setSubAssignees] = useState<string[]>([]);
+  const [subResponsible, setSubResponsible] = useState<string | null>(null);
+  const [editing, setEditing] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [closing, setClosing] = useState(false);
   const [closures, setClosures] = useState<
@@ -1376,17 +1187,34 @@ function TaskEditor({
 
   function onDepartmentChange(next: string) {
     setDepartment(next);
-    setAssignees((prev) =>
-      prev.filter((name) =>
-        peopleForDepartment(people, next).some((p) => p.name === name)
-      )
-    );
+    const allowed = peopleForDepartment(people, next);
+    setAssignees((prev) => {
+      const kept = prev.filter((name) =>
+        allowed.some((person) => samePerson(person.name, name))
+      );
+      setResponsible((current) =>
+        current && kept.some((name) => samePerson(name, current))
+          ? current
+          : (kept[0] ?? null)
+      );
+      return kept;
+    });
   }
 
-  function toggleAssignee(name: string) {
-    setAssignees((prev) =>
-      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
-    );
+  function onSubDepartmentChange(next: string) {
+    setSubDept(next);
+    const allowed = peopleForDepartment(people, next);
+    setSubAssignees((prev) => {
+      const kept = prev.filter((name) =>
+        allowed.some((person) => samePerson(person.name, name))
+      );
+      setSubResponsible((current) =>
+        current && kept.some((name) => samePerson(name, current))
+          ? current
+          : (kept[0] ?? null)
+      );
+      return kept;
+    });
   }
 
   async function saveAssignment() {
@@ -1409,11 +1237,15 @@ function TaskEditor({
               task.assignees.some((item) => item.trim().toLowerCase() === key);
             return inDepartment || alreadyNamed;
           });
+    const nextResponsible = !canName
+      ? storedResponsible(task.assignees, task.responsible)
+      : storedResponsible(nextAssignees, responsible);
     const saved = assignTask(
       task.id,
       {
         department: nextDepartment,
         assignees: nextAssignees,
+        responsible: nextResponsible,
         dueDate: deadlineLocked ? task.dueDate : dueDate || null,
       },
       { actor, people, deadlineReason }
@@ -1425,7 +1257,10 @@ function TaskEditor({
     setDeadlineReason("");
     const updated = updateTask(
       task.id,
-      { priority: mayEditSchedule ? priority : task.priority },
+      {
+        title: title.trim() || task.title,
+        priority: mayEditSchedule ? priority : task.priority,
+      },
       { actor, people }
     );
     if (!updated) {
@@ -1587,12 +1422,6 @@ function TaskEditor({
       onClick={(e) => e.stopPropagation()}
       {...entryRootProps}
     >
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <Button size="sm" variant="outline" onClick={onClose}>
-          Hide details
-        </Button>
-      </div>
-
       {(err || followUpMsg) && (
         <div className="space-y-1">
           {err && (
@@ -1694,8 +1523,14 @@ function TaskEditor({
         className="flex items-start gap-2 border border-[var(--fh-line)] bg-white p-2"
       >
         <dl className="grid min-w-0 flex-1 grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-3 lg:grid-cols-6">
+          <SummaryField label="Task name" className="col-span-full">
+            {task.title}
+          </SummaryField>
           <SummaryField label="Department">
             {task.department ? departmentDisplayName(task.department) : "—"}
+          </SummaryField>
+          <SummaryField label="Responsible">
+            {responsiblePerson(task) ?? "—"}
           </SummaryField>
           <SummaryField label="People">
             {peopleLabel(task.assignees)}
@@ -1724,27 +1559,8 @@ function TaskEditor({
               </div>
             </div>
           </SummaryField>
-          <SummaryField label="Subtasks" className="col-span-full">
-            {subtasks.length === 0 ? (
-              "No subtasks."
-            ) : (
-              <ul className="space-y-1">
-                {subtasks.map((s) => (
-                  <li
-                    key={s.id}
-                    className="flex items-start justify-between gap-2"
-                  >
-                    <span>{subtaskAsText(s)}</span>
-                    {canDeleteTasks && (
-                      <DeleteIconButton
-                        label={`Delete ${s.title}`}
-                        onClick={() => removeSubtask(s.id)}
-                      />
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
+          <SummaryField label="Subtasks">
+            {subtasks.length}
           </SummaryField>
         </dl>
         <div className="flex shrink-0 gap-2">
@@ -1794,6 +1610,14 @@ function TaskEditor({
       <div className="space-y-3 border border-[var(--fh-line)] bg-white p-2">
       <div className="space-y-2">
         <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 lg:grid-cols-12">
+          <div className="col-span-2 min-w-0 space-y-1 lg:col-span-12">
+            <Label className="text-xs">Task name</Label>
+            <Input
+              className="bg-white"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+          </div>
           <div className="min-w-0 space-y-1 lg:col-span-3">
             <Label className="text-xs">Department</Label>
             <DepartmentField
@@ -1839,33 +1663,23 @@ function TaskEditor({
             )}
           </div>
           {canName && (
-            <div className="col-span-2 min-w-0 space-y-1 lg:col-span-4">
+            <div className="col-span-2 min-w-0 space-y-1 lg:col-span-12">
               <Label className="text-xs">People</Label>
-              <div className="flex flex-wrap gap-x-3 gap-y-1 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)]/40 px-2 py-1">
-                {department === "none" ? (
-                  <p className="text-xs text-[var(--fh-muted)]">
-                    Select a department to choose people.
-                  </p>
-                ) : selectable.length === 0 ? (
-                  <p className="text-xs text-[var(--fh-muted)]">
-                    No users/managers in this department.
-                  </p>
-                ) : (
-                  selectable.map((p) => (
-                    <label
-                      key={p.id}
-                      className="flex items-center gap-1.5 text-sm"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={assignees.includes(p.name)}
-                        onChange={() => toggleAssignee(p.name)}
-                      />
-                      {p.name}
-                    </label>
-                  ))
-                )}
-              </div>
+              {department === "none" ? (
+                <p className="text-xs text-[var(--fh-muted)]">
+                  Select a department to choose people.
+                </p>
+              ) : (
+                <PeoplePicker
+                  people={selectable}
+                  assignees={assignees}
+                  responsible={responsible}
+                  onChange={(next) => {
+                    setAssignees(next.assignees);
+                    setResponsible(next.responsible);
+                  }}
+                />
+              )}
             </div>
           )}
         </div>
@@ -2055,17 +1869,9 @@ function TaskEditor({
                     </span>
                     <span className="text-xs text-[var(--fh-muted)]">
                       {" · "}
-                      {[
-                        s.department
-                          ? departmentDisplayName(s.department)
-                          : null,
-                        formatAssignees(s.assignees),
-                        s.dueDate
-                          ? formatDisplayDate(s.dueDate)
-                          : "No deadline",
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
+                      {s.department ? departmentDisplayName(s.department) : "—"}
+                      {" · "}
+                      {s.dueDate ? formatDisplayDate(s.dueDate) : "No deadline"}
                     </span>
                   </p>
                   <div className="flex items-center gap-2">
@@ -2078,9 +1884,9 @@ function TaskEditor({
                       }
                     >
                       {expandedSubId === s.id
-                        ? "Hide"
+                        ? "Close"
                         : canUpdateTask(actor, s)
-                          ? "Update"
+                          ? "Edit"
                           : "View"}
                     </Button>
                     {canDeleteTasks && (
@@ -2108,37 +1914,52 @@ function TaskEditor({
             ))
           )}
         </ul>
-        {editing && canUpdate && (
-        <div className="flex flex-wrap items-end gap-2 border-t border-[var(--fh-line)] pt-2">
-          <div className="space-y-1">
-            <Label className="text-xs">Add subtask</Label>
-            <Input
-              className="h-9 w-56 bg-white"
-              value={subTitle}
-              onChange={(e) => setSubTitle(e.target.value)}
-              placeholder="Checklist item"
-            />
+        {canUpdate && (
+        <div className="space-y-2 border-t border-[var(--fh-line)] pt-2">
+          <p className="text-xs font-medium text-[var(--fh-steel)]">Add subtask</p>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="space-y-1 sm:col-span-2">
+              <Label className="text-xs">Name</Label>
+              <Input
+                className="h-9 bg-white"
+                value={subTitle}
+                onChange={(e) => setSubTitle(e.target.value)}
+                placeholder="Subtask name"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Department</Label>
+              <DepartmentField
+                control={newSubControl}
+                value={subDept}
+                onChange={onSubDepartmentChange}
+                emptyLabel="Later…"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Deadline</Label>
+              <Input
+                type="date"
+                className="h-9 bg-white"
+                value={subDue}
+                onChange={(e) => setSubDue(e.target.value)}
+              />
+            </div>
           </div>
-          {newSubControl.kind === "choose" && (
-          <div className="space-y-1">
-            <Label className="text-xs">Department</Label>
-            <DepartmentField
-              control={newSubControl}
-              value={subDept}
-              onChange={setSubDept}
-              emptyLabel="Later…"
-            />
-          </div>
+          {canAssignPeople && subDept !== "none" && (
+            <div className="space-y-1">
+              <Label className="text-xs">People</Label>
+              <PeoplePicker
+                people={peopleForDepartment(people, subDept)}
+                assignees={subAssignees}
+                responsible={subResponsible}
+                onChange={(next) => {
+                  setSubAssignees(next.assignees);
+                  setSubResponsible(next.responsible);
+                }}
+              />
+            </div>
           )}
-          <div className="space-y-1">
-            <Label className="text-xs">Deadline</Label>
-            <Input
-              type="date"
-              className="h-9 bg-white"
-              value={subDue}
-              onChange={(e) => setSubDue(e.target.value)}
-            />
-          </div>
           <Button
             size="sm"
             variant="outline"
@@ -2151,6 +1972,8 @@ function TaskEditor({
                 {
                   title: subTitle,
                   department: chosenDepartment(newSubControl, subDept),
+                  assignees: canAssignPeople ? subAssignees : [],
+                  responsible: canAssignPeople ? subResponsible : null,
                   dueDate: subDue || null,
                 },
                 { actor }
@@ -2163,6 +1986,8 @@ function TaskEditor({
               setSubTitle("");
               setSubDue("");
               setSubDept("none");
+              setSubAssignees([]);
+              setSubResponsible(null);
             }}
           >
             Add
@@ -2193,6 +2018,9 @@ function SubtaskEditor({
 }) {
   const [department, setDepartment] = useState(task.department ?? "none");
   const [assignees, setAssignees] = useState<string[]>(task.assignees);
+  const [responsible, setResponsible] = useState<string | null>(
+    responsiblePerson(task)
+  );
   const [dueDate, setDueDate] = useState(task.dueDate ?? "");
   const [deadlineReason, setDeadlineReason] = useState("");
   const [priority, setPriority] = useState<TaskPriority>(task.priority);
@@ -2260,6 +2088,7 @@ function SubtaskEditor({
           onChange={(next) => {
             setDepartment(next);
             setAssignees([]);
+            setResponsible(null);
           }}
           emptyLabel="Department…"
         />
@@ -2322,24 +2151,15 @@ function SubtaskEditor({
         />
       )}
       {canName && (keepingSavedDepartment || department !== "none") && (
-        <div className="flex flex-wrap gap-2">
-          {selectable.map((p) => (
-            <label key={p.id} className="flex items-center gap-1 text-xs">
-              <input
-                type="checkbox"
-                checked={assignees.includes(p.name)}
-                onChange={() =>
-                  setAssignees((prev) =>
-                    prev.includes(p.name)
-                      ? prev.filter((n) => n !== p.name)
-                      : [...prev, p.name]
-                  )
-                }
-              />
-              {p.name}
-            </label>
-          ))}
-        </div>
+        <PeoplePicker
+          people={selectable}
+          assignees={assignees}
+          responsible={responsible}
+          onChange={(next) => {
+            setAssignees(next.assignees);
+            setResponsible(next.responsible);
+          }}
+        />
       )}
       <Input
         placeholder="Update note (optional)"
@@ -2378,11 +2198,15 @@ function SubtaskEditor({
                       );
                     return inDepartment || alreadyNamed;
                   });
+            const nextResponsible = !canName
+              ? storedResponsible(task.assignees, task.responsible)
+              : storedResponsible(nextAssignees, responsible);
             const assigned = assignTask(
               task.id,
               {
                 department: nextDepartment,
                 assignees: nextAssignees,
+                responsible: nextResponsible,
                 dueDate: deadlineLocked ? task.dueDate : dueDate || null,
               },
               { actor, people, deadlineReason }

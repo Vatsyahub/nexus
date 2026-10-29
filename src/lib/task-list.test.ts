@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assembleSubtaskView } from "@/lib/task-list";
+import {
+  assembleDepartmentView,
+  assembleSubtaskView,
+  safeTaskListReturn,
+  subtasksOnlyLines,
+} from "@/lib/task-list";
 import type { Task } from "@/lib/types";
 
 function task(partial: Partial<Task> & Pick<Task, "id" | "title">): Task {
@@ -123,4 +128,85 @@ test("a parent that matches is counted with its matching subtask", () => {
   );
   assert.equal(overdue.rows.length, 1);
   assert.equal(overdue.rows[0]?.subtasks.length, 1);
+});
+
+test("dept tasks combine two departments and keep a foreign parent for a matching subtask", () => {
+  const parent = task({
+    id: "parent",
+    title: "Other dept",
+    department: "Accounts Department",
+    status: "in_progress",
+  });
+  const sub = task({
+    id: "sub",
+    title: "Contracts piece",
+    parentId: "parent",
+    department: "Contracts Department",
+    status: "in_progress",
+  });
+  const billing = task({
+    id: "billing",
+    title: "Billing parent",
+    department: "Billing Department",
+    status: "completed",
+    completedAt: "2026-10-02T00:00:00.000Z",
+  });
+  const openContracts = task({
+    id: "open-c",
+    title: "Open contracts",
+    department: "Contracts Department",
+    status: "pending",
+  });
+  const view = assembleDepartmentView({
+    tasks: [parent, sub, billing, openContracts],
+    departments: ["Contracts Department", "Billing Department"],
+    matchesRow: () => true,
+    compare: (a, b) => a.title.localeCompare(b.title),
+  });
+  assert.deepEqual(
+    view.rows.map((row) => row.parent.id),
+    ["open-c", "parent", "billing"]
+  );
+  assert.deepEqual(view.rows[1]?.subtasks.map((row) => row.id), ["sub"]);
+  assert.deepEqual(
+    view.counted.map((row) => row.id).sort(),
+    ["billing", "open-c", "sub"]
+  );
+  assert.deepEqual(
+    subtasksOnlyLines(view.rows).map((line) => line.task.id),
+    ["sub"]
+  );
+});
+
+test("subtasks only drops a parent that is listed for a matching subtask", () => {
+  const parent = task({
+    id: "parent",
+    title: "Parent",
+    status: "completed",
+    completedAt: "2026-10-01T00:00:00.000Z",
+  });
+  const sub = task({
+    id: "sub",
+    title: "Only child",
+    parentId: "parent",
+    status: "in_progress",
+    dueDate: "2026-10-01",
+  });
+  const view = listed("overdue", [parent, sub]);
+  assert.equal(view.rows.length, 1);
+  assert.equal(view.rows[0]?.parent.id, "parent");
+  const lines = subtasksOnlyLines(view.rows);
+  assert.deepEqual(
+    lines.map((line) => [line.task.id, line.parent.title]),
+    [["sub", "Parent"]]
+  );
+});
+
+test("a task list return keeps the tab and search", () => {
+  assert.equal(
+    safeTaskListReturn("/tasks?view=dept&q=pump&subs=1"),
+    "/tasks?view=dept&q=pump&subs=1"
+  );
+  assert.equal(safeTaskListReturn("/tasks/abc"), "/tasks");
+  assert.equal(safeTaskListReturn("/contracts?q=1"), "/tasks");
 });

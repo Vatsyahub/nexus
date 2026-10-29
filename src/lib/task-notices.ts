@@ -1,4 +1,5 @@
 import { taskNotificationHref } from "@/lib/notification-href";
+import { responsiblePerson } from "@/lib/task-responsible";
 import type { HubNotification, Task } from "@/lib/types";
 
 
@@ -83,6 +84,20 @@ export function taskAlertAudience(
   const names = (task.assignees ?? []).map((a) => a.trim()).filter(Boolean);
   const department = task.department?.trim() || null;
   if (names.length > 0) return { names, department: null };
+  if (department) return { names: [], department };
+  return null;
+}
+
+/**
+ * Overdue notice: the responsible person, not every named person.
+ * No names and a department still reaches that department's managers.
+ */
+export function taskOverdueAudience(
+  task: Pick<Task, "assignees" | "department" | "responsible">
+): { names: string[]; department: string | null } | null {
+  const person = responsiblePerson(task);
+  const department = task.department?.trim() || null;
+  if (person) return { names: [person], department: null };
   if (department) return { names: [], department };
   return null;
 }
