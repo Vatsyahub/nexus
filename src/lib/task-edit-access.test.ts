@@ -205,33 +205,62 @@ test("task and subtask saves follow the department on that row", () => {
   );
   assert.equal(subSaved?.notes, "own dept");
   assert.equal(subSaved?.department, "Installation Department");
-  const subLocked = assignTask(
+  const switched = assignTask(
     sub.id,
-    { department: "Contracts Department" },
+    { department: "Contracts Department", assignees: ["New Joiner"] },
     { actor: master, people }
   );
-  assert.equal(subLocked.ok, false);
-  assert.equal(taskByTitle("Dept lock install").department, "Installation Department");
-  const removed = assignTask(
+  assert.equal(switched.ok, true);
+  if (switched.ok) {
+    assert.equal(switched.task.department, "Contracts Department");
+    assert.deepEqual(switched.task.assignees, ["New Joiner"]);
+  }
+  const cleared = assignTask(
     sub.id,
     { department: null },
     { actor: master, people }
   );
-  assert.equal(removed.ok, true);
-  assert.equal(taskByTitle("Dept lock install").department, null);
-  const wrongDept = assignTask(
-    sub.id,
-    { department: "Contracts Department" },
-    { actor: installManager, people }
-  );
-  assert.equal(wrongDept.ok, false);
-  const setAgain = assignTask(
+  assert.equal(cleared.ok, false);
+  assert.equal(taskByTitle("Dept lock install").department, "Contracts Department");
+  const back = assignTask(
     sub.id,
     { department: "Installation Department" },
+    { actor: master, people }
+  );
+  assert.equal(back.ok, true);
+  assert.equal(taskByTitle("Dept lock install").department, "Installation Department");
+  const installCannotSwitch = assignTask(
+    sub.id,
+    { department: "Accounts Department" },
     { actor: installManager, people }
   );
-  assert.equal(setAgain.ok, true);
+  assert.equal(installCannotSwitch.ok, false);
   assert.equal(taskByTitle("Dept lock install").department, "Installation Department");
+  const byParentManager = assignTask(
+    sub.id,
+    {
+      department: "Drawings Department",
+      assignees: ["Anil User"],
+      dueDate: "2026-12-01",
+    },
+    { actor: contractsManager, people }
+  );
+  assert.equal(byParentManager.ok, true);
+  if (byParentManager.ok) {
+    assert.equal(byParentManager.task.department, "Drawings Department");
+    assert.deepEqual(byParentManager.task.assignees, []);
+    assert.equal(byParentManager.task.dueDate, sub.dueDate);
+  }
+  const restored = assignTask(
+    sub.id,
+    { department: "Installation Department", assignees: ["Site Lead"] },
+    { actor: director, people }
+  );
+  assert.equal(restored.ok, true);
+  if (restored.ok) {
+    assert.equal(restored.task.department, "Installation Department");
+    assert.deepEqual(restored.task.assignees, ["Site Lead"]);
+  }
   const masterClearParent = assignTask(
     open.id,
     { department: null },

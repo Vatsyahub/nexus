@@ -159,14 +159,24 @@ function canNamePeople(
 
 function chosenDepartment(
   control: TaskDepartmentControl,
-  value: string
+  value: string,
+  saved?: string | null
 ): string | null {
   if (control.kind === "fixed") return control.department;
-  if (control.kind === "clear") {
-    return value === "none" ? null : control.department;
-  }
-  if (value === "none" || !control.options.includes(value)) return null;
-  return value;
+  if (value !== "none" && control.options.includes(value)) return value;
+  if (control.allowEmpty) return null;
+  const kept = (saved || "").trim();
+  return kept || null;
+}
+
+function keepingNamedPeople(
+  control: TaskDepartmentControl,
+  selected: string,
+  saved: string | null | undefined
+): boolean {
+  if (control.kind === "fixed") return true;
+  if (!departmentIsSet(saved) || selected === "none") return false;
+  return selected.trim().toLowerCase() === (saved || "").trim().toLowerCase();
 }
 
 function DepartmentField({
@@ -190,27 +200,13 @@ function DepartmentField({
       </p>
     );
   }
-  if (control.kind === "clear") {
-    return (
-      <select
-        className="flex h-9 w-full rounded-lg border border-input bg-white px-2 text-sm"
-        value={value === "none" ? "none" : control.department}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        <option value={control.department}>
-          {departmentDisplayName(control.department)}
-        </option>
-        <option value="none">No department</option>
-      </select>
-    );
-  }
   return (
     <select
       className="flex h-9 w-full rounded-lg border border-input bg-white px-2 text-sm"
       value={value}
       onChange={(e) => onChange(e.target.value)}
     >
-      <option value="none">{emptyLabel}</option>
+      {control.allowEmpty && <option value="none">{emptyLabel}</option>}
       {control.options.map((d) => (
         <option key={d} value={d}>
           {departmentDisplayName(d)}
@@ -1137,14 +1133,17 @@ export function TaskEditor({
     departments,
     canEditTasks
   );
-  const keepingSavedDepartment =
-    departmentControl.kind === "fixed" ||
-    (departmentControl.kind === "clear" && department !== "none");
+  const keepingSavedDepartment = keepingNamedPeople(
+    departmentControl,
+    department,
+    task.department
+  );
   const newSubControl = taskDepartmentControl(
     actor,
     { parentId: task.id, department: null, assignees: [] },
     departments,
-    canEditTasks
+    canEditTasks,
+    task
   );
   const mayEditSchedule = canEditTaskSchedule(actor, task);
   const deadlineLocked = !mayEditSchedule;
@@ -1158,7 +1157,8 @@ export function TaskEditor({
     ? (subtasks.find((row) => row.id === expandedSubId) ?? null)
     : null;
   const canSaveOpenSub = Boolean(
-    openSubtask && canUpdateTask(actor, openSubtask)
+    openSubtask &&
+      (canUpdateTask(actor, openSubtask) || (canUpdate && canEditTasks))
   );
 
   function currentBox(): TaskUpdatesBox {
@@ -1225,7 +1225,11 @@ export function TaskEditor({
   }
 
   function parentAssignees() {
-    const nextDepartment = chosenDepartment(departmentControl, department);
+    const nextDepartment = chosenDepartment(
+      departmentControl,
+      department,
+      task.department
+    );
     const pool = peopleForDepartment(people, nextDepartment || "none");
     const nextAssignees =
       !canName || !departmentIsSet(nextDepartment)
@@ -1299,7 +1303,7 @@ export function TaskEditor({
           task.id,
           {
             title: subTitle,
-            department: chosenDepartment(newSubControl, subDept),
+            department: chosenDepartment(newSubControl, subDept, null),
             assignees: canAssignPeople ? subAssignees : [],
             dueDate: subDue || null,
           },
@@ -1528,7 +1532,7 @@ export function TaskEditor({
                     >
                       {expandedSubId === s.id
                         ? "Close"
-                        : canUpdateTask(actor, s)
+                        : canUpdateTask(actor, s) || (canUpdate && canEditTasks)
                           ? "Edit"
                           : "View"}
                     </Button>
@@ -1545,6 +1549,7 @@ export function TaskEditor({
                     <SubtaskEditor
                       ref={subtaskSaveRef}
                       task={s}
+                      parent={task}
                       people={people}
                       departments={departments}
                       canAssignPeople={canAssignPeople}
@@ -2073,6 +2078,7 @@ export function TaskEditor({
 
 function SubtaskEditor({
   task,
+  parent,
   people,
   departments,
   canAssignPeople,
@@ -2082,6 +2088,7 @@ function SubtaskEditor({
   ref,
 }: {
   task: Task;
+  parent: Task;
   people: AssignablePerson[];
   departments: string[];
   canAssignPeople: boolean;
@@ -2104,11 +2111,14 @@ function SubtaskEditor({
     actor,
     task,
     departments,
-    canEditTasks
+    canEditTasks,
+    parent
   );
-  const keepingSavedDepartment =
-    departmentControl.kind === "fixed" ||
-    (departmentControl.kind === "clear" && department !== "none");
+  const keepingSavedDepartment = keepingNamedPeople(
+    departmentControl,
+    department,
+    task.department
+  );
   const mayEditSchedule = canEditTaskSchedule(actor, task);
   const deadlineLocked = !mayEditSchedule;
   const canName = canNamePeople(actor, task, canAssignPeople);
@@ -2122,7 +2132,28 @@ function SubtaskEditor({
   useImperativeHandle(ref, () => ({
     save() {
       if (!canUpdate) {
-        return { ok: false, error: TASK_SAVE_DENIED, wrote: false };
+        if (departmentControl.kind !== "choose") {
+          return { ok: false, error: TASK_SAVE_DENIED, wrote: false };
+        }
+        const nextDepartment = chosenDepartment(
+          departmentControl,
+          department,
+          task.department
+        );
+        const savedDepartment = (task.department || "").trim();
+        if ((nextDepartment || "") === savedDepartment) {
+          return { ok: true, status: task.status, wrote: false };
+        }
+        const assigned = assignTask(
+          task.id,
+          { department: nextDepartment, assignees: task.assignees },
+          { actor, people }
+        );
+        if (!assigned.ok) {
+          return { ok: false, error: assigned.error, wrote: false };
+        }
+        setErr(null);
+        return { ok: true, status: assigned.task.status, wrote: true };
       }
       if (status === "not_required" && !reason.trim()) {
         return {
@@ -2131,7 +2162,11 @@ function SubtaskEditor({
           wrote: false,
         };
       }
-      const nextDepartment = chosenDepartment(departmentControl, department);
+      const nextDepartment = chosenDepartment(
+        departmentControl,
+        department,
+        task.department
+      );
       const pool = peopleForDepartment(people, nextDepartment || "none");
       const nextAssignees =
         !canName || !departmentIsSet(nextDepartment)
@@ -2177,6 +2212,14 @@ function SubtaskEditor({
   if (!canUpdate) {
     return (
       <div className="mt-1 space-y-2" data-task-access="read">
+        {departmentControl.kind === "choose" && (
+          <DepartmentField
+            control={departmentControl}
+            value={department}
+            onChange={setDepartment}
+            emptyLabel="Department…"
+          />
+        )}
         <p className="text-xs text-[var(--fh-muted)]">{TASK_READ_ONLY}</p>
         {canConfirmTaskVerification(actor, task) && (
           <Button

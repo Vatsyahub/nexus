@@ -4841,15 +4841,20 @@ export function assignTask(
   const data = read();
   const current = data.tasks.find((t) => t.id === id);
   if (!current) return { ok: false, error: "Task not found." };
-  if (!opts?.actor || !canUpdateTask(opts.actor, current)) {
+  if (!opts?.actor) return { ok: false, error: TASK_SAVE_DENIED };
+  const parent = savedParent(data.tasks, current.parentId);
+  const mayUpdate = canUpdateTask(opts.actor, current);
+  const mayChangeDepartment =
+    taskHasParent(current) && !!parent && canUpdateTask(opts.actor, parent);
+  if (!mayUpdate && !mayChangeDepartment) {
     return { ok: false, error: TASK_SAVE_DENIED };
   }
   const requestedDepartment = (assignment.department || "").trim() || null;
   const decision = resolveTaskDepartment({
     parentId: current.parentId,
+    parent,
     currentDepartment: current.department,
     nextDepartment: requestedDepartment,
-    assignees: current.assignees,
     actor: opts.actor,
   });
   if (!decision.ok) return decision;
@@ -4858,14 +4863,19 @@ export function assignTask(
     currentDepartment: current.department,
     nextDepartment: department,
     currentAssignees: current.assignees,
-    nextAssignees: assignment.assignees ?? current.assignees,
+    nextAssignees: mayUpdate
+      ? (assignment.assignees ?? current.assignees)
+      : current.assignees,
     people: opts.people ?? [],
   });
   if (!names.ok) return names;
   const deadline = decideTaskDeadline({
     currentDue: current.dueDate,
-    nextDue:
-      assignment.dueDate !== undefined ? assignment.dueDate : current.dueDate,
+    nextDue: mayUpdate
+      ? assignment.dueDate !== undefined
+        ? assignment.dueDate
+        : current.dueDate
+      : current.dueDate,
     reason: opts.deadlineReason,
     actor: opts.actor,
     task: current,
@@ -4877,7 +4887,7 @@ export function assignTask(
     department,
     assignees: names.assignees,
     responsible:
-      assignment.responsible !== undefined
+      mayUpdate && assignment.responsible !== undefined
         ? storedResponsible(names.assignees, assignment.responsible)
         : storedResponsible(names.assignees, current.responsible),
     dueDate,
@@ -4978,6 +4988,15 @@ function holdForVerification(
 
 function taskHasParent(task: { parentId?: string | null }): boolean {
   return (task.parentId || "").trim().length > 0;
+}
+
+function savedParent(
+  tasks: Task[],
+  parentId: string | null | undefined
+): Task | null {
+  const id = (parentId || "").trim();
+  if (!id) return null;
+  return tasks.find((row) => row.id === id) ?? null;
 }
 
 /**
@@ -5114,19 +5133,69 @@ export function updateTask(
 ) {
   const data = read();
   const current = data.tasks.find((t) => t.id === id);
-  if (!current) return null;
-  if (!opts?.actor || !canUpdateTask(opts.actor, current)) return null;
+  if (!current || !opts?.actor) return null;
+  const parent = savedParent(data.tasks, current.parentId);
+  const mayUpdate = canUpdateTask(opts.actor, current);
+  const mayChangeDepartment =
+    taskHasParent(current) && !!parent && canUpdateTask(opts.actor, parent);
+  if (!mayUpdate && !mayChangeDepartment) return null;
   let department = current.department;
   if (patch.department !== undefined) {
     const decision = resolveTaskDepartment({
       parentId: current.parentId,
+      parent,
       currentDepartment: current.department,
       nextDepartment: patch.department,
-      assignees: current.assignees,
       actor: opts.actor,
     });
     if (!decision.ok) return null;
     department = decision.department;
+  }
+  if (!mayUpdate) {
+    if (patch.department === undefined) return null;
+    const names = resolveTaskAssignees({
+      currentDepartment: current.department,
+      nextDepartment: department,
+      currentAssignees: current.assignees,
+      nextAssignees: current.assignees,
+      people: opts.people ?? [],
+    });
+    if (!names.ok) return null;
+    const namesSame =
+      JSON.stringify([...names.assignees].sort()) ===
+      JSON.stringify([...(current.assignees ?? [])].sort());
+    if ((department || "") === (current.department || "") && namesSame) {
+      return null;
+    }
+    const next: Task = {
+      ...current,
+      department,
+      assignees: names.assignees,
+      responsible: storedResponsible(names.assignees, current.responsible),
+      status:
+        current.status === "pending" &&
+        (department || names.assignees.length > 0)
+          ? "in_progress"
+          : current.status,
+    };
+    const audienceChanged =
+      next.department !== current.department ||
+      JSON.stringify([...(next.assignees ?? [])].sort()) !==
+        JSON.stringify([...(current.assignees ?? [])].sort());
+    let nextData: FlowhubData = {
+      ...data,
+      tasks: data.tasks.map((t) => (t.id === id ? next : t)),
+    };
+    if (
+      audienceChanged &&
+      (next.department || (next.assignees?.length ?? 0) > 0)
+    ) {
+      nextData = notifyForTasks(nextData, [next], { kind: "task_assigned" });
+    }
+    write(
+      applyTaskSaveLog(nextData, data.tasks, nextData.tasks, [], opts.actor.name)
+    );
+    return next;
   }
   let assignees = patch.assignees;
   if (patch.assignees !== undefined) {
@@ -5255,11 +5324,12 @@ opts?: { actor?: TaskActor }
   const assignees = input.assignees?.filter(Boolean) ?? [];
   let department = input.department ?? null;
   if (opts?.actor) {
+    const parent = savedParent(data.tasks, input.parentId);
     const decision = resolveTaskDepartment({
       parentId: input.parentId,
+      parent,
       currentDepartment: null,
       nextDepartment: department,
-      assignees: [],
       actor: opts.actor,
     });
     department = decision.ok ? decision.department : null;

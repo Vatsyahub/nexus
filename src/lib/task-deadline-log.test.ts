@@ -1026,7 +1026,7 @@ test("one task save writes one line for every field that changed", () => {
       department: "Installation Department",
       assignees: ["Site Lead"],
     },
-    { actor: installManager, people }
+    { actor: director, people }
   );
   assert.equal(placed.ok, true);
   assert.deepEqual(describeTaskChangeLog(rowsFor(open.id)[0]!), [

@@ -10,11 +10,11 @@ import {
   applyTaskEditPolicy,
   canEditTaskSchedule,
   canUpdateTask,
-  departmentsASubtaskMayTake,
   peopleNamedInDepartment,
   resolveTaskAssignees,
   resolveTaskDepartment,
   taskDepartmentControl,
+  TASK_SUBTASK_DEPARTMENT_DENIED,
 } from "@/lib/task-permissions";
 import type { HubNotification, Task } from "@/lib/types";
 import {
@@ -219,45 +219,87 @@ test("a saved deadline follows either department the manager holds", () => {
   assert.equal(blocked.ok, false);
 });
 
-test("a subtask department can be either department the manager holds", () => {
+test("a parent updater can put a subtask in any department", () => {
   const departments = ["Accounts", "Billing", "Contracts"];
-  assert.deepEqual(departmentsASubtaskMayTake(rahul, [], departments), [
-    "Billing",
-    "Contracts",
-  ]);
+  const parent = task({ id: "parent", department: "Billing", assignees: [] });
   assert.deepEqual(
     taskDepartmentControl(
       rahul,
       { parentId: "parent", department: null, assignees: [] },
       departments,
-      true
+      true,
+      parent
     ),
-    { kind: "choose", options: ["Billing", "Contracts"] }
+    { kind: "choose", options: departments, allowEmpty: true }
   );
   const chosen = resolveTaskDepartment({
     parentId: "parent",
-    currentDepartment: null,
-    nextDepartment: "Contracts",
-    assignees: [],
-    actor: rahul,
-  });
-  assert.deepEqual(chosen, { ok: true, department: "Contracts" });
-  const refused = resolveTaskDepartment({
-    parentId: "parent",
+    parent,
     currentDepartment: null,
     nextDepartment: "Accounts",
+    actor: rahul,
+  });
+  assert.deepEqual(chosen, { ok: true, department: "Accounts" });
+  const switched = resolveTaskDepartment({
+    parentId: "parent",
+    parent,
+    currentDepartment: "Accounts",
+    nextDepartment: "Contracts",
+    actor: rahul,
+  });
+  assert.deepEqual(switched, { ok: true, department: "Contracts" });
+
+  const accountsParent = task({
+    id: "parent",
+    department: "Accounts",
     assignees: [],
+  });
+  const refused = resolveTaskDepartment({
+    parentId: "parent",
+    parent: accountsParent,
+    currentDepartment: null,
+    nextDepartment: "Billing",
     actor: rahul,
   });
   assert.equal(refused.ok, false);
-  const cleared = resolveTaskDepartment({
-    parentId: "parent",
-    currentDepartment: "Contracts",
-    nextDepartment: null,
-    assignees: [],
-    actor: rahul,
-  });
-  assert.deepEqual(cleared, { ok: true, department: null });
+  if (!refused.ok) assert.equal(refused.error, TASK_SUBTASK_DEPARTMENT_DENIED);
+  assert.equal(
+    taskDepartmentControl(
+      rahul,
+      { parentId: "parent", department: "Billing", assignees: ["Billing User"] },
+      departments,
+      true,
+      accountsParent
+    ).kind,
+    "fixed"
+  );
+  const namedOnly = applyTaskEditPolicy(
+    [
+      accountsParent,
+      task({
+        id: "sub",
+        parentId: "parent",
+        department: "Billing",
+        assignees: ["Billing User"],
+        notes: "keep",
+      }),
+    ],
+    [
+      task({
+        id: "sub",
+        parentId: "parent",
+        department: "Contracts",
+        assignees: ["Billing User"],
+        notes: "named",
+        status: "completed",
+      }),
+    ],
+    { name: "Billing User", clearance: "user", department: "Billing" },
+    people
+  );
+  assert.equal(namedOnly[0]?.department, "Billing");
+  assert.equal(namedOnly[0]?.notes, "named");
+  assert.equal(namedOnly[0]?.status, "completed");
 });
 
 test("verification confirm and a due-today notice accept the second department", () => {
