@@ -18,6 +18,7 @@ import {
   afterGadCompleted,
   afterKickoffCompleted,
   assignTask,
+  beginTaskChangeSave,
   canConfirmTaskVerification,
   clearTaskDeadlineChangeLog,
   completeTaskWithSubtasks,
@@ -25,6 +26,7 @@ import {
   confirmTaskVerification,
   deleteSubtask,
   deleteTask,
+  finishTaskChangeSave,
   flushWorkspace,
   taskIsOpen,
   taskVisibleInLists,
@@ -62,6 +64,10 @@ import {
   formatDisplayDateTime,
 } from "@/lib/dates";
 import type { TaskDeadlineChangeLogEntry } from "@/lib/types";
+import {
+  describeTaskChangeLog,
+  taskChangeSearchBits,
+} from "@/lib/task-deadline-log";
 import { confirmWorkspaceSave } from "@/lib/save-notice";
 import {
   canEditTaskSchedule,
@@ -70,6 +76,7 @@ import {
   namedOnTask,
   peopleNamedInDepartment,
   taskDepartmentControl,
+  TASK_COMPLETED_LOCKED,
   TASK_READ_ONLY,
   TASK_SAVE_DENIED,
   type TaskDepartmentControl,
@@ -153,14 +160,30 @@ function canNamePeople(
 
 function chosenDepartment(
   control: TaskDepartmentControl,
-  value: string
+  value: string,
+  saved?: string | null
 ): string | null {
   if (control.kind === "fixed") return control.department;
-  if (control.kind === "clear") {
-    return value === "none" ? null : control.department;
-  }
-  if (value === "none" || !control.options.includes(value)) return null;
-  return value;
+  if (value !== "none" && control.options.includes(value)) return value;
+  if (control.allowEmpty) return null;
+  const kept = (saved || "").trim();
+  return kept || null;
+}
+
+function sameNames(left: string[], right: string[]): boolean {
+  const key = (names: string[]) =>
+    JSON.stringify(names.map((name) => name.trim().toLowerCase()).sort());
+  return key(left) === key(right);
+}
+
+function keepingNamedPeople(
+  control: TaskDepartmentControl,
+  selected: string,
+  saved: string | null | undefined
+): boolean {
+  if (control.kind === "fixed") return true;
+  if (!departmentIsSet(saved) || selected === "none") return false;
+  return selected.trim().toLowerCase() === (saved || "").trim().toLowerCase();
 }
 
 function DepartmentField({
@@ -184,27 +207,13 @@ function DepartmentField({
       </p>
     );
   }
-  if (control.kind === "clear") {
-    return (
-      <select
-        className="flex h-9 w-full rounded-lg border border-input bg-white px-2 text-sm"
-        value={value === "none" ? "none" : control.department}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        <option value={control.department}>
-          {departmentDisplayName(control.department)}
-        </option>
-        <option value="none">No department</option>
-      </select>
-    );
-  }
   return (
     <select
       className="flex h-9 w-full rounded-lg border border-input bg-white px-2 text-sm"
       value={value}
       onChange={(e) => onChange(e.target.value)}
     >
-      <option value="none">{emptyLabel}</option>
+      {control.allowEmpty && <option value="none">{emptyLabel}</option>}
       {control.options.map((d) => (
         <option key={d} value={d}>
           {departmentDisplayName(d)}
@@ -568,6 +577,7 @@ function TasksPageInner({
             contract?.projectName,
             contract?.city,
             contract?.state,
+            ...taskChangeSearchBits(entry),
             ...dateSearchForms(entry.at),
             ...dateSearchForms(entry.fromDate),
             ...dateSearchForms(entry.toDate),
@@ -667,7 +677,7 @@ function TasksPageInner({
           onChange={setQ}
           placeholder={
             showLog
-              ? "Search task, who, reason, date…"
+              ? "Search task, who, change, date…"
               : "Search title, contract, person, status, date…"
           }
         />
@@ -868,13 +878,14 @@ function TaskDeadlineLogPanel({
         ) : null}
       </div>
       <HubDataScroll className="overflow-x-auto rounded-xl border border-[var(--fh-line)] bg-white">
-        <table className="list-sticky-head w-full min-w-[760px] text-left text-sm">
+        <table className="list-sticky-head w-full min-w-[960px] text-left text-sm">
           <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-xs uppercase tracking-wide text-[var(--fh-muted)]">
             <tr>
               <th className="px-3 py-2 font-medium">When</th>
               <th className="px-3 py-2 font-medium">Who</th>
               <th className="px-3 py-2 font-medium">Project</th>
               <th className="px-3 py-2 font-medium">Task</th>
+              <th className="px-3 py-2 font-medium">Changes</th>
               <th className="px-3 py-2 font-medium">From</th>
               <th className="px-3 py-2 font-medium">To</th>
               <th className="px-3 py-2 font-medium">Reason</th>
@@ -884,12 +895,12 @@ function TaskDeadlineLogPanel({
             {entries.length === 0 ? (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={8}
                   className="px-3 py-8 text-center text-[var(--fh-muted)]"
                 >
                   {query.trim()
                     ? "No changes match your search."
-                    : "No deadline changes yet."}
+                    : "No changes yet."}
                 </td>
               </tr>
             ) : (
@@ -899,6 +910,7 @@ function TaskDeadlineLogPanel({
                 const contract = contractId
                   ? contracts.find((row) => row.id === contractId)
                   : null;
+                const lines = describeTaskChangeLog(entry);
                 return (
                   <tr key={entry.id}>
                     <td className="px-3 py-2 tabular-nums text-xs text-[var(--fh-muted)]">
@@ -909,13 +921,22 @@ function TaskDeadlineLogPanel({
                     <td className="px-3 py-2">
                       {task?.title || entry.taskTitle || "—"}
                     </td>
+                    <td className="px-3 py-2">
+                      {lines.length === 0 ? (
+                        "—"
+                      ) : (
+                        <span className="block whitespace-pre-line">
+                          {lines.join("\n")}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 tabular-nums">
                       {formatDisplayDate(entry.fromDate)}
                     </td>
                     <td className="px-3 py-2 tabular-nums">
                       {formatDisplayDate(entry.toDate)}
                     </td>
-                    <td className="px-3 py-2">{entry.reason}</td>
+                    <td className="px-3 py-2">{entry.reason || "—"}</td>
                   </tr>
                 );
               })
@@ -927,7 +948,7 @@ function TaskDeadlineLogPanel({
         filename="tasks-change-log"
         title="Tasks — Change log"
         filters={reportFilterSummary({ tab: "Change log", search: query })}
-        headers={["When", "Who", "Project no.", "Project", "Task", "From", "To", "Reason"]}
+        headers={["When", "Who", "Project no.", "Project", "Task", "Changes", "From", "To", "Reason"]}
         rows={entries.map((entry) => {
           const task = tasks.find((row) => row.id === entry.taskId);
           const contractId = entry.contractId || task?.contractId || null;
@@ -940,9 +961,10 @@ function TaskDeadlineLogPanel({
             contract?.projectNo ?? "",
             contract?.projectName ?? "",
             task?.title || entry.taskTitle || "",
+            describeTaskChangeLog(entry).join("; "),
             formatDisplayDate(entry.fromDate),
             formatDisplayDate(entry.toDate),
-            entry.reason,
+            entry.reason || "",
           ];
         })}
       />
@@ -1118,14 +1140,17 @@ export function TaskEditor({
     departments,
     canEditTasks
   );
-  const keepingSavedDepartment =
-    departmentControl.kind === "fixed" ||
-    (departmentControl.kind === "clear" && department !== "none");
+  const keepingSavedDepartment = keepingNamedPeople(
+    departmentControl,
+    department,
+    task.department
+  );
   const newSubControl = taskDepartmentControl(
     actor,
     { parentId: task.id, department: null, assignees: [] },
     departments,
-    canEditTasks
+    canEditTasks,
+    task
   );
   const mayEditSchedule = canEditTaskSchedule(actor, task);
   const deadlineLocked = !mayEditSchedule;
@@ -1139,7 +1164,8 @@ export function TaskEditor({
     ? (subtasks.find((row) => row.id === expandedSubId) ?? null)
     : null;
   const canSaveOpenSub = Boolean(
-    openSubtask && canUpdateTask(actor, openSubtask)
+    openSubtask &&
+      (canUpdateTask(actor, openSubtask) || (canUpdate && canEditTasks))
   );
 
   function currentBox(): TaskUpdatesBox {
@@ -1206,7 +1232,11 @@ export function TaskEditor({
   }
 
   function parentAssignees() {
-    const nextDepartment = chosenDepartment(departmentControl, department);
+    const nextDepartment = chosenDepartment(
+      departmentControl,
+      department,
+      task.department
+    );
     const pool = peopleForDepartment(people, nextDepartment || "none");
     const nextAssignees =
       !canName || !departmentIsSet(nextDepartment)
@@ -1225,51 +1255,60 @@ export function TaskEditor({
   }
 
   async function saveUpdates() {
+    beginTaskChangeSave();
     const errors: string[] = [];
     let wrote = false;
     let statusResult: { status: TaskStatus; sideEffects: boolean } | null =
       null;
-    let subtaskClosed = false;
 
+    try {
     if (editing && canUpdate) {
       const { nextDepartment, nextAssignees } = parentAssignees();
-      const saved = assignTask(
-        task.id,
-        {
-          department: nextDepartment,
-          assignees: nextAssignees,
-          dueDate: deadlineLocked ? task.dueDate : dueDate || null,
-        },
-        { actor, people, deadlineReason }
-      );
-      if (!saved.ok) {
-        errors.push(saved.error);
+      const nextDue = deadlineLocked ? task.dueDate : dueDate || null;
+      const nextTitle = title.trim() || task.title;
+      const parentChanged =
+        nextTitle !== task.title ||
+        (nextDepartment || "") !== (task.department || "").trim() ||
+        !sameNames(nextAssignees, task.assignees) ||
+        (nextDue || null) !== (task.dueDate || null) ||
+        status !== task.status ||
+        notes.trim() !== (task.notes || "");
+      if (task.status === "completed") {
+        if (parentChanged) errors.push(TASK_COMPLETED_LOCKED);
       } else {
-        wrote = true;
-        setDeadlineReason("");
+        const saved = assignTask(
+          task.id,
+          {
+            department: nextDepartment,
+            assignees: nextAssignees,
+            dueDate: nextDue,
+          },
+          { actor, people, deadlineReason }
+        );
+        if (!saved.ok) {
+          errors.push(saved.error);
+        } else {
+          wrote = true;
+          setDeadlineReason("");
+        }
+        const updated = updateTask(
+          task.id,
+          {
+            title: nextTitle,
+          },
+          { actor, people }
+        );
+        if (!updated) errors.push(TASK_SAVE_DENIED);
+        else wrote = true;
       }
-      const updated = updateTask(
-        task.id,
-        {
-          title: title.trim() || task.title,
-        },
-        { actor, people }
-      );
-      if (!updated) errors.push(TASK_SAVE_DENIED);
-      else wrote = true;
     }
 
     if (canSaveOpenSub && subtaskSaveRef.current) {
       const result = subtaskSaveRef.current.save();
       if (result.wrote) wrote = true;
       if (!result.ok) errors.push(result.error);
-      else {
-        subtaskClosed =
-          result.status === "completed" || result.status === "not_required";
-      }
     }
 
-    let addedOpen = false;
     if (addingSub && canUpdate && subTitle.trim()) {
       if (!task.contractId) {
         errors.push(TASK_SAVE_DENIED);
@@ -1278,7 +1317,7 @@ export function TaskEditor({
           task.id,
           {
             title: subTitle,
-            department: chosenDepartment(newSubControl, subDept),
+            department: chosenDepartment(newSubControl, subDept, null),
             assignees: canAssignPeople ? subAssignees : [],
             dueDate: subDue || null,
           },
@@ -1288,7 +1327,6 @@ export function TaskEditor({
           errors.push(TASK_SAVE_DENIED);
         } else {
           wrote = true;
-          addedOpen = taskIsOpen(created);
           setSubTitle("");
           setSubDue("");
           setSubDept("none");
@@ -1298,19 +1336,12 @@ export function TaskEditor({
       }
     }
 
-    if (editing && canUpdate) {
-      const stillOpen = openSubs.some(
-        (row) => !(row.id === expandedSubId && subtaskClosed)
-      );
-      if (status === "completed" && (stillOpen || addedOpen)) {
-        setClosing(true);
-      } else {
-        const result = updateTaskStatus(task.id, status, { notes, actor });
-        if (!result) errors.push("Task not found.");
-        else {
-          wrote = true;
-          statusResult = result;
-        }
+    if (editing && canUpdate && task.status !== "completed") {
+      const result = updateTaskStatus(task.id, status, { notes, actor });
+      if (!result) errors.push("Task not found.");
+      else {
+        wrote = true;
+        statusResult = result;
       }
     }
 
@@ -1323,6 +1354,9 @@ export function TaskEditor({
       setErr(settled.error);
     } else {
       setErr(null);
+    }
+    } finally {
+      finishTaskChangeSave(actor);
     }
     if (!wrote) return;
     const persisted = await confirmWorkspaceSave();
@@ -1352,11 +1386,6 @@ export function TaskEditor({
   }
 
   async function confirmVerified() {
-    if (openSubs.length > 0) {
-      setClosing(true);
-      setErr(null);
-      return;
-    }
     const result = confirmTaskVerification(task.id, actor);
     if (!result.ok) {
       setErr(result.error);
@@ -1414,7 +1443,7 @@ export function TaskEditor({
   }
 
   function removeSubtask(id: string) {
-    deleteSubtask(id);
+    deleteSubtask(id, { actor });
     void flushWorkspace();
   }
 
@@ -1504,7 +1533,7 @@ export function TaskEditor({
                     >
                       {expandedSubId === s.id
                         ? "Close"
-                        : canUpdateTask(actor, s)
+                        : canUpdateTask(actor, s) || (canUpdate && canEditTasks)
                           ? "Edit"
                           : "View"}
                     </Button>
@@ -1521,6 +1550,7 @@ export function TaskEditor({
                     <SubtaskEditor
                       ref={subtaskSaveRef}
                       task={s}
+                      parent={task}
                       people={people}
                       departments={departments}
                       canAssignPeople={canAssignPeople}
@@ -2049,6 +2079,7 @@ export function TaskEditor({
 
 function SubtaskEditor({
   task,
+  parent,
   people,
   departments,
   canAssignPeople,
@@ -2058,6 +2089,7 @@ function SubtaskEditor({
   ref,
 }: {
   task: Task;
+  parent: Task;
   people: AssignablePerson[];
   departments: string[];
   canAssignPeople: boolean;
@@ -2080,11 +2112,14 @@ function SubtaskEditor({
     actor,
     task,
     departments,
-    canEditTasks
+    canEditTasks,
+    parent
   );
-  const keepingSavedDepartment =
-    departmentControl.kind === "fixed" ||
-    (departmentControl.kind === "clear" && department !== "none");
+  const keepingSavedDepartment = keepingNamedPeople(
+    departmentControl,
+    department,
+    task.department
+  );
   const mayEditSchedule = canEditTaskSchedule(actor, task);
   const deadlineLocked = !mayEditSchedule;
   const canName = canNamePeople(actor, task, canAssignPeople);
@@ -2097,8 +2132,66 @@ function SubtaskEditor({
 
   useImperativeHandle(ref, () => ({
     save() {
+      if (task.status === "completed") {
+        if (!canUpdate && departmentControl.kind !== "choose") {
+          return { ok: true, status: task.status, wrote: false };
+        }
+        const nextDepartment = chosenDepartment(
+          departmentControl,
+          department,
+          task.department
+        );
+        const nextDue = deadlineLocked ? task.dueDate : dueDate || null;
+        const pool = peopleForDepartment(people, nextDepartment || "none");
+        const nextAssignees = !canUpdate
+          ? task.assignees
+          : !canName || !departmentIsSet(nextDepartment)
+            ? task.assignees
+            : assignees.filter((name) => {
+                const key = name.trim().toLowerCase();
+                const inDepartment = pool.some(
+                  (person) => person.name.trim().toLowerCase() === key
+                );
+                const alreadyNamed =
+                  keepingSavedDepartment &&
+                  task.assignees.some(
+                    (item) => item.trim().toLowerCase() === key
+                  );
+                return inDepartment || alreadyNamed;
+              });
+        const changed =
+          (nextDepartment || "") !== (task.department || "").trim() ||
+          !sameNames(nextAssignees, task.assignees) ||
+          (nextDue || null) !== (task.dueDate || null) ||
+          status !== task.status ||
+          notes.trim() !== (task.notes || "") ||
+          (reason.trim() || null) !== (task.notRequiredReason || null);
+        if (!changed) return { ok: true, status: task.status, wrote: false };
+        return { ok: false, error: TASK_COMPLETED_LOCKED, wrote: false };
+      }
       if (!canUpdate) {
-        return { ok: false, error: TASK_SAVE_DENIED, wrote: false };
+        if (departmentControl.kind !== "choose") {
+          return { ok: false, error: TASK_SAVE_DENIED, wrote: false };
+        }
+        const nextDepartment = chosenDepartment(
+          departmentControl,
+          department,
+          task.department
+        );
+        const savedDepartment = (task.department || "").trim();
+        if ((nextDepartment || "") === savedDepartment) {
+          return { ok: true, status: task.status, wrote: false };
+        }
+        const assigned = assignTask(
+          task.id,
+          { department: nextDepartment, assignees: task.assignees },
+          { actor, people }
+        );
+        if (!assigned.ok) {
+          return { ok: false, error: assigned.error, wrote: false };
+        }
+        setErr(null);
+        return { ok: true, status: assigned.task.status, wrote: true };
       }
       if (status === "not_required" && !reason.trim()) {
         return {
@@ -2107,7 +2200,11 @@ function SubtaskEditor({
           wrote: false,
         };
       }
-      const nextDepartment = chosenDepartment(departmentControl, department);
+      const nextDepartment = chosenDepartment(
+        departmentControl,
+        department,
+        task.department
+      );
       const pool = peopleForDepartment(people, nextDepartment || "none");
       const nextAssignees =
         !canName || !departmentIsSet(nextDepartment)
@@ -2153,6 +2250,14 @@ function SubtaskEditor({
   if (!canUpdate) {
     return (
       <div className="mt-1 space-y-2" data-task-access="read">
+        {departmentControl.kind === "choose" && (
+          <DepartmentField
+            control={departmentControl}
+            value={department}
+            onChange={setDepartment}
+            emptyLabel="Department…"
+          />
+        )}
         <p className="text-xs text-[var(--fh-muted)]">{TASK_READ_ONLY}</p>
         {canConfirmTaskVerification(actor, task) && (
           <Button

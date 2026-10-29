@@ -432,23 +432,67 @@ export type ScheduleChangeLogEntry = {
   summary: string;
 };
 
-/** One saved task deadline moved to a different saved date. */
+/** A named field on one task save. Priority is not logged. */
+export type TaskSaveField = "name" | "department" | "people" | "status" | "note";
+
+export type TaskSaveValueChange = {
+  kind: TaskSaveField;
+  from: string;
+  to: string;
+};
+
+export type TaskSaveDeadlineChange = {
+  kind: "deadline";
+  /** YYYY-MM-DD, or null when the task had no deadline. */
+  from: string | null;
+  /** YYYY-MM-DD, or null when the comparison has no date. */
+  to: string | null;
+  /** Set when a saved deadline moved. A first deadline has none. */
+  reason: string | null;
+};
+
+export type TaskSaveSubtaskChange = {
+  kind: "subtask";
+  action: "added" | "edited" | "removed";
+  subtaskId: string;
+  /** Title used to recognise the subtask. */
+  title: string;
+  /** Field changes inside an edited subtask. */
+  changes?: Array<TaskSaveValueChange | TaskSaveDeadlineChange>;
+};
+
+export type TaskSaveChange =
+  | TaskSaveValueChange
+  | TaskSaveDeadlineChange
+  | TaskSaveSubtaskChange;
+
+/**
+ * One line for one task save. Older rows store only a deadline move
+ * (fromDate, toDate, and reason) and have no changes list.
+ */
 export type TaskDeadlineChangeLogEntry = {
   id: string;
   /** ISO time of the save. */
   at: string;
-  /** Who moved the deadline. */
+  /** Who saved. */
   by: string;
   taskId: string;
   contractId: string | null;
   /** Title at the time of the change. */
   taskTitle: string;
-  /** Previous deadline, YYYY-MM-DD. */
-  fromDate: string;
-  /** New deadline, YYYY-MM-DD. */
-  toDate: string;
-  /** Required one-line reason. */
-  reason: string;
+  /**
+   * Set when this row is an older deadline move, or when this save moved
+   * this task’s own deadline. Absent when the save did not move it.
+   */
+  fromDate?: string | null;
+  /** New deadline, YYYY-MM-DD, when this task’s own deadline moved. */
+  toDate?: string | null;
+  /** Reason for this task’s own deadline move. */
+  reason?: string | null;
+  /**
+   * Every field that changed in this save. Absent on older deadline-only rows.
+   */
+  changes?: TaskSaveChange[];
 };
 
 export type DeliveryChallanLine = {
@@ -590,8 +634,8 @@ export type FlowhubData = {
   /** Separate from the schedules list — Change log tab */
   scheduleChangeLog: ScheduleChangeLogEntry[];
   /**
-   * Deadline moves only. Shown on the Tasks page to Master and Director.
-   * Not a door of its own.
+   * One line per task save. Shown on the Tasks page to Master and Director.
+   * Not a door of its own. Other people still see the latest note on the task.
    */
   taskDeadlineChangeLog: TaskDeadlineChangeLogEntry[];
   /** In-app notifications for task / job assignment */

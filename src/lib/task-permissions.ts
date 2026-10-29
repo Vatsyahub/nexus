@@ -25,15 +25,18 @@ export type TaskEditContext = {
 
 export const TASK_SAVE_DENIED = "You cannot save changes to this task.";
 
+export const TASK_COMPLETED_LOCKED = "A completed task cannot be changed.";
+
 export const TASK_DEPARTMENT_LOCKED =
   "Department cannot be changed once it is saved.";
 
 export const TASK_DEPARTMENT_SET_DENIED = "You cannot set this department.";
 
-export const TASK_DEPARTMENT_CLEAR_DENIED = "You cannot clear this department.";
+export const TASK_SUBTASK_DEPARTMENT_DENIED =
+  "Only someone who can update the parent task can change this subtask’s department.";
 
-export const TASK_DEPARTMENT_SWITCH_DENIED =
-  "Clear this department before choosing another.";
+export const TASK_SUBTASK_DEPARTMENT_CLEAR_DENIED =
+  "A subtask department cannot be cleared.";
 
 export const TASK_PEOPLE_DENIED = "Choose people from this department only.";
 
@@ -62,11 +65,16 @@ function isSubtask(parentId: string | null | undefined): boolean {
   return (parentId || "").trim().length > 0;
 }
 
-function managesDepartment(
-  actor: TaskActor,
-  department: string | null | undefined
-): boolean {
-  return managerOfDepartment(actor, department);
+export function taskIsCompleted(task: { status?: string | null }): boolean {
+  return task.status === "completed";
+}
+
+function taskIsStillOpen(task: {
+  status?: string | null;
+  deletedAt?: string | null;
+}): boolean {
+  if (task.deletedAt) return false;
+  return task.status !== "completed" && task.status !== "not_required";
 }
 
 /**
@@ -95,30 +103,6 @@ export function canSetEmptyParentDepartment(actor: TaskActor): boolean {
   return role === "master" || role === "director" || role === "manager";
 }
 
-/**
- * Master, someone named on the subtask, or a manager — and a manager only
- * receives a department they manage, including their second department.
- */
-export function departmentsASubtaskMayTake(
-  actor: TaskActor,
-  assignees: string[] | null | undefined,
-  departments: string[]
-): string[] {
-  if (clearanceKey(actor.clearance) === "master") return departments;
-  if (namedOnTask(actor, { assignees })) return departments;
-  if (clearanceKey(actor.clearance) !== "manager") return [];
-  return departments.filter((name) => managerOfDepartment(actor, name));
-}
-
-function canClearSubtaskDepartment(
-  actor: TaskActor,
-  task: { department?: string | null; assignees?: string[] | null }
-): boolean {
-  if (clearanceKey(actor.clearance) === "master") return true;
-  if (managesDepartment(actor, task.department)) return true;
-  return namedOnTask(actor, task);
-}
-
 export type TaskDepartmentDecision =
   | { ok: true; department: string | null }
   | { ok: false; error: string };
@@ -126,18 +110,15 @@ export type TaskDepartmentDecision =
 /**
  * Parent (no parent id): an empty department can be set by Master, Director,
  * or a manager. After it is saved, every login is locked, including Master.
- * Subtask: empty can be set by Master, a manager of the department being
- * chosen, or someone named on that subtask. Director is not enough unless
- * they are that manager or named there. A set department can be cleared by
- * Master, that department’s manager, or someone named on the subtask.
- * It cannot move from one department to another in the same save.
- * Assignees are this task’s own names, not a parent’s.
+ * Subtask: anyone who can update the parent may set the department, or switch
+ * it later, to any department. Someone who cannot update the parent cannot
+ * change it. A saved subtask department cannot be cleared.
  */
 export function resolveTaskDepartment(input: {
   parentId?: string | null;
+  parent?: { department?: string | null; assignees?: string[] | null } | null;
   currentDepartment: string | null | undefined;
   nextDepartment: string | null | undefined;
-  assignees?: string[] | null;
   actor: TaskActor;
 }): TaskDepartmentDecision {
   const current = cleanDepartment(input.currentDepartment);
@@ -155,38 +136,21 @@ export function resolveTaskDepartment(input: {
     return { ok: true, department: next };
   }
 
-  if (current && next) {
-    return { ok: false, error: TASK_DEPARTMENT_SWITCH_DENIED };
+  if (!input.parent || !canUpdateTask(input.actor, input.parent)) {
+    return { ok: false, error: TASK_SUBTASK_DEPARTMENT_DENIED };
   }
-  if (current && !next) {
-    if (
-      !canClearSubtaskDepartment(input.actor, {
-        department: current,
-        assignees: input.assignees,
-      })
-    ) {
-      return { ok: false, error: TASK_DEPARTMENT_CLEAR_DENIED };
-    }
-    return { ok: true, department: null };
-  }
-  if (clearanceKey(input.actor.clearance) === "master") {
-    return { ok: true, department: next };
-  }
-  if (managesDepartment(input.actor, next)) {
-    return { ok: true, department: next };
-  }
-  if (namedOnTask(input.actor, { assignees: input.assignees })) {
-    return { ok: true, department: next };
-  }
-  return { ok: false, error: TASK_DEPARTMENT_SET_DENIED };
+  if (!next) return { ok: false, error: TASK_SUBTASK_DEPARTMENT_CLEAR_DENIED };
+  return { ok: true, department: next };
 }
 
 export type TaskDepartmentControl =
   | { kind: "fixed"; department: string | null }
-  | { kind: "choose"; options: string[] }
-  | { kind: "clear"; department: string };
+  | { kind: "choose"; options: string[]; allowEmpty: boolean };
 
-/** What the task screen may offer. View-only is fixed. */
+/**
+ * What the task screen may offer. View-only is fixed.
+ * A subtask lists every department when the actor can update its parent.
+ */
 export function taskDepartmentControl(
   actor: TaskActor,
   task: {
@@ -195,7 +159,8 @@ export function taskDepartmentControl(
     assignees?: string[] | null;
   },
   departments: string[],
-  canEdit = true
+  canEdit = true,
+  parent?: { department?: string | null; assignees?: string[] | null } | null
 ): TaskDepartmentControl {
   const current = cleanDepartment(task.department);
   if (!canEdit) return { kind: "fixed", department: current };
@@ -204,22 +169,12 @@ export function taskDepartmentControl(
     if (!canSetEmptyParentDepartment(actor)) {
       return { kind: "fixed", department: null };
     }
-    return { kind: "choose", options: departments };
+    return { kind: "choose", options: departments, allowEmpty: true };
   }
-  if (current) {
-    if (
-      canClearSubtaskDepartment(actor, {
-        department: current,
-        assignees: task.assignees,
-      })
-    ) {
-      return { kind: "clear", department: current };
-    }
+  if (!parent || !canUpdateTask(actor, parent)) {
     return { kind: "fixed", department: current };
   }
-  const options = departmentsASubtaskMayTake(actor, task.assignees, departments);
-  if (options.length === 0) return { kind: "fixed", department: null };
-  return { kind: "choose", options };
+  return { kind: "choose", options: departments, allowEmpty: !current };
 }
 
 export function namedOnTask(
@@ -262,7 +217,9 @@ export function peopleNamedInDepartment<T extends TaskDirectoryPerson>(
  * department (either of the manager’s departments) and by a person named
  * on that same task. The parent’s department is not used.
  * While the department is empty, anyone who can open the task can still edit
- * other fields. Setting the department follows resolveTaskDepartment.
+ * other fields. A subtask’s department is chosen by someone who can update
+ * its parent. The manager of the subtask’s own department, and anyone named
+ * on the subtask, can still update that subtask and mark it completed.
  */
 export function canUpdateTask(
   actor: TaskActor,
@@ -302,9 +259,27 @@ function sameNameSet(a: string[], b: string[]): boolean {
 }
 
 /**
+ * Which department the names must belong to.
+ * A switch uses the new department and does not keep names from the old one.
+ * An unchanged department keeps people already named.
+ */
+function namesFollowDepartment(input: {
+  currentDepartment: string | null | undefined;
+  nextDepartment: string | null | undefined;
+}): { department: string; keepPrevious: boolean } {
+  const current = cleanDepartment(input.currentDepartment);
+  const next = cleanDepartment(input.nextDepartment);
+  if (current && next && !sameDepartment(current, next)) {
+    return { department: next, keepPrevious: false };
+  }
+  if (current) return { department: current, keepPrevious: true };
+  return { department: next ?? "", keepPrevious: false };
+}
+
+/**
  * Names must be users or managers in the task’s department.
- * People already named stay if the department was already saved.
- * A newly chosen department drops anyone from another department.
+ * People already named stay while that department stays the same.
+ * A newly chosen or switched department drops anyone from another department.
  */
 export function resolveTaskAssignees(input: {
   currentDepartment: string | null | undefined;
@@ -313,9 +288,7 @@ export function resolveTaskAssignees(input: {
   nextAssignees: string[] | null | undefined;
   people: TaskDirectoryPerson[];
 }): { ok: true; assignees: string[] } | { ok: false; error: string } {
-  const department = departmentIsSet(input.currentDepartment)
-    ? (input.currentDepartment || "").trim()
-    : (input.nextDepartment || "").trim();
+  const { department, keepPrevious } = namesFollowDepartment(input);
   const current = cleanNames(input.currentAssignees);
   const next = cleanNames(input.nextAssignees);
   if (!departmentIsSet(department)) {
@@ -330,12 +303,11 @@ export function resolveTaskAssignees(input: {
     )
   );
   const previous = new Set(current.map(nameKey));
-  const alreadySet = departmentIsSet(input.currentDepartment);
   const assignees: string[] = [];
   for (const name of next) {
     const key = nameKey(name);
     const inDepartment = allowed.has(key);
-    const grandfathered = alreadySet && previous.has(key);
+    const grandfathered = keepPrevious && previous.has(key);
     if (inDepartment || grandfathered) {
       assignees.push(name);
       continue;
@@ -357,9 +329,7 @@ export function coerceTaskAssignees(input: {
 }): string[] {
   const resolved = resolveTaskAssignees(input);
   if (resolved.ok) return resolved.assignees;
-  const department = departmentIsSet(input.currentDepartment)
-    ? (input.currentDepartment || "").trim()
-    : (input.nextDepartment || "").trim();
+  const { department, keepPrevious } = namesFollowDepartment(input);
   if (!departmentIsSet(department)) return cleanNames(input.currentAssignees);
   const allowed = new Set(
     peopleNamedInDepartment(input.people, department).map((person) =>
@@ -367,10 +337,9 @@ export function coerceTaskAssignees(input: {
     )
   );
   const previous = new Set(cleanNames(input.currentAssignees).map(nameKey));
-  const alreadySet = departmentIsSet(input.currentDepartment);
   return cleanNames(input.nextAssignees).filter((name) => {
     const key = nameKey(name);
-    return allowed.has(key) || (alreadySet && previous.has(key));
+    return allowed.has(key) || (keepPrevious && previous.has(key));
   });
 }
 
@@ -393,16 +362,31 @@ function restoreEditableFields(prev: Task, next: Task): Task {
     notRequiredReason: prev.notRequiredReason,
     verificationDepartment: prev.verificationDepartment,
     verificationRequestedBy: prev.verificationRequestedBy,
+    deletedAt: prev.deletedAt ?? null,
     createdAt: prev.createdAt,
   };
 }
 
-function acceptedDepartment(prev: Task, next: Task, actor: TaskActor): string | null {
+/** A completed row keeps every saved field. The rule is the same for every login. */
+function freezeCompletedRecord(prev: Task, next: Task): Task {
+  return {
+    ...restoreEditableFields(prev, next),
+    overdueNotifiedFor: prev.overdueNotifiedFor ?? null,
+    dueTodayNotifiedFor: prev.dueTodayNotifiedFor ?? null,
+  };
+}
+
+function acceptedDepartment(
+  prev: Task,
+  next: Task,
+  actor: TaskActor,
+  parent: { department?: string | null; assignees?: string[] | null } | null
+): string | null {
   const decision = resolveTaskDepartment({
     parentId: prev.parentId,
+    parent,
     currentDepartment: prev.department,
     nextDepartment: next.department,
-    assignees: prev.assignees,
     actor,
   });
   if (!decision.ok) {
@@ -420,9 +404,10 @@ function withAllowedEdits(
   prev: Task,
   next: Task,
   actor: TaskActor,
-  people: TaskDirectoryPerson[]
+  people: TaskDirectoryPerson[],
+  parent: { department?: string | null; assignees?: string[] | null } | null
 ): Task {
-  const department = acceptedDepartment(prev, next, actor);
+  const department = acceptedDepartment(prev, next, actor, parent);
   const assignees = coerceTaskAssignees({
     currentDepartment: prev.department,
     nextDepartment: department,
@@ -514,7 +499,8 @@ function settleTaskCompletion(prev: Task, next: Task, actor: TaskActor): Task {
 function sanitizeNewTask(
   next: Task,
   actor: TaskActor,
-  people: TaskDirectoryPerson[]
+  people: TaskDirectoryPerson[],
+  parent: { department?: string | null; assignees?: string[] | null } | null = null
 ): Task {
   let department: string | null;
   if (isAppSystemTask(next)) {
@@ -522,9 +508,9 @@ function sanitizeNewTask(
   } else {
     const decision = resolveTaskDepartment({
       parentId: next.parentId,
+      parent,
       currentDepartment: null,
       nextDepartment: next.department,
-      assignees: [],
       actor,
     });
     department = decision.ok ? decision.department : null;
@@ -567,11 +553,75 @@ function acceptVerificationConfirm(prev: Task, next: Task): Task {
 }
 
 /**
+ * Department only. Notes, status, deadline, and new names stay as saved.
+ * Names that do not belong to the new department are left off.
+ */
+function withDepartmentChangeOnly(
+  prev: Task,
+  next: Task,
+  actor: TaskActor,
+  people: TaskDirectoryPerson[],
+  parent: { department?: string | null; assignees?: string[] | null }
+): Task {
+  const department = acceptedDepartment(prev, next, actor, parent);
+  const assignees = coerceTaskAssignees({
+    currentDepartment: prev.department,
+    nextDepartment: department,
+    currentAssignees: prev.assignees,
+    nextAssignees: prev.assignees,
+    people,
+  });
+  const status =
+    prev.status === "pending" && (department || assignees.length > 0)
+      ? "in_progress"
+      : prev.status;
+  return {
+    ...restoreEditableFields(prev, next),
+    department,
+    assignees,
+    responsible: storedResponsible(assignees, prev.responsible),
+    status,
+  };
+}
+
+/**
+ * When this save marks a parent completed, every subtask that was still
+ * open is completed too. A subtask that was already completed or not
+ * required is left as it was.
+ */
+function closeOpenSubtasksOfNewlyCompletedParents(
+  before: Task[],
+  after: Task[]
+): Task[] {
+  const beforeById = new Map(before.map((task) => [task.id, task]));
+  const newlyCompleted = new Set(
+    after
+      .filter((task) => {
+        if (isSubtask(task.parentId) || !taskIsCompleted(task)) return false;
+        return !taskIsCompleted(beforeById.get(task.id) ?? {});
+      })
+      .map((task) => task.id)
+  );
+  if (newlyCompleted.size === 0) return after;
+  return after.map((task) => {
+    if (!task.parentId || !newlyCompleted.has(task.parentId)) return task;
+    const prev = beforeById.get(task.id);
+    if (!prev || !taskIsStillOpen(prev)) return task;
+    return finishTaskNow(task);
+  });
+}
+
+/**
  * Keep task edits the signed-in person is allowed to store.
  * Each row uses its own department and its own assignees.
- * A parent department, once saved, is not replaced. A subtask department
- * follows resolveTaskDepartment, so a crafted save cannot switch it.
- * Due-notice markers can still move on a row the person cannot edit.
+ * A parent department, once saved, is not replaced.
+ * A subtask can be added, and its department set or switched, only by
+ * someone who can update the parent. They may pick any department.
+ * Someone who cannot update the subtask itself cannot change its other fields.
+ * A completed task or subtask accepts no further field changes, including
+ * from Master. Completing a parent also completes its still-open subtasks.
+ * Due-notice markers can still move on a row the person cannot edit,
+ * except on a completed row, which stays as saved.
  */
 export function applyTaskEditPolicy(
   current: Task[],
@@ -580,26 +630,38 @@ export function applyTaskEditPolicy(
   people: TaskDirectoryPerson[]
 ): Task[] {
   const currentById = new Map(current.map((task) => [task.id, task]));
-  return incoming.flatMap((next) => {
-    const prev = currentById.get(next.id);
-    if (!prev) {
-      if (isSubtask(next.parentId)) {
-        const parent =
-          currentById.get(next.parentId || "") ??
-          incoming.find((row) => row.id === next.parentId);
-        if (parent && isSubtask(parent.parentId)) return [];
+  const edited = incoming
+    .flatMap((next) => {
+      const prev = currentById.get(next.id);
+      if (!prev) {
+        if (isSubtask(next.parentId)) {
+          const parent =
+            currentById.get(next.parentId || "") ??
+            incoming.find((row) => row.id === next.parentId);
+          if (!parent || isSubtask(parent.parentId)) return [];
+          if (!canUpdateTask(actor, parent)) return [];
+          return [sanitizeNewTask(next, actor, people, parent)];
+        }
+        return [sanitizeNewTask(next, actor, people)];
       }
-      return [sanitizeNewTask(next, actor, people)];
-    }
-    if (!canUpdateTask(actor, prev)) {
-      if (
-        next.status === "completed" &&
-        canConfirmTaskVerification(actor, prev)
-      ) {
-        return [acceptVerificationConfirm(prev, next)];
+      if (taskIsCompleted(prev)) return [freezeCompletedRecord(prev, next)];
+      const parent = prev.parentId
+        ? (currentById.get(prev.parentId) ?? null)
+        : null;
+      if (!canUpdateTask(actor, prev)) {
+        if (
+          next.status === "completed" &&
+          canConfirmTaskVerification(actor, prev)
+        ) {
+          return [acceptVerificationConfirm(prev, next)];
+        }
+        if (parent && canUpdateTask(actor, parent)) {
+          return [withDepartmentChangeOnly(prev, next, actor, people, parent)];
+        }
+        return [restoreEditableFields(prev, next)];
       }
-      return [restoreEditableFields(prev, next)];
-    }
-    return [withAllowedEdits(prev, next, actor, people)];
-  }).map(withoutTaskPriority);
+      return [withAllowedEdits(prev, next, actor, people, parent)];
+    })
+    .map(withoutTaskPriority);
+  return closeOpenSubtasksOfNewlyCompletedParents(current, edited);
 }

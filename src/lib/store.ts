@@ -23,7 +23,6 @@ import {
   type Payment,
   type ScheduleChangeLogEntry,
   type ScheduleKind,
-  type TaskDeadlineChangeLogEntry,
   type ScheduleLine,
   type Task,
   type TaskCatalogKey,
@@ -108,13 +107,16 @@ import {
   resolveTaskAssignees,
   resolveTaskDepartment,
   subtaskUpdateDenied,
+  TASK_COMPLETED_LOCKED,
   TASK_SAVE_DENIED,
   type TaskDirectoryPerson,
 } from "@/lib/task-permissions";
 import {
+  buildTaskSaveLog,
   decideTaskDeadline,
   normalizeTaskDeadlineChangeLog,
   TASK_DEADLINE_MOVE_DENIED,
+  type TaskDeadlineReason,
 } from "@/lib/task-deadline-log";
 import { storedResponsible } from "@/lib/task-responsible";
 import {
@@ -747,25 +749,80 @@ function appendScheduleLog(
   };
 }
 
-function appendTaskDeadlineLog(
+type TaskChangeBatch = {
+  depth: number;
+  before: Task[];
+  reasons: TaskDeadlineReason[];
+};
+
+/** While a screen save is open, field edits share one log line. */
+let taskChangeBatch: TaskChangeBatch | null = null;
+
+export function beginTaskChangeSave() {
+  if (taskChangeBatch) {
+    taskChangeBatch.depth += 1;
+    return;
+  }
+  taskChangeBatch = { depth: 1, before: read().tasks, reasons: [] };
+}
+
+export function finishTaskChangeSave(actor?: { name?: string | null } | null) {
+  const batch = taskChangeBatch;
+  if (!batch) return;
+  if (batch.depth > 1) {
+    batch.depth -= 1;
+    return;
+  }
+  taskChangeBatch = null;
+  const data = read();
+  const next = applyTaskSaveLog(
+    data,
+    batch.before,
+    data.tasks,
+    batch.reasons,
+    actor?.name
+  );
+  if (next === data) return;
+  write(next);
+}
+
+function applyTaskSaveLog(
   data: FlowhubData,
-  entry: Omit<TaskDeadlineChangeLogEntry, "id" | "at"> & { at?: string }
+  before: Task[],
+  after: Task[],
+  reasons: TaskDeadlineReason[],
+  name: string | null | undefined
 ): FlowhubData {
-  const row: TaskDeadlineChangeLogEntry = {
-    id: crypto.randomUUID(),
-    at: entry.at ?? new Date().toISOString(),
-    by: (entry.by || "").trim() || "User",
-    taskId: entry.taskId,
-    contractId: entry.contractId,
-    taskTitle: (entry.taskTitle || "").trim(),
-    fromDate: entry.fromDate,
-    toDate: entry.toDate,
-    reason: entry.reason,
-  };
+  if (taskChangeBatch) {
+    for (const reason of reasons) taskChangeBatch.reasons.push(reason);
+    return data;
+  }
+  const entries = buildTaskSaveLog({
+    previousTasks: before,
+    nextTasks: after,
+    reasons,
+    by: (name || "").trim() || "User",
+  });
+  if (entries.length === 0) return data;
   return {
     ...data,
-    taskDeadlineChangeLog: [...(data.taskDeadlineChangeLog ?? []), row],
+    taskDeadlineChangeLog: [...(data.taskDeadlineChangeLog ?? []), ...entries],
   };
+}
+
+function deadlineReasonFor(
+  taskId: string,
+  deadline: { ok: true; log: { fromDate: string; toDate: string; reason: string } | null }
+): TaskDeadlineReason[] {
+  if (!deadline.log) return [];
+  return [
+    {
+      taskId,
+      fromDate: deadline.log.fromDate,
+      toDate: deadline.log.toDate,
+      reason: deadline.log.reason,
+    },
+  ];
 }
 
 function daysBetweenIso(from: string, to: string): number {
@@ -1913,6 +1970,7 @@ export function resetWorkspaceClientForTests() {
   unauthorizedStreak = 0;
   hydrateRequested = false;
   refreshPromise = null;
+  taskChangeBatch = null;
 }
 
 /**
@@ -4766,6 +4824,75 @@ export function invoiceIsPaid(invoice: Invoice, data?: FlowhubData) {
   return Math.abs(outstanding) <= OUTSTANDING_PAID_WITHIN_RUPEES;
 }
 
+function sameTaskNames(
+  left: string[] | null | undefined,
+  right: string[] | null | undefined
+): boolean {
+  const key = (names: string[] | null | undefined) =>
+    JSON.stringify(
+      [...(names ?? [])].map((name) => name.trim().toLowerCase()).sort()
+    );
+  return key(left) === key(right);
+}
+
+function completedTaskPatchIsSame(
+  current: Task,
+  patch: Partial<
+    Pick<
+      Task,
+      | "title"
+      | "department"
+      | "assignees"
+      | "responsible"
+      | "status"
+      | "dueDate"
+      | "notes"
+      | "notRequiredReason"
+    >
+  >
+): boolean {
+  if (patch.title !== undefined && patch.title !== current.title) return false;
+  if (
+    patch.department !== undefined &&
+    (patch.department || "").trim() !== (current.department || "").trim()
+  ) {
+    return false;
+  }
+  if (
+    patch.assignees !== undefined &&
+    !sameTaskNames(patch.assignees, current.assignees)
+  ) {
+    return false;
+  }
+  if (
+    patch.responsible !== undefined &&
+    (patch.responsible || null) !== (current.responsible || null)
+  ) {
+    return false;
+  }
+  if (patch.status !== undefined && patch.status !== current.status) return false;
+  if (
+    patch.dueDate !== undefined &&
+    (patch.dueDate || null) !== (current.dueDate || null)
+  ) {
+    return false;
+  }
+  if (
+    patch.notes !== undefined &&
+    patch.notes.trim() !== (current.notes || "")
+  ) {
+    return false;
+  }
+  if (
+    patch.notRequiredReason !== undefined &&
+    ((patch.notRequiredReason || "").trim() || null) !==
+      (current.notRequiredReason || null)
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export function assignTask(
   id: string,
   assignment: {
@@ -4784,15 +4911,36 @@ export function assignTask(
   const data = read();
   const current = data.tasks.find((t) => t.id === id);
   if (!current) return { ok: false, error: "Task not found." };
-  if (!opts?.actor || !canUpdateTask(opts.actor, current)) {
+  if (!opts?.actor) return { ok: false, error: TASK_SAVE_DENIED };
+  const requestedDepartment = (assignment.department || "").trim() || null;
+  if (current.status === "completed") {
+    const nextDue =
+      assignment.dueDate !== undefined ? assignment.dueDate || null : current.dueDate;
+    const requestedNames = assignment.assignees ?? current.assignees;
+    const samePeople = sameTaskNames(requestedNames, current.assignees);
+    const sameDepartment =
+      (requestedDepartment || "") === (current.department || "").trim();
+    const sameDue = (nextDue || null) === (current.dueDate || null);
+    const sameResponsible =
+      assignment.responsible === undefined ||
+      (assignment.responsible || null) === (current.responsible || null);
+    if (sameDepartment && samePeople && sameDue && sameResponsible) {
+      return { ok: true, task: current };
+    }
+    return { ok: false, error: TASK_COMPLETED_LOCKED };
+  }
+  const parent = savedParent(data.tasks, current.parentId);
+  const mayUpdate = canUpdateTask(opts.actor, current);
+  const mayChangeDepartment =
+    taskHasParent(current) && !!parent && canUpdateTask(opts.actor, parent);
+  if (!mayUpdate && !mayChangeDepartment) {
     return { ok: false, error: TASK_SAVE_DENIED };
   }
-  const requestedDepartment = (assignment.department || "").trim() || null;
   const decision = resolveTaskDepartment({
     parentId: current.parentId,
+    parent,
     currentDepartment: current.department,
     nextDepartment: requestedDepartment,
-    assignees: current.assignees,
     actor: opts.actor,
   });
   if (!decision.ok) return decision;
@@ -4801,14 +4949,19 @@ export function assignTask(
     currentDepartment: current.department,
     nextDepartment: department,
     currentAssignees: current.assignees,
-    nextAssignees: assignment.assignees ?? current.assignees,
+    nextAssignees: mayUpdate
+      ? (assignment.assignees ?? current.assignees)
+      : current.assignees,
     people: opts.people ?? [],
   });
   if (!names.ok) return names;
   const deadline = decideTaskDeadline({
     currentDue: current.dueDate,
-    nextDue:
-      assignment.dueDate !== undefined ? assignment.dueDate : current.dueDate,
+    nextDue: mayUpdate
+      ? assignment.dueDate !== undefined
+        ? assignment.dueDate
+        : current.dueDate
+      : current.dueDate,
     reason: opts.deadlineReason,
     actor: opts.actor,
     task: current,
@@ -4820,7 +4973,7 @@ export function assignTask(
     department,
     assignees: names.assignees,
     responsible:
-      assignment.responsible !== undefined
+      mayUpdate && assignment.responsible !== undefined
         ? storedResponsible(names.assignees, assignment.responsible)
         : storedResponsible(names.assignees, current.responsible),
     dueDate,
@@ -4847,18 +5000,15 @@ export function assignTask(
       kind: "task_assigned",
     });
   }
-  if (deadline.ok && deadline.log) {
-    nextData = appendTaskDeadlineLog(nextData, {
-      by: (opts.actor?.name || "").trim() || opts.by || "User",
-      taskId: current.id,
-      contractId: current.contractId,
-      taskTitle: current.title,
-      fromDate: deadline.log.fromDate,
-      toDate: deadline.log.toDate,
-      reason: deadline.log.reason,
-    });
-  }
-  write(nextData);
+  write(
+    applyTaskSaveLog(
+      nextData,
+      data.tasks,
+      nextData.tasks,
+      deadline.ok ? deadlineReasonFor(current.id, deadline) : [],
+      opts.actor?.name || opts.by
+    )
+  );
   return { ok: true, task: nextTask };
 }
 
@@ -4926,11 +5076,33 @@ function taskHasParent(task: { parentId?: string | null }): boolean {
   return (task.parentId || "").trim().length > 0;
 }
 
+function savedParent(
+  tasks: Task[],
+  parentId: string | null | undefined
+): Task | null {
+  const id = (parentId || "").trim();
+  if (!id) return null;
+  return tasks.find((row) => row.id === id) ?? null;
+}
+
+/** Still-open subtasks of a parent that this save marks completed. */
+function completeOpenSubtasks(data: FlowhubData, parentId: string): FlowhubData {
+  let changed = false;
+  const tasks = data.tasks.map((task) => {
+    if (task.parentId !== parentId || !taskIsOpen(task)) return task;
+    changed = true;
+    return applyStatusFields(task, "completed");
+  });
+  if (!changed) return data;
+  return { ...data, tasks };
+}
+
 /**
  * A subtask marked completed finishes now, including for a normal user.
  * It does not wait and it does not raise a verify notice.
  * A parent still waits when a user marks it completed.
  * Manager, Director, and Master finish a parent now with no verify notice.
+ * That finish also completes every still-open subtask in the same save.
  */
 function applyCompletion(
   data: FlowhubData,
@@ -4943,15 +5115,20 @@ function applyCompletion(
   sideEffects: boolean;
   alreadyWaiting: boolean;
 } {
+  if (task.status === "completed") {
+    return { data, task, sideEffects: false, alreadyWaiting: false };
+  }
   if (taskHasParent(task) || completesImmediately(actor?.clearance)) {
     const next = applyStatusFields(task, "completed", extra);
+    let nextData: FlowhubData = {
+      ...data,
+      tasks: data.tasks.map((t) => (t.id === task.id ? next : t)),
+    };
+    if (!taskHasParent(task)) nextData = completeOpenSubtasks(nextData, task.id);
     return {
-      data: {
-        ...data,
-        tasks: data.tasks.map((t) => (t.id === task.id ? next : t)),
-      },
+      data: nextData,
       task: next,
-      sideEffects: task.status !== "completed",
+      sideEffects: true,
       alreadyWaiting: false,
     };
   }
@@ -4992,6 +5169,18 @@ export function updateTaskStatus(
   const data = read();
   const current = data.tasks.find((t) => t.id === id);
   if (!current) return null;
+  if (current.status === "completed") {
+    const notesSame =
+      opts?.notes === undefined || opts.notes.trim() === (current.notes || "");
+    const reasonSame =
+      opts?.notRequiredReason === undefined ||
+      ((opts.notRequiredReason || "").trim() || null) ===
+        (current.notRequiredReason || null);
+    if (status === "completed" && notesSame && reasonSame) {
+      return { status: "completed", sideEffects: false, alreadyWaiting: false };
+    }
+    return null;
+  }
   if (!opts?.actor || !canUpdateTask(opts.actor, current)) return null;
 
   if (status === "completed" || status === "awaiting_verification") {
@@ -5000,10 +5189,11 @@ export function updateTaskStatus(
       current.status === "awaiting_verification"
     ) {
       const next = holdForVerification(current, opts?.actor ?? {}, opts);
-      write({
+      const nextData: FlowhubData = {
         ...data,
         tasks: data.tasks.map((t) => (t.id === id ? next : t)),
-      });
+      };
+      write(applyTaskSaveLog(nextData, data.tasks, nextData.tasks, [], opts?.actor?.name));
       return {
         status: "awaiting_verification",
         sideEffects: false,
@@ -5011,7 +5201,15 @@ export function updateTaskStatus(
       };
     }
     const applied = applyCompletion(data, current, opts?.actor, opts);
-    write(applied.data);
+    write(
+      applyTaskSaveLog(
+        applied.data,
+        data.tasks,
+        applied.data.tasks,
+        [],
+        opts?.actor?.name
+      )
+    );
     return {
       status: applied.task.status,
       sideEffects: applied.sideEffects,
@@ -5020,10 +5218,11 @@ export function updateTaskStatus(
   }
 
   const next = applyStatusFields(current, status, opts);
-  write({
+  const nextData: FlowhubData = {
     ...data,
     tasks: data.tasks.map((t) => (t.id === id ? next : t)),
-  });
+  };
+  write(applyTaskSaveLog(nextData, data.tasks, nextData.tasks, [], opts?.actor?.name));
   return { status, sideEffects: false, alreadyWaiting: false };
 }
 
@@ -5050,19 +5249,73 @@ export function updateTask(
 ) {
   const data = read();
   const current = data.tasks.find((t) => t.id === id);
-  if (!current) return null;
-  if (!opts?.actor || !canUpdateTask(opts.actor, current)) return null;
+  if (!current || !opts?.actor) return null;
+  if (current.status === "completed") {
+    if (completedTaskPatchIsSame(current, patch)) return current;
+    return null;
+  }
+  const parent = savedParent(data.tasks, current.parentId);
+  const mayUpdate = canUpdateTask(opts.actor, current);
+  const mayChangeDepartment =
+    taskHasParent(current) && !!parent && canUpdateTask(opts.actor, parent);
+  if (!mayUpdate && !mayChangeDepartment) return null;
   let department = current.department;
   if (patch.department !== undefined) {
     const decision = resolveTaskDepartment({
       parentId: current.parentId,
+      parent,
       currentDepartment: current.department,
       nextDepartment: patch.department,
-      assignees: current.assignees,
       actor: opts.actor,
     });
     if (!decision.ok) return null;
     department = decision.department;
+  }
+  if (!mayUpdate) {
+    if (patch.department === undefined) return null;
+    const names = resolveTaskAssignees({
+      currentDepartment: current.department,
+      nextDepartment: department,
+      currentAssignees: current.assignees,
+      nextAssignees: current.assignees,
+      people: opts.people ?? [],
+    });
+    if (!names.ok) return null;
+    const namesSame =
+      JSON.stringify([...names.assignees].sort()) ===
+      JSON.stringify([...(current.assignees ?? [])].sort());
+    if ((department || "") === (current.department || "") && namesSame) {
+      return null;
+    }
+    const next: Task = {
+      ...current,
+      department,
+      assignees: names.assignees,
+      responsible: storedResponsible(names.assignees, current.responsible),
+      status:
+        current.status === "pending" &&
+        (department || names.assignees.length > 0)
+          ? "in_progress"
+          : current.status,
+    };
+    const audienceChanged =
+      next.department !== current.department ||
+      JSON.stringify([...(next.assignees ?? [])].sort()) !==
+        JSON.stringify([...(current.assignees ?? [])].sort());
+    let nextData: FlowhubData = {
+      ...data,
+      tasks: data.tasks.map((t) => (t.id === id ? next : t)),
+    };
+    if (
+      audienceChanged &&
+      (next.department || (next.assignees?.length ?? 0) > 0)
+    ) {
+      nextData = notifyForTasks(nextData, [next], { kind: "task_assigned" });
+    }
+    write(
+      applyTaskSaveLog(nextData, data.tasks, nextData.tasks, [], opts.actor.name)
+    );
+    return next;
   }
   let assignees = patch.assignees;
   if (patch.assignees !== undefined) {
@@ -5161,18 +5414,22 @@ export function updateTask(
       }),
     ]);
   }
-  if (deadline.ok && deadline.log) {
-    nextData = appendTaskDeadlineLog(nextData, {
-      by: (opts.actor?.name || "").trim() || "User",
-      taskId: current.id,
-      contractId: current.contractId,
-      taskTitle: current.title,
-      fromDate: deadline.log.fromDate,
-      toDate: deadline.log.toDate,
-      reason: deadline.log.reason,
-    });
+  if (
+    !taskHasParent(current) &&
+    current.status !== "completed" &&
+    next.status === "completed"
+  ) {
+    nextData = completeOpenSubtasks(nextData, current.id);
   }
-  write(nextData);
+  write(
+    applyTaskSaveLog(
+      nextData,
+      data.tasks,
+      nextData.tasks,
+      deadline.ok ? deadlineReasonFor(current.id, deadline) : [],
+      opts.actor?.name
+    )
+  );
   return next;
 }
 
@@ -5194,11 +5451,12 @@ opts?: { actor?: TaskActor }
   const assignees = input.assignees?.filter(Boolean) ?? [];
   let department = input.department ?? null;
   if (opts?.actor) {
+    const parent = savedParent(data.tasks, input.parentId);
     const decision = resolveTaskDepartment({
       parentId: input.parentId,
+      parent,
       currentDepartment: null,
       nextDepartment: department,
-      assignees: [],
       actor: opts.actor,
     });
     department = decision.ok ? decision.department : null;
@@ -5224,7 +5482,9 @@ opts?: { actor?: TaskActor }
   };
   let nextData: FlowhubData = { ...data, tasks: [...data.tasks, full] };
   nextData = notifyForTasks(nextData, [full], { kind: "task_created" });
-  write(nextData);
+  write(
+    applyTaskSaveLog(nextData, data.tasks, nextData.tasks, [], opts?.actor?.name)
+  );
   return full;
 }
 
@@ -5285,7 +5545,11 @@ export function completeTaskWithSubtasks(
     (t) => t.parentId === parentId && taskIsOpen(t)
   );
   for (const sub of openSubs) {
-    if (!canUpdateTask(opts.actor, sub)) {
+    const closure = subtaskClosures.find((c) => c.id === sub.id);
+    if (
+      closure?.status === "not_required" &&
+      !canUpdateTask(opts.actor, sub)
+    ) {
       return { ok: false, error: subtaskUpdateDenied(sub.title) };
     }
   }
@@ -5328,7 +5592,15 @@ export function completeTaskWithSubtasks(
   const parentApplied = applyCompletion(nextData, parentNow, opts?.actor, {
     notes: opts?.notes,
   });
-  write(parentApplied.data);
+  write(
+    applyTaskSaveLog(
+      parentApplied.data,
+      data.tasks,
+      parentApplied.data.tasks,
+      [],
+      opts?.actor?.name
+    )
+  );
   return {
     ok: true,
     status: parentApplied.task.status,
@@ -5354,17 +5626,13 @@ export function confirmTaskVerification(
       error: "Only that department’s manager, or Master, can confirm this.",
     };
   }
-  const openSubs = data.tasks.filter(
-    (t) => t.parentId === id && taskIsOpen(t)
-  );
-  if (openSubs.length) {
-    return { ok: false, error: "Close open subtasks before confirming." };
-  }
   const next = applyStatusFields(current, "completed");
-  write({
+  let nextData: FlowhubData = {
     ...data,
     tasks: data.tasks.map((t) => (t.id === id ? next : t)),
-  });
+  };
+  nextData = completeOpenSubtasks(nextData, id);
+  write(applyTaskSaveLog(nextData, data.tasks, nextData.tasks, [], actor.name));
   return { ok: true };
 }
 
@@ -5386,17 +5654,23 @@ export function deleteTask(id: string): boolean {
 }
 
 /** Hide one subtask. No other task is changed. */
-export function deleteSubtask(id: string): boolean {
+export function deleteSubtask(
+  id: string,
+  opts?: { actor?: TaskActor }
+): boolean {
   const data = read();
   const current = data.tasks.find((t) => t.id === id);
   if (!current?.parentId || taskIsDeleted(current)) return false;
   const at = new Date().toISOString();
-  write({
+  const nextData: FlowhubData = {
     ...data,
     tasks: data.tasks.map((t) =>
       t.id === id ? { ...t, deletedAt: at } : t
     ),
-  });
+  };
+  write(
+    applyTaskSaveLog(nextData, data.tasks, nextData.tasks, [], opts?.actor?.name)
+  );
   return true;
 }
 

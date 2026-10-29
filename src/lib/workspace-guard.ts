@@ -147,7 +147,7 @@ function contractForExpenses(contract: Contract): Contract {
  * Load payload for this account. Blocked doors are left out.
  * An open report door still receives the figures that report shows.
  * The schedule change log is not a report figure: it follows the schedules door only.
- * The task deadline change log is not a report figure. Master and Director
+ * The task change log is not a report figure. Master and Director
  * receive it. Other clearances do not.
  */
 export function workspaceForAccount(

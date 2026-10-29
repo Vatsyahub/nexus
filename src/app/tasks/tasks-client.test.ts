@@ -166,6 +166,63 @@ test("Add updates shows the fields, subtasks, and a larger centred Save updates"
   assert.match(saveRegion, /Save updates/);
 });
 
+test("a parent updater picks any subtask department, and that department’s manager does not", () => {
+  const departments = [
+    "Contracts Department",
+    "Installation Department",
+    "Accounts Department",
+  ];
+  const parent = task({
+    department: "Contracts Department",
+    assignees: ["Priya Manager"],
+  });
+  const sub = task({
+    id: "s1",
+    title: "Lay cable",
+    parentId: parent.id,
+    department: "Installation Department",
+    assignees: ["Site Lead"],
+  });
+  const priya = htmlOf(
+    editorProps({
+      task: parent,
+      subtasks: [sub],
+      departments,
+      startEditing: true,
+      expandedSubId: "s1",
+      actor: {
+        name: "Priya Manager",
+        clearance: "manager",
+        department: "Contracts Department",
+      },
+    })
+  );
+  assert.match(priya, /Add subtask/);
+  assert.match(priya, /value="Accounts Department"/);
+  assert.match(priya, /value="Installation Department"/);
+  assert.match(priya, /You can read this/);
+  assert.equal((priya.match(/Update note/g) ?? []).length, 1);
+  assert.match(priya, /data-task-access="read"/);
+
+  const isha = htmlOf(
+    editorProps({
+      task: parent,
+      subtasks: [sub],
+      departments,
+      expandedSubId: "s1",
+      actor: {
+        name: "Isha Install",
+        clearance: "manager",
+        department: "Installation Department",
+      },
+    })
+  );
+  assert.equal(isha.includes("Add subtask"), false);
+  assert.match(isha, /data-department-locked="true"/);
+  assert.match(isha, /Update note/);
+  assert.equal(isha.includes('value="Accounts Department"'), false);
+});
+
 test("someone who cannot update the parent still sees subtasks and not Add subtask", () => {
   const html = htmlOf(
     editorProps({
