@@ -4,7 +4,7 @@ import { Suspense, useMemo } from "react";
 import { useViewQuery } from "@/lib/use-view-query";
 import Link from "next/link";
 import { useFlowhubData, useWorkspaceReady } from "@/lib/store";
-import { GST_RATE } from "@/lib/types";
+import { contractGstSummary } from "@/lib/contract-gst";
 import { contractDisplayStatus, todayIso } from "@/lib/nexus-core";
 import { formatMoney } from "@/lib/format-money";
 import { formatDisplayDate } from "@/lib/dates";
@@ -203,9 +203,7 @@ function DetailView({
   const data = useFlowhubData();
   const { contract, client, tis, payments, totals } = detail;
   const statusLabel = contractDisplayStatus(data, contract, todayIso());
-  const orderWithGst = contract.gstApplicable
-    ? contract.orderValue * (1 + GST_RATE)
-    : contract.orderValue;
+  const gstSummary = contractGstSummary(contract, formatMoney);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
@@ -226,14 +224,7 @@ function DetailView({
           <Meta label="Client" value={client} />
           <Meta label="City" value={contract.city} />
           <Meta label="Order value" value={formatMoney(contract.orderValue)} />
-          <Meta
-            label="GST"
-            value={
-              contract.gstApplicable
-                ? `18% · w/ GST ${formatMoney(orderWithGst)}`
-                : "Not applicable"
-            }
-          />
+          <Meta label="GST" value={gstSummary} />
           <Meta
             label="Retention %"
             value={`${contract.retentionPercent}% of net`}
@@ -454,9 +445,7 @@ function DetailView({
                 client,
                 contract.city,
                 contract.orderValue,
-                contract.gstApplicable
-                  ? `18% · w/ GST ${formatMoney(orderWithGst)}`
-                  : "Not applicable",
+                gstSummary,
                 `${contract.retentionPercent}% of net`,
                 statusLabel,
               ],

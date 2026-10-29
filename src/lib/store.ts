@@ -27,7 +27,6 @@ import {
   type Task,
   type TaskCatalogKey,
   type TaskStatus,
-  GST_RATE,
   DEFAULT_TDS_PERCENT,
   TASK_COMPLETED_VISIBLE_DAYS,
   BG_EXPIRY_LEAD_MONTHS,
@@ -135,6 +134,12 @@ import {
 } from "@/lib/workspace-changes";
 import { STALE_WORKSPACE_SAVE_MESSAGE } from "@/lib/workspace-guard";
 import { LOGIN_PAGE, workspaceSaveExit } from "@/lib/account-session";
+import {
+  contractGstAmount,
+  contractHasRaisedInvoice,
+  sameGstMeaning,
+  storedGstPercent,
+} from "@/lib/contract-gst";
 
 export type { TaskActor };
 export {
@@ -316,6 +321,11 @@ function normalizeContract(c: Contract & { orderEndDate?: string }): Contract {
     guaranteeEdits: c.guaranteeEdits ?? [],
     status: coerceContractStatus(c.status),
   };
+  const gstPercent = storedGstPercent(
+    (c as Contract & { gstPercent?: unknown }).gstPercent
+  );
+  if (gstPercent == null) delete normalized.gstPercent;
+  else normalized.gstPercent = gstPercent;
   return normalized;
 }
 
@@ -2196,6 +2206,14 @@ export function updateContract(
   if (!current) return null;
 
   const nextPatch = { ...patch };
+  if (
+    ("gstApplicable" in nextPatch || "gstPercent" in nextPatch) &&
+    contractHasRaisedInvoice(data.invoices, id) &&
+    !sameGstMeaning(current, { ...current, ...nextPatch })
+  ) {
+    delete nextPatch.gstApplicable;
+    delete nextPatch.gstPercent;
+  }
   if ("handoverDate" in nextPatch) {
     const accepted = acceptedHandoverDate(nextPatch.handoverDate);
     if (!accepted) delete nextPatch.handoverDate;
@@ -3750,7 +3768,7 @@ export function addInvoice(input: {
   }
 
   const netAmount = lines.reduce((s, l) => s + l.lineNet, 0);
-  const gstAmount = contract.gstApplicable ? netAmount * GST_RATE : 0;
+  const gstAmount = contractGstAmount(netAmount, contract);
   const extraCharges = keptInvoiceExtraCharges(input.extraCharges ?? []);
   const extraTotal = signedExtraTotal(extraCharges);
   const full: Invoice = {
@@ -3807,7 +3825,7 @@ export function updateInvoice(
     patch.extraCharges ?? current.extraCharges ?? []
   );
   const netAmount = lines.reduce((s, l) => s + l.lineNet, 0);
-  const gstAmount = contract.gstApplicable ? netAmount * GST_RATE : 0;
+  const gstAmount = contractGstAmount(netAmount, contract);
   const extraTotal = signedExtraTotal(extraCharges);
 
   const updated: Invoice = normalizeInvoice({
@@ -3860,7 +3878,7 @@ export function convertPiToTi(
     overrides?.extraCharges ?? pi.extraCharges ?? []
   );
   const netAmount = lines.reduce((s, l) => s + l.lineNet, 0);
-  const gstAmount = contract?.gstApplicable ? netAmount * GST_RATE : 0;
+  const gstAmount = contract ? contractGstAmount(netAmount, contract) : 0;
   const extraTotal = signedExtraTotal(extraCharges);
 
   const ti: Invoice = {

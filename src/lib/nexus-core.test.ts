@@ -196,6 +196,39 @@ test("yet to collect takes retention, TDS, and payment net, GST, and other deduc
   );
 });
 
+test("yet to collect uses a saved GST percent and leaves a not-applicable contract alone", () => {
+  const base = {
+    orderValue: 100000,
+    retentionPercent: 0,
+    tdsPercent: 0,
+  };
+  assert.equal(
+    yetToCollectAmount(
+      contract({ ...base, gstApplicable: true }),
+      []
+    ),
+    118000
+  );
+  assert.equal(
+    yetToCollectAmount(
+      contract({ ...base, gstApplicable: true, gstPercent: 12 }),
+      []
+    ),
+    112000
+  );
+  assert.equal(
+    yetToCollectAmount(
+      contract({ ...base, gstApplicable: false, gstPercent: 0 }),
+      []
+    ),
+    100000
+  );
+  assert.equal(
+    yetToCollectAmount(contract({ ...base, gstApplicable: false }), []),
+    100000
+  );
+});
+
 test("core report profit matches the project card and rows follow project number", () => {
   const data = hub({
     contracts: [

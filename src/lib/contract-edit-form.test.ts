@@ -16,6 +16,7 @@ function savedContract(): ContractEditSource {
     orderDate: "2026-01-01",
     closureDate: "2026-12-31",
     orderValue: 5000,
+    gstApplicable: true,
     city: "Delhi",
     state: "Delhi",
     country: "India",
@@ -35,6 +36,7 @@ function editedDraft(): ContractEditDraft {
     orderDate: "2026-02-02",
     closureDate: "2027-03-03",
     orderValue: "99999",
+    gstPercent: "12",
     city: "Edited city",
     state: "Edited state",
     country: "Edited country",
@@ -102,6 +104,22 @@ test("a refreshed contract with newer saved values still leaves the open form", 
   assert.equal(kept?.draft.projectName, "Edited name");
   assert.equal(kept?.draft.city, "Edited city");
   assert.equal(kept?.draft.orderValue, "99999");
+});
+
+test("GST opens at 18 when applicable, at 0 when not, and at a saved percent", () => {
+  assert.equal(draftFromContract(savedContract()).gstPercent, "18");
+  assert.equal(
+    draftFromContract({ ...savedContract(), gstApplicable: false }).gstPercent,
+    "0"
+  );
+  assert.equal(
+    draftFromContract({
+      ...savedContract(),
+      gstApplicable: true,
+      gstPercent: 5,
+    }).gstPercent,
+    "5"
+  );
 });
 
 test("opening a different contract fills the form from that contract", () => {

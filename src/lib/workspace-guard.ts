@@ -32,6 +32,7 @@ import {
   normalizeTaskDeadlineChangeLog,
   reconcileTaskDeadlineChanges,
 } from "@/lib/task-deadline-log";
+import { retainContractGst } from "@/lib/contract-gst";
 
 /**
  * Company-file slices and the report doors that already show their figures.
@@ -494,6 +495,13 @@ export function mergeWorkspaceSave(
     invoices = kept.invoices;
     itemCatalog = kept.itemCatalog;
   }
+
+  contracts = retainContractGst(
+    current.contracts,
+    contracts,
+    current.invoices,
+    master
+  );
 
   return {
     ...incoming,

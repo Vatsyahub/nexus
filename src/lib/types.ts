@@ -141,7 +141,17 @@ export type Contract = {
   /** Formerly order end date — renamed Closure date */
   closureDate: string;
   orderValue: number;
+  /**
+   * False means GST is not applicable.
+   * True, with no gstPercent, means 18%.
+   */
   gstApplicable: boolean;
+  /**
+   * GST percent of net saved by Master.
+   * Absent on older contracts: applicable stays 18, not applicable stays
+   * not applicable. 0 is a saved percent.
+   */
+  gstPercent?: number;
   city: string;
   state: string;
   country: string;

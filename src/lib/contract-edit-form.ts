@@ -5,6 +5,8 @@
  * That object must not be copied back over these boxes.
  */
 
+import { gstEditValue } from "@/lib/contract-gst";
+
 export type ContractEditSource = {
   id: string;
   projectName: string;
@@ -13,6 +15,8 @@ export type ContractEditSource = {
   orderDate: string;
   closureDate: string;
   orderValue: number;
+  gstApplicable: boolean;
+  gstPercent?: number | null;
   city: string;
   state: string;
   country: string;
@@ -30,6 +34,7 @@ export type ContractEditDraft = {
   orderDate: string;
   closureDate: string;
   orderValue: string;
+  gstPercent: string;
   city: string;
   state: string;
   country: string;
@@ -53,6 +58,7 @@ export function draftFromContract(contract: ContractEditSource): ContractEditDra
     orderDate: contract.orderDate,
     closureDate: contract.closureDate,
     orderValue: String(contract.orderValue),
+    gstPercent: gstEditValue(contract),
     city: contract.city,
     state: contract.state,
     country: contract.country,

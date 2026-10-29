@@ -26,11 +26,11 @@ import {
 } from "@/lib/invoice-line-edit";
 import { BoqCallbackPanel } from "@/components/boq-callback-panel";
 import {
-  GST_RATE,
   orderedBillingTermKeys,
   type InvoiceExtraCharge,
   type InvoiceLine,
 } from "@/lib/types";
+import { contractChargesGst, contractGstAmount } from "@/lib/contract-gst";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -161,7 +161,7 @@ export default function EditInvoicePage() {
   );
 
   const net = previewLines.reduce((s, l) => s + l.lineNet, 0);
-  const gst = contract?.gstApplicable ? net * GST_RATE : 0;
+  const gst = contract ? contractGstAmount(net, contract) : 0;
   const extraTotal = charges.reduce((s, c) => s + (Number(c.amount) || 0), 0);
 
   function addCallbackLines(offers: BoqCallbackOffer[]) {
@@ -504,7 +504,7 @@ export default function EditInvoicePage() {
 
           <p className="text-sm tabular-nums">
             Net {formatMoney(net)}
-            {contract.gstApplicable ? ` + GST ${formatMoney(gst)}` : ""}
+            {contractChargesGst(contract) ? ` + GST ${formatMoney(gst)}` : ""}
             {extraTotal !== 0 ? ` + charges ${formatMoney(extraTotal)}` : ""} ={" "}
             <strong>{formatMoney(net + gst + extraTotal)}</strong>
           </p>
