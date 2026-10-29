@@ -3,10 +3,12 @@
 import {
   Suspense,
   useEffect,
-  useId,
+  useImperativeHandle,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
+  type Ref,
 } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -79,15 +81,9 @@ import {
   assembleMatchedRows,
   assembleSubtaskView,
   subtasksOnlyLines,
-  type SubtaskListView,
   type TaskListRow,
 } from "@/lib/task-list";
-import {
-  isResponsiblePerson,
-  responsiblePerson,
-  samePerson,
-  storedResponsible,
-} from "@/lib/task-responsible";
+import { samePerson } from "@/lib/task-responsible";
 import { HubDataScroll, HubPage } from "@/components/hub-scroll";
 import { cn } from "@/lib/utils";
 
@@ -103,25 +99,20 @@ type ViewFilter =
   | "dept"
   | "all"
   | "unassigned"
-  | "open"
   | "overdue"
-  | "no_deadline"
   | "completed";
 
 function parseTaskView(raw: string): ViewFilter {
   if (raw === "my" || raw === "mine") return "my";
   if (raw === "dept") return "dept";
-  if (raw === "pending" || raw === "open") return "open";
   if (raw === "overdue") return "overdue";
   if (raw === "completed") return "completed";
   if (raw === "unassigned") return "unassigned";
-  if (raw === "no_deadline") return "no_deadline";
   return "all";
 }
 
 function taskFilterParam(view: ViewFilter): string | null {
   if (view === "all") return null;
-  if (view === "open") return "pending";
   return view;
 }
 
@@ -323,6 +314,8 @@ function TasksPageInner({
   const focusTaskId = get("task") || get("highlight");
   const q = get("q");
   const urlFilter = get("filter");
+  const homeFilter =
+    urlFilter && parseTaskView(urlFilter) !== "all" ? urlFilter : null;
   const showDept = role === "user" || role === "manager";
   const requestedView = focusTaskId
     ? "all"
@@ -444,14 +437,17 @@ function TasksPageInner({
     };
   }, [q, contractId, priorityFilter, contractById, data.tasks]);
 
+  const openSubtasksByParent = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const task of data.tasks) {
+      if (!task.parentId || !taskIsOpen(task)) continue;
+      counts.set(task.parentId, (counts.get(task.parentId) ?? 0) + 1);
+    }
+    return counts;
+  }, [data.tasks]);
+
   const subtaskViews = useMemo(() => {
-    const ids = [
-      "unassigned",
-      "open",
-      "overdue",
-      "no_deadline",
-      "completed",
-    ] as const;
+    const ids = ["unassigned", "overdue", "completed"] as const;
     const compare = (a: Task, b: Task) => sortTasks(a, b, today);
     const tasks = data.tasks.filter(
       (t) => !t.deletedAt && (!contractId || t.contractId === contractId)
@@ -467,7 +463,10 @@ function TasksPageInner({
           compare,
         }),
       ])
-    ) as Record<SubtaskListView, ReturnType<typeof assembleSubtaskView>>;
+    ) as Record<
+      "unassigned" | "overdue" | "completed",
+      ReturnType<typeof assembleSubtaskView>
+    >;
   }, [data.tasks, today, contractId, matchesHubRow]);
 
   const deptDepartments = useMemo(() => {
@@ -489,7 +488,8 @@ function TasksPageInner({
       assembleMatchedRows({
         tasks: listTasks,
         matchesTask: (task) =>
-          matchesHubRow(task) && isResponsiblePerson(task, currentUserName),
+          matchesHubRow(task) &&
+          namedOnTask({ name: currentUserName }, task),
         compare: (a, b) => sortTasks(a, b, today),
       }),
     [listTasks, matchesHubRow, currentUserName, today]
@@ -511,9 +511,7 @@ function TasksPageInner({
       dept: deptView.counted.length,
       all: roots.length,
       unassigned: subtaskViews.unassigned.counted.length,
-      open: subtaskViews.open.counted.length,
       overdue: subtaskViews.overdue.counted.length,
-      no_deadline: subtaskViews.no_deadline.counted.length,
       completed: subtaskViews.completed.counted.length,
     };
   }, [roots, myView, deptView, subtaskViews]);
@@ -522,18 +520,18 @@ function TasksPageInner({
     return roots.slice().sort((a, b) => sortTasks(a, b, today));
   }, [roots, today]);
 
-  const activeSubtaskView: SubtaskListView | null =
-    view === "unassigned" ||
-    view === "open" ||
-    view === "overdue" ||
-    view === "no_deadline" ||
-    view === "completed"
-      ? view
+  const listView: ViewFilter =
+    view === "unassigned" && counts.unassigned === 0 ? "all" : view;
+  const activeSubtaskView =
+    listView === "unassigned" ||
+    listView === "overdue" ||
+    listView === "completed"
+      ? listView
       : null;
   const visibleRows: TaskListRow[] =
-    view === "dept"
+    listView === "dept"
       ? deptView.rows
-      : view === "my"
+      : listView === "my"
         ? myView.rows
         : activeSubtaskView
           ? subtaskViews[activeSubtaskView].rows
@@ -545,21 +543,16 @@ function TasksPageInner({
     ? subtasksOnlyLines(visibleRows).map((line) => ({
         task: line.task,
         parent: line.parent,
-        nested: false,
       }))
-    : visibleRows.flatMap((row) => [
-        { task: row.parent, parent: null as Task | null, nested: false },
-        ...row.subtasks.map((task) => ({
-          task,
-          parent: row.parent,
-          nested: true,
-        })),
-      ]);
+    : visibleRows.map((row) => ({
+        task: row.parent,
+        parent: null as Task | null,
+      }));
 
   function listPath() {
     const params = new URLSearchParams();
     if (contractId) params.set("contractId", contractId);
-    const viewParam = taskFilterParam(view);
+    const viewParam = taskFilterParam(listView);
     if (viewParam) params.set("view", viewParam);
     if (q) params.set("q", q);
     if (priorityFilter !== "all") params.set("priority", priorityFilter);
@@ -621,10 +614,16 @@ function TasksPageInner({
 
   const views: { id: ViewFilter; label: string; count: number }[] = [
     { id: "all", label: "All", count: counts.all },
-    { id: "unassigned", label: "Unassigned", count: counts.unassigned },
-    { id: "open", label: "Open", count: counts.open },
+    ...(counts.unassigned > 0
+      ? [
+          {
+            id: "unassigned" as const,
+            label: "Unassigned",
+            count: counts.unassigned,
+          },
+        ]
+      : []),
     { id: "overdue", label: "Overdue", count: counts.overdue },
-    { id: "no_deadline", label: "No deadline", count: counts.no_deadline },
     { id: "completed", label: "Done", count: counts.completed },
     { id: "my", label: "My tasks", count: counts.my },
     ...(showDept
@@ -639,11 +638,11 @@ function TasksPageInner({
           <h1 className="font-[family-name:var(--font-display)] text-4xl font-semibold tracking-tight text-[var(--fh-steel)]">
             Tasks
           </h1>
-          {(contractId || urlFilter) && (
+          {(contractId || homeFilter) && (
             <p className="mt-2 text-sm text-[var(--fh-steel)]">
               {contractLabel ? `Contract ${contractLabel}` : null}
-              {contractLabel && urlFilter ? " · " : null}
-              {urlFilter ? `Filter from home: ${urlFilter}` : null}{" "}
+              {contractLabel && homeFilter ? " · " : null}
+              {homeFilter ? `Filter from home: ${homeFilter}` : null}{" "}
               <Link href="/tasks" className="underline">
                 Clear
               </Link>
@@ -734,7 +733,7 @@ function TasksPageInner({
             onClick={() => setView(v.id)}
             className={cn(
               "rounded-md px-3 py-1.5 text-sm transition-colors",
-              view === v.id
+              listView === v.id
                 ? "bg-[var(--fh-steel)] text-white"
                 : "bg-white text-[var(--fh-steel)] ring-1 ring-[var(--fh-line)] hover:bg-[var(--fh-bg)]"
             )}
@@ -743,7 +742,7 @@ function TasksPageInner({
             <span
               className={cn(
                 "ml-1.5 tabular-nums",
-                view === v.id ? "text-white/80" : "text-[var(--fh-muted)]"
+                listView === v.id ? "text-white/80" : "text-[var(--fh-muted)]"
               )}
             >
               {v.count}
@@ -764,9 +763,10 @@ function TasksPageInner({
       </div>
 
       <HubDataScroll className="space-y-2">
-        <div className="hidden gap-3 px-4 text-[11px] font-medium uppercase tracking-wide text-[var(--fh-muted)] lg:grid lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_8rem_7.5rem]">
+        <div className="hidden gap-3 px-4 text-[11px] font-medium uppercase tracking-wide text-[var(--fh-muted)] lg:grid lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1.1fr)_minmax(0,0.9fr)_8rem_7.5rem]">
           <span>Task name</span>
           <span>Contract</span>
+          <span>Department</span>
           <span>Deadline</span>
           <span>Status</span>
         </div>
@@ -786,18 +786,25 @@ function TasksPageInner({
                 key={`${line.parent?.id ?? "root"}-${line.task.id}`}
                 href={taskPageHref(line.task, line.parent)}
                 className={cn(
-                  "grid gap-2 border bg-white px-4 py-3 text-left hover:bg-[var(--fh-bg)]/60 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_8rem_7.5rem] lg:items-center",
-                  line.nested && "ml-6 border-dashed",
+                  "grid gap-2 border bg-white px-4 py-3 text-left hover:bg-[var(--fh-bg)]/60 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1.1fr)_minmax(0,0.9fr)_8rem_7.5rem] lg:items-center",
                   overdue
                     ? "border-[var(--destructive)]/35"
                     : "border-[var(--fh-line)]"
                 )}
               >
                 <span className="min-w-0">
-                  <span className="block truncate font-medium text-[var(--fh-steel)]">
-                    {line.task.title}
-                    {line.parent && !line.nested ? (
-                      <span className="ml-2 text-xs font-normal text-[var(--fh-muted)]">
+                  <span className="flex min-w-0 items-baseline gap-2">
+                    <span className="truncate font-medium text-[var(--fh-steel)]">
+                      {line.task.title}
+                    </span>
+                    {!line.parent &&
+                    (openSubtasksByParent.get(line.task.id) ?? 0) > 0 ? (
+                      <span className="shrink-0 tabular-nums text-xs font-normal text-[var(--fh-muted)]">
+                        +{openSubtasksByParent.get(line.task.id)}
+                      </span>
+                    ) : null}
+                    {line.parent ? (
+                      <span className="truncate text-xs font-normal text-[var(--fh-muted)]">
                         {line.parent.title}
                       </span>
                     ) : null}
@@ -812,6 +819,11 @@ function TasksPageInner({
                       {contract.projectNo}
                     </span>
                   ) : null}
+                </span>
+                <span className="min-w-0 truncate text-sm text-[var(--fh-steel)]">
+                  {line.task.department
+                    ? departmentDisplayName(line.task.department)
+                    : "—"}
                 </span>
                 <span
                   className={cn(
@@ -837,7 +849,7 @@ function TasksPageInner({
         filename="tasks"
         title="Tasks"
         filters={reportFilterSummary({
-          tab: views.find((v) => v.id === view)?.label ?? null,
+          tab: views.find((v) => v.id === listView)?.label ?? null,
           contract: contractLabel ?? null,
           search: q,
           extra: [
@@ -847,16 +859,22 @@ function TasksPageInner({
             ],
           ],
         })}
-        headers={["Task name", "Parent", "Contract", "Project no.", "Deadline", "Status"]}
+        headers={["Task name", "Parent", "Contract", "Project no.", "Department", "Deadline", "Status"]}
         rows={displayLines.map((line) => {
           const contract = line.task.contractId
             ? contractById.get(line.task.contractId)
             : null;
+          const openSubtasks = line.parent
+            ? 0
+            : (openSubtasksByParent.get(line.task.id) ?? 0);
           return [
-            line.task.title,
+            openSubtasks > 0
+              ? `${line.task.title} +${openSubtasks}`
+              : line.task.title,
             line.parent?.title ?? "",
             contract?.projectName ?? "",
             contract?.projectNo ?? "",
+            line.task.department ? departmentDisplayName(line.task.department) : "",
             line.task.dueDate ? formatDisplayDate(line.task.dueDate) : "No deadline",
             TASK_STATUS_LABELS[line.task.status],
           ];
@@ -1031,27 +1049,19 @@ function SummaryField({
 export function PeoplePicker({
   people,
   assignees,
-  responsible,
   onChange,
 }: {
   people: { id: string; name: string }[];
   assignees: string[];
-  responsible: string | null;
-  onChange: (next: { assignees: string[]; responsible: string | null }) => void;
+  onChange: (assignees: string[]) => void;
 }) {
-  const group = useId();
   function toggle(name: string) {
     const has = assignees.some((item) => samePerson(item, name));
-    const nextNames = has
-      ? assignees.filter((item) => !samePerson(item, name))
-      : [...assignees, name];
-    const nextResponsible =
-      nextNames.length === 0
-        ? null
-        : responsible && nextNames.some((item) => samePerson(item, responsible))
-          ? (nextNames.find((item) => samePerson(item, responsible)) ?? null)
-          : (nextNames[0] ?? null);
-    onChange({ assignees: nextNames, responsible: nextResponsible });
+    onChange(
+      has
+        ? assignees.filter((item) => !samePerson(item, name))
+        : [...assignees, name]
+    );
   }
   return (
     <div className="flex flex-wrap gap-x-3 gap-y-1 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)]/40 px-2 py-1">
@@ -1063,34 +1073,28 @@ export function PeoplePicker({
         people.map((person) => {
           const named = assignees.some((item) => samePerson(item, person.name));
           return (
-            <span key={person.id} className="flex items-center gap-2 text-sm">
-              <label className="flex items-center gap-1.5">
-                <input
-                  type="checkbox"
-                  checked={named}
-                  onChange={() => toggle(person.name)}
-                />
-                {person.name}
-              </label>
-              <label className="flex items-center gap-1 text-xs text-[var(--fh-muted)]">
-                <input
-                  type="radio"
-                  name={group}
-                  checked={named && samePerson(responsible, person.name)}
-                  disabled={!named}
-                  onChange={() =>
-                    onChange({ assignees, responsible: person.name })
-                  }
-                />
-                Responsible
-              </label>
-            </span>
+            <label key={person.id} className="flex items-center gap-1.5 text-sm">
+              <input
+                type="checkbox"
+                checked={named}
+                onChange={() => toggle(person.name)}
+              />
+              {person.name}
+            </label>
           );
         })
       )}
     </div>
   );
 }
+
+type SubtaskSaveResult =
+  | { ok: true; status: TaskStatus; wrote: true }
+  | { ok: false; error: string; wrote: boolean };
+
+type SubtaskEditorHandle = {
+  save: () => SubtaskSaveResult;
+};
 
 export function TaskEditor({
   task,
@@ -1120,9 +1124,6 @@ export function TaskEditor({
   const [title, setTitle] = useState(task.title);
   const [department, setDepartment] = useState(task.department ?? "none");
   const [assignees, setAssignees] = useState<string[]>(task.assignees);
-  const [responsible, setResponsible] = useState<string | null>(
-    responsiblePerson(task)
-  );
   const [dueDate, setDueDate] = useState(task.dueDate ?? "");
   const [deadlineReason, setDeadlineReason] = useState("");
   const [priority, setPriority] = useState<TaskPriority>(task.priority);
@@ -1137,7 +1138,7 @@ export function TaskEditor({
   const [subDept, setSubDept] = useState("none");
   const [subDue, setSubDue] = useState("");
   const [subAssignees, setSubAssignees] = useState<string[]>([]);
-  const [subResponsible, setSubResponsible] = useState<string | null>(null);
+  const [addingSub, setAddingSub] = useState(false);
   const [editing, setEditing] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [closing, setClosing] = useState(false);
@@ -1173,6 +1174,15 @@ export function TaskEditor({
   const openSubs = subtasks.filter(taskIsOpen);
   const showCompletion =
     task.status === "completed" || task.status === "not_required";
+  const subtaskSaveRef = useRef<SubtaskEditorHandle>(null);
+  const openSubtask = expandedSubId
+    ? (subtasks.find((row) => row.id === expandedSubId) ?? null)
+    : null;
+  const canSaveOpenSub = Boolean(
+    openSubtask && canUpdateTask(actor, openSubtask)
+  );
+  const showSaveUpdates =
+    (editing && canUpdate) || canSaveOpenSub || (addingSub && canUpdate);
 
   function runAfterCompleted() {
     if (!task.contractId) return;
@@ -1188,40 +1198,24 @@ export function TaskEditor({
   function onDepartmentChange(next: string) {
     setDepartment(next);
     const allowed = peopleForDepartment(people, next);
-    setAssignees((prev) => {
-      const kept = prev.filter((name) =>
+    setAssignees((prev) =>
+      prev.filter((name) =>
         allowed.some((person) => samePerson(person.name, name))
-      );
-      setResponsible((current) =>
-        current && kept.some((name) => samePerson(name, current))
-          ? current
-          : (kept[0] ?? null)
-      );
-      return kept;
-    });
+      )
+    );
   }
 
   function onSubDepartmentChange(next: string) {
     setSubDept(next);
     const allowed = peopleForDepartment(people, next);
-    setSubAssignees((prev) => {
-      const kept = prev.filter((name) =>
+    setSubAssignees((prev) =>
+      prev.filter((name) =>
         allowed.some((person) => samePerson(person.name, name))
-      );
-      setSubResponsible((current) =>
-        current && kept.some((name) => samePerson(name, current))
-          ? current
-          : (kept[0] ?? null)
-      );
-      return kept;
-    });
+      )
+    );
   }
 
-  async function saveAssignment() {
-    if (!canUpdate) {
-      setErr(TASK_SAVE_DENIED);
-      return;
-    }
+  function parentAssignees() {
     const nextDepartment = chosenDepartment(departmentControl, department);
     const pool = peopleForDepartment(people, nextDepartment || "none");
     const nextAssignees =
@@ -1237,38 +1231,107 @@ export function TaskEditor({
               task.assignees.some((item) => item.trim().toLowerCase() === key);
             return inDepartment || alreadyNamed;
           });
-    const nextResponsible = !canName
-      ? storedResponsible(task.assignees, task.responsible)
-      : storedResponsible(nextAssignees, responsible);
-    const saved = assignTask(
-      task.id,
-      {
-        department: nextDepartment,
-        assignees: nextAssignees,
-        responsible: nextResponsible,
-        dueDate: deadlineLocked ? task.dueDate : dueDate || null,
-      },
-      { actor, people, deadlineReason }
-    );
-    if (!saved.ok) {
-      setErr(saved.error);
-      return;
+    return { nextDepartment, nextAssignees };
+  }
+
+  async function saveUpdates() {
+    const errors: string[] = [];
+    let wrote = false;
+    let statusResult: { status: TaskStatus; sideEffects: boolean } | null =
+      null;
+    let subtaskClosed = false;
+
+    if (editing && canUpdate) {
+      const { nextDepartment, nextAssignees } = parentAssignees();
+      const saved = assignTask(
+        task.id,
+        {
+          department: nextDepartment,
+          assignees: nextAssignees,
+          dueDate: deadlineLocked ? task.dueDate : dueDate || null,
+        },
+        { actor, people, deadlineReason }
+      );
+      if (!saved.ok) {
+        errors.push(saved.error);
+      } else {
+        wrote = true;
+        setDeadlineReason("");
+      }
+      const updated = updateTask(
+        task.id,
+        {
+          title: title.trim() || task.title,
+          priority: mayEditSchedule ? priority : task.priority,
+        },
+        { actor, people }
+      );
+      if (!updated) errors.push(TASK_SAVE_DENIED);
+      else wrote = true;
     }
-    setDeadlineReason("");
-    const updated = updateTask(
-      task.id,
-      {
-        title: title.trim() || task.title,
-        priority: mayEditSchedule ? priority : task.priority,
-      },
-      { actor, people }
-    );
-    if (!updated) {
-      setErr(TASK_SAVE_DENIED);
-      return;
+
+    if (canSaveOpenSub && subtaskSaveRef.current) {
+      const result = subtaskSaveRef.current.save();
+      if (result.wrote) wrote = true;
+      if (!result.ok) errors.push(result.error);
+      else {
+        subtaskClosed =
+          result.status === "completed" || result.status === "not_required";
+      }
     }
-    setErr(null);
-    await confirmWorkspaceSave();
+
+    let addedOpen = false;
+    if (addingSub && canUpdate && subTitle.trim()) {
+      if (!task.contractId) {
+        errors.push(TASK_SAVE_DENIED);
+      } else {
+        const created = addSubtask(
+          task.id,
+          {
+            title: subTitle,
+            department: chosenDepartment(newSubControl, subDept),
+            assignees: canAssignPeople ? subAssignees : [],
+            dueDate: subDue || null,
+          },
+          { actor }
+        );
+        if (!created) {
+          errors.push(TASK_SAVE_DENIED);
+        } else {
+          wrote = true;
+          addedOpen = taskIsOpen(created);
+          setSubTitle("");
+          setSubDue("");
+          setSubDept("none");
+          setSubAssignees([]);
+          setAddingSub(false);
+        }
+      }
+    }
+
+    if (editing && canUpdate) {
+      const stillOpen = openSubs.some(
+        (row) => !(row.id === expandedSubId && subtaskClosed)
+      );
+      if (status === "completed" && (stillOpen || addedOpen)) {
+        setClosing(true);
+      } else {
+        const result = updateTaskStatus(task.id, status, { notes, actor });
+        if (!result) errors.push("Task not found.");
+        else {
+          wrote = true;
+          statusResult = result;
+        }
+      }
+    }
+
+    setErr(errors.length ? errors.join(" ") : null);
+    if (!wrote) return;
+    const persisted = await confirmWorkspaceSave();
+    if (!persisted || !statusResult) return;
+    setStatus(statusResult.status === "not_required" ? "completed" : statusResult.status);
+    if (errors.length === 0) setErr(null);
+    if (statusResult.sideEffects) runAfterCompleted();
   }
 
   function applyStatusMessage(result: {
@@ -1278,26 +1341,6 @@ export function TaskEditor({
     setStatus(result.status === "not_required" ? "completed" : result.status);
     setErr(null);
     if (result.sideEffects) runAfterCompleted();
-  }
-
-  async function saveStatus() {
-    if (!canUpdate) {
-      setErr(TASK_SAVE_DENIED);
-      return;
-    }
-    if (status === "completed" && openSubs.length > 0) {
-      setClosing(true);
-      setErr(null);
-      return;
-    }
-    const result = updateTaskStatus(task.id, status, { notes, actor });
-    if (!result) {
-      setErr("Task not found.");
-      return;
-    }
-    setErr(null);
-    const saved = await confirmWorkspaceSave();
-    if (saved) applyStatusMessage(result);
   }
 
   async function confirmVerified() {
@@ -1529,9 +1572,6 @@ export function TaskEditor({
           <SummaryField label="Department">
             {task.department ? departmentDisplayName(task.department) : "—"}
           </SummaryField>
-          <SummaryField label="Responsible">
-            {responsiblePerson(task) ?? "—"}
-          </SummaryField>
           <SummaryField label="People">
             {peopleLabel(task.assignees)}
           </SummaryField>
@@ -1673,11 +1713,7 @@ export function TaskEditor({
                 <PeoplePicker
                   people={selectable}
                   assignees={assignees}
-                  responsible={responsible}
-                  onChange={(next) => {
-                    setAssignees(next.assignees);
-                    setResponsible(next.responsible);
-                  }}
+                  onChange={setAssignees}
                 />
               )}
             </div>
@@ -1694,15 +1730,7 @@ export function TaskEditor({
             />
           </div>
         )}
-        <Button
-          size="sm"
-          {...entrySaveProps}
-          className="bg-[var(--fh-steel)]"
-          onClick={saveAssignment}
-        >
-          Save assignment
-        </Button>
-      </div>
+        </div>
 
       <div className="space-y-2 border-t border-[var(--fh-line)] pt-2">
         <div className="grid gap-x-3 gap-y-1.5 sm:grid-cols-[9rem_minmax(0,1fr)]">
@@ -1742,16 +1770,8 @@ export function TaskEditor({
         {task.status === "awaiting_verification" && (
           <p className="text-sm text-[var(--fh-ink)]">{waitingForCopy(task)}</p>
         )}
-        <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            {...entrySaveProps}
-            onClick={saveStatus}
-          >
-            Save status
-          </Button>
-          {canConfirmTaskVerification(actor, task) && (
+        {canConfirmTaskVerification(actor, task) && (
+          <div className="flex flex-wrap gap-2">
             <Button
               size="sm"
               {...entrySaveProps}
@@ -1760,8 +1780,8 @@ export function TaskEditor({
             >
               Confirm completion
             </Button>
-          )}
-        </div>
+          </div>
+        )}
 
         {closing && (
           <div className="space-y-2 border border-[var(--fh-accent)] bg-[var(--fh-accent)]/10 p-2">
@@ -1900,6 +1920,7 @@ export function TaskEditor({
                 {expandedSubId === s.id && (
                   <div className="mt-2 border-t border-[var(--fh-line)] pt-2">
                     <SubtaskEditor
+                      ref={subtaskSaveRef}
                       task={s}
                       people={people}
                       departments={departments}
@@ -1916,7 +1937,25 @@ export function TaskEditor({
         </ul>
         {canUpdate && (
         <div className="space-y-2 border-t border-[var(--fh-line)] pt-2">
-          <p className="text-xs font-medium text-[var(--fh-steel)]">Add subtask</p>
+          <div role="tablist" aria-label="Add subtask">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={addingSub}
+              aria-expanded={addingSub}
+              onClick={() => setAddingSub((open) => !open)}
+              className={cn(
+                "rounded-md px-3 py-1.5 text-sm transition-colors",
+                addingSub
+                  ? "bg-[var(--fh-steel)] text-white"
+                  : "bg-white text-[var(--fh-steel)] ring-1 ring-[var(--fh-line)] hover:bg-[var(--fh-bg)]"
+              )}
+            >
+              Add subtask
+            </button>
+          </div>
+          {addingSub && (
+          <div role="tabpanel" className="space-y-2">
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-1 sm:col-span-2">
               <Label className="text-xs">Name</Label>
@@ -1946,55 +1985,39 @@ export function TaskEditor({
               />
             </div>
           </div>
-          {canAssignPeople && subDept !== "none" && (
+          {canAssignPeople && (
             <div className="space-y-1">
               <Label className="text-xs">People</Label>
-              <PeoplePicker
-                people={peopleForDepartment(people, subDept)}
-                assignees={subAssignees}
-                responsible={subResponsible}
-                onChange={(next) => {
-                  setSubAssignees(next.assignees);
-                  setSubResponsible(next.responsible);
-                }}
-              />
+              {subDept === "none" ? (
+                <p className="text-xs text-[var(--fh-muted)]">
+                  Select a department to choose people.
+                </p>
+              ) : (
+                <PeoplePicker
+                  people={peopleForDepartment(people, subDept)}
+                  assignees={subAssignees}
+                  onChange={setSubAssignees}
+                />
+              )}
             </div>
           )}
-          <Button
-            size="sm"
-            variant="outline"
-            {...entrySaveProps}
-            onClick={() => {
-              if (!subTitle.trim() || !task.contractId) return;
-              if (!canUpdate) return;
-              const created = addSubtask(
-                task.id,
-                {
-                  title: subTitle,
-                  department: chosenDepartment(newSubControl, subDept),
-                  assignees: canAssignPeople ? subAssignees : [],
-                  responsible: canAssignPeople ? subResponsible : null,
-                  dueDate: subDue || null,
-                },
-                { actor }
-              );
-              if (!created) {
-                setErr(TASK_SAVE_DENIED);
-                return;
-              }
-              void flushWorkspace();
-              setSubTitle("");
-              setSubDue("");
-              setSubDept("none");
-              setSubAssignees([]);
-              setSubResponsible(null);
-            }}
-          >
-            Add
-          </Button>
+          </div>
+          )}
         </div>
         )}
       </div>
+      {showSaveUpdates && (
+        <div className="border-t border-[var(--fh-line)] pt-2">
+          <Button
+            size="sm"
+            {...entrySaveProps}
+            className="bg-[var(--fh-steel)]"
+            onClick={() => void saveUpdates()}
+          >
+            Save updates
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -2007,6 +2030,7 @@ function SubtaskEditor({
   canEditTasks,
   actor,
   onDone,
+  ref,
 }: {
   task: Task;
   people: AssignablePerson[];
@@ -2015,12 +2039,10 @@ function SubtaskEditor({
   canEditTasks: boolean;
   actor: TaskActor;
   onDone: () => void;
+  ref?: Ref<SubtaskEditorHandle>;
 }) {
   const [department, setDepartment] = useState(task.department ?? "none");
   const [assignees, setAssignees] = useState<string[]>(task.assignees);
-  const [responsible, setResponsible] = useState<string | null>(
-    responsiblePerson(task)
-  );
   const [dueDate, setDueDate] = useState(task.dueDate ?? "");
   const [deadlineReason, setDeadlineReason] = useState("");
   const [priority, setPriority] = useState<TaskPriority>(task.priority);
@@ -2048,6 +2070,69 @@ function SubtaskEditor({
       ? departmentControl.department || "none"
       : department
   );
+
+  useImperativeHandle(ref, () => ({
+    save() {
+      if (!canUpdate) {
+        return { ok: false, error: TASK_SAVE_DENIED, wrote: false };
+      }
+      if (status === "not_required" && !reason.trim()) {
+        return {
+          ok: false,
+          error: "Reason is required for not required.",
+          wrote: false,
+        };
+      }
+      const nextDepartment = chosenDepartment(departmentControl, department);
+      const pool = peopleForDepartment(people, nextDepartment || "none");
+      const nextAssignees =
+        !canName || !departmentIsSet(nextDepartment)
+          ? task.assignees
+          : assignees.filter((name) => {
+              const key = name.trim().toLowerCase();
+              const inDepartment = pool.some(
+                (person) => person.name.trim().toLowerCase() === key
+              );
+              const alreadyNamed =
+                keepingSavedDepartment &&
+                task.assignees.some(
+                  (item) => item.trim().toLowerCase() === key
+                );
+              return inDepartment || alreadyNamed;
+            });
+      const assigned = assignTask(
+        task.id,
+        {
+          department: nextDepartment,
+          assignees: nextAssignees,
+          dueDate: deadlineLocked ? task.dueDate : dueDate || null,
+        },
+        { actor, people, deadlineReason }
+      );
+      if (!assigned.ok) {
+        return { ok: false, error: assigned.error, wrote: false };
+      }
+      setDeadlineReason("");
+      const scheduled = updateTask(
+        task.id,
+        { priority: mayEditSchedule ? priority : task.priority },
+        { actor, people }
+      );
+      if (!scheduled) {
+        return { ok: false, error: TASK_SAVE_DENIED, wrote: true };
+      }
+      const result = updateTaskStatus(task.id, status, {
+        notes,
+        notRequiredReason: reason,
+        actor,
+      });
+      if (!result) {
+        return { ok: false, error: TASK_SAVE_DENIED, wrote: true };
+      }
+      setErr(null);
+      return { ok: true, status: result.status, wrote: true };
+    },
+  }));
 
   if (!canUpdate) {
     return (
@@ -2088,7 +2173,6 @@ function SubtaskEditor({
           onChange={(next) => {
             setDepartment(next);
             setAssignees([]);
-            setResponsible(null);
           }}
           emptyLabel="Department…"
         />
@@ -2154,11 +2238,7 @@ function SubtaskEditor({
         <PeoplePicker
           people={selectable}
           assignees={assignees}
-          responsible={responsible}
-          onChange={(next) => {
-            setAssignees(next.assignees);
-            setResponsible(next.responsible);
-          }}
+          onChange={setAssignees}
         />
       )}
       <Input
@@ -2167,81 +2247,8 @@ function SubtaskEditor({
         onChange={(e) => setNotes(e.target.value)}
       />
       {err && <p className="text-xs text-[var(--destructive)]">{err}</p>}
-      <div className="flex flex-wrap gap-2">
-        <Button
-          size="sm"
-          {...entrySaveProps}
-          className="bg-[var(--fh-steel)]"
-          onClick={async () => {
-            if (!canUpdate) {
-              setErr(TASK_SAVE_DENIED);
-              return;
-            }
-            if (status === "not_required" && !reason.trim()) {
-              setErr("Reason is required for not required.");
-              return;
-            }
-            const nextDepartment = chosenDepartment(departmentControl, department);
-            const pool = peopleForDepartment(people, nextDepartment || "none");
-            const nextAssignees =
-              !canName || !departmentIsSet(nextDepartment)
-                ? task.assignees
-                : assignees.filter((name) => {
-                    const key = name.trim().toLowerCase();
-                    const inDepartment = pool.some(
-                      (person) => person.name.trim().toLowerCase() === key
-                    );
-                    const alreadyNamed =
-                      keepingSavedDepartment &&
-                      task.assignees.some(
-                        (item) => item.trim().toLowerCase() === key
-                      );
-                    return inDepartment || alreadyNamed;
-                  });
-            const nextResponsible = !canName
-              ? storedResponsible(task.assignees, task.responsible)
-              : storedResponsible(nextAssignees, responsible);
-            const assigned = assignTask(
-              task.id,
-              {
-                department: nextDepartment,
-                assignees: nextAssignees,
-                responsible: nextResponsible,
-                dueDate: deadlineLocked ? task.dueDate : dueDate || null,
-              },
-              { actor, people, deadlineReason }
-            );
-            if (!assigned.ok) {
-              setErr(assigned.error);
-              return;
-            }
-            setDeadlineReason("");
-            const scheduled = updateTask(
-              task.id,
-              { priority: mayEditSchedule ? priority : task.priority },
-              { actor, people }
-            );
-            if (!scheduled) {
-              setErr(TASK_SAVE_DENIED);
-              return;
-            }
-            const result = updateTaskStatus(task.id, status, {
-              notes,
-              notRequiredReason: reason,
-              actor,
-            });
-            if (!result) {
-              setErr(TASK_SAVE_DENIED);
-              return;
-            }
-            setErr(null);
-            const saved = await confirmWorkspaceSave();
-            if (saved) onDone();
-          }}
-        >
-          Save subtask
-        </Button>
-        {canConfirmTaskVerification(actor, task) && (
+      {canConfirmTaskVerification(actor, task) && (
+        <div className="flex flex-wrap gap-2">
           <Button
             size="sm"
             {...entrySaveProps}
@@ -2259,8 +2266,8 @@ function SubtaskEditor({
           >
             Confirm completion
           </Button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
