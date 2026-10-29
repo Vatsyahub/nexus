@@ -23,7 +23,6 @@ import {
   type Payment,
   type ScheduleChangeLogEntry,
   type ScheduleKind,
-  type TaskDeadlineChangeLogEntry,
   type ScheduleLine,
   type Task,
   type TaskCatalogKey,
@@ -112,9 +111,11 @@ import {
   type TaskDirectoryPerson,
 } from "@/lib/task-permissions";
 import {
+  buildTaskSaveLog,
   decideTaskDeadline,
   normalizeTaskDeadlineChangeLog,
   TASK_DEADLINE_MOVE_DENIED,
+  type TaskDeadlineReason,
 } from "@/lib/task-deadline-log";
 import { storedResponsible } from "@/lib/task-responsible";
 import {
@@ -747,25 +748,80 @@ function appendScheduleLog(
   };
 }
 
-function appendTaskDeadlineLog(
+type TaskChangeBatch = {
+  depth: number;
+  before: Task[];
+  reasons: TaskDeadlineReason[];
+};
+
+/** While a screen save is open, field edits share one log line. */
+let taskChangeBatch: TaskChangeBatch | null = null;
+
+export function beginTaskChangeSave() {
+  if (taskChangeBatch) {
+    taskChangeBatch.depth += 1;
+    return;
+  }
+  taskChangeBatch = { depth: 1, before: read().tasks, reasons: [] };
+}
+
+export function finishTaskChangeSave(actor?: { name?: string | null } | null) {
+  const batch = taskChangeBatch;
+  if (!batch) return;
+  if (batch.depth > 1) {
+    batch.depth -= 1;
+    return;
+  }
+  taskChangeBatch = null;
+  const data = read();
+  const next = applyTaskSaveLog(
+    data,
+    batch.before,
+    data.tasks,
+    batch.reasons,
+    actor?.name
+  );
+  if (next === data) return;
+  write(next);
+}
+
+function applyTaskSaveLog(
   data: FlowhubData,
-  entry: Omit<TaskDeadlineChangeLogEntry, "id" | "at"> & { at?: string }
+  before: Task[],
+  after: Task[],
+  reasons: TaskDeadlineReason[],
+  name: string | null | undefined
 ): FlowhubData {
-  const row: TaskDeadlineChangeLogEntry = {
-    id: crypto.randomUUID(),
-    at: entry.at ?? new Date().toISOString(),
-    by: (entry.by || "").trim() || "User",
-    taskId: entry.taskId,
-    contractId: entry.contractId,
-    taskTitle: (entry.taskTitle || "").trim(),
-    fromDate: entry.fromDate,
-    toDate: entry.toDate,
-    reason: entry.reason,
-  };
+  if (taskChangeBatch) {
+    for (const reason of reasons) taskChangeBatch.reasons.push(reason);
+    return data;
+  }
+  const entries = buildTaskSaveLog({
+    previousTasks: before,
+    nextTasks: after,
+    reasons,
+    by: (name || "").trim() || "User",
+  });
+  if (entries.length === 0) return data;
   return {
     ...data,
-    taskDeadlineChangeLog: [...(data.taskDeadlineChangeLog ?? []), row],
+    taskDeadlineChangeLog: [...(data.taskDeadlineChangeLog ?? []), ...entries],
   };
+}
+
+function deadlineReasonFor(
+  taskId: string,
+  deadline: { ok: true; log: { fromDate: string; toDate: string; reason: string } | null }
+): TaskDeadlineReason[] {
+  if (!deadline.log) return [];
+  return [
+    {
+      taskId,
+      fromDate: deadline.log.fromDate,
+      toDate: deadline.log.toDate,
+      reason: deadline.log.reason,
+    },
+  ];
 }
 
 function daysBetweenIso(from: string, to: string): number {
@@ -1913,6 +1969,7 @@ export function resetWorkspaceClientForTests() {
   unauthorizedStreak = 0;
   hydrateRequested = false;
   refreshPromise = null;
+  taskChangeBatch = null;
 }
 
 /**
@@ -4847,18 +4904,15 @@ export function assignTask(
       kind: "task_assigned",
     });
   }
-  if (deadline.ok && deadline.log) {
-    nextData = appendTaskDeadlineLog(nextData, {
-      by: (opts.actor?.name || "").trim() || opts.by || "User",
-      taskId: current.id,
-      contractId: current.contractId,
-      taskTitle: current.title,
-      fromDate: deadline.log.fromDate,
-      toDate: deadline.log.toDate,
-      reason: deadline.log.reason,
-    });
-  }
-  write(nextData);
+  write(
+    applyTaskSaveLog(
+      nextData,
+      data.tasks,
+      nextData.tasks,
+      deadline.ok ? deadlineReasonFor(current.id, deadline) : [],
+      opts.actor?.name || opts.by
+    )
+  );
   return { ok: true, task: nextTask };
 }
 
@@ -5000,10 +5054,11 @@ export function updateTaskStatus(
       current.status === "awaiting_verification"
     ) {
       const next = holdForVerification(current, opts?.actor ?? {}, opts);
-      write({
+      const nextData: FlowhubData = {
         ...data,
         tasks: data.tasks.map((t) => (t.id === id ? next : t)),
-      });
+      };
+      write(applyTaskSaveLog(nextData, data.tasks, nextData.tasks, [], opts?.actor?.name));
       return {
         status: "awaiting_verification",
         sideEffects: false,
@@ -5011,7 +5066,15 @@ export function updateTaskStatus(
       };
     }
     const applied = applyCompletion(data, current, opts?.actor, opts);
-    write(applied.data);
+    write(
+      applyTaskSaveLog(
+        applied.data,
+        data.tasks,
+        applied.data.tasks,
+        [],
+        opts?.actor?.name
+      )
+    );
     return {
       status: applied.task.status,
       sideEffects: applied.sideEffects,
@@ -5020,10 +5083,11 @@ export function updateTaskStatus(
   }
 
   const next = applyStatusFields(current, status, opts);
-  write({
+  const nextData: FlowhubData = {
     ...data,
     tasks: data.tasks.map((t) => (t.id === id ? next : t)),
-  });
+  };
+  write(applyTaskSaveLog(nextData, data.tasks, nextData.tasks, [], opts?.actor?.name));
   return { status, sideEffects: false, alreadyWaiting: false };
 }
 
@@ -5161,18 +5225,15 @@ export function updateTask(
       }),
     ]);
   }
-  if (deadline.ok && deadline.log) {
-    nextData = appendTaskDeadlineLog(nextData, {
-      by: (opts.actor?.name || "").trim() || "User",
-      taskId: current.id,
-      contractId: current.contractId,
-      taskTitle: current.title,
-      fromDate: deadline.log.fromDate,
-      toDate: deadline.log.toDate,
-      reason: deadline.log.reason,
-    });
-  }
-  write(nextData);
+  write(
+    applyTaskSaveLog(
+      nextData,
+      data.tasks,
+      nextData.tasks,
+      deadline.ok ? deadlineReasonFor(current.id, deadline) : [],
+      opts.actor?.name
+    )
+  );
   return next;
 }
 
@@ -5224,7 +5285,9 @@ opts?: { actor?: TaskActor }
   };
   let nextData: FlowhubData = { ...data, tasks: [...data.tasks, full] };
   nextData = notifyForTasks(nextData, [full], { kind: "task_created" });
-  write(nextData);
+  write(
+    applyTaskSaveLog(nextData, data.tasks, nextData.tasks, [], opts?.actor?.name)
+  );
   return full;
 }
 
@@ -5328,7 +5391,15 @@ export function completeTaskWithSubtasks(
   const parentApplied = applyCompletion(nextData, parentNow, opts?.actor, {
     notes: opts?.notes,
   });
-  write(parentApplied.data);
+  write(
+    applyTaskSaveLog(
+      parentApplied.data,
+      data.tasks,
+      parentApplied.data.tasks,
+      [],
+      opts?.actor?.name
+    )
+  );
   return {
     ok: true,
     status: parentApplied.task.status,
@@ -5361,10 +5432,11 @@ export function confirmTaskVerification(
     return { ok: false, error: "Close open subtasks before confirming." };
   }
   const next = applyStatusFields(current, "completed");
-  write({
+  const nextData: FlowhubData = {
     ...data,
     tasks: data.tasks.map((t) => (t.id === id ? next : t)),
-  });
+  };
+  write(applyTaskSaveLog(nextData, data.tasks, nextData.tasks, [], actor.name));
   return { ok: true };
 }
 
@@ -5386,17 +5458,23 @@ export function deleteTask(id: string): boolean {
 }
 
 /** Hide one subtask. No other task is changed. */
-export function deleteSubtask(id: string): boolean {
+export function deleteSubtask(
+  id: string,
+  opts?: { actor?: TaskActor }
+): boolean {
   const data = read();
   const current = data.tasks.find((t) => t.id === id);
   if (!current?.parentId || taskIsDeleted(current)) return false;
   const at = new Date().toISOString();
-  write({
+  const nextData: FlowhubData = {
     ...data,
     tasks: data.tasks.map((t) =>
       t.id === id ? { ...t, deletedAt: at } : t
     ),
-  });
+  };
+  write(
+    applyTaskSaveLog(nextData, data.tasks, nextData.tasks, [], opts?.actor?.name)
+  );
   return true;
 }
 

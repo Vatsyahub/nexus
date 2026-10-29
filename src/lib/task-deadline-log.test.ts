@@ -7,6 +7,9 @@ import {
   addManualTask,
   addSubtask,
   assignTask,
+  beginTaskChangeSave,
+  deleteSubtask,
+  finishTaskChangeSave,
   getData,
   resetWorkspaceClientForTests,
   updateTask,
@@ -19,6 +22,7 @@ import {
 } from "@/lib/task-permissions";
 import {
   decideTaskDeadline,
+  describeTaskChangeLog,
   TASK_DEADLINE_CLEAR_DENIED,
   TASK_DEADLINE_MOVE_DENIED,
   TASK_DEADLINE_REASON_REQUIRED,
@@ -200,7 +204,7 @@ function savedTask(id: string) {
 }
 
 describe("task deadline change log", { concurrency: false }, () => {
-  test("setting a deadline for the first time writes no log row", () => {
+  test("setting a deadline for the first time writes one line and no reason", () => {
     resetWorkspaceClientForTests();
     const byUpdate = freshTask({ title: "First by update", dueDate: null });
     const updated = updateTask(
@@ -209,7 +213,14 @@ describe("task deadline change log", { concurrency: false }, () => {
       { actor: director, people }
     );
     assert.equal(updated?.dueDate, "2026-11-15");
-    assert.equal(rowsFor(byUpdate.id).length, 0);
+    const first = rowsFor(byUpdate.id);
+    assert.equal(first.length, 1);
+    assert.equal(first[0]?.by, "Deepa Director");
+    assert.equal(first[0]?.reason ?? null, null);
+    assert.equal(first[0]?.fromDate ?? null, null);
+    assert.deepEqual(describeTaskChangeLog(first[0]!), [
+      "Deadline: No deadline → 15-Nov-2026",
+    ]);
 
     const byAssign = freshTask({ title: "First by assign", dueDate: null });
     const assigned = assignTask(
@@ -223,8 +234,11 @@ describe("task deadline change log", { concurrency: false }, () => {
     );
     assert.equal(assigned.ok, true);
     assert.equal(savedTask(byAssign.id).dueDate, "2026-12-01");
-    assert.equal(rowsFor(byAssign.id).length, 0);
-    assert.equal(getData().taskDeadlineChangeLog.length, 0);
+    const assignedLog = rowsFor(byAssign.id);
+    assert.equal(assignedLog.length, 1);
+    assert.equal(assignedLog[0]?.by, "Anil User");
+    assert.equal(assignedLog[0]?.reason ?? null, null);
+    assert.equal(getData().taskDeadlineChangeLog.length, 2);
   });
 
   test("moving a deadline later or earlier requires a reason and writes one row", () => {
@@ -471,7 +485,7 @@ describe("task deadline change log", { concurrency: false }, () => {
     );
     assert.equal(byDirector?.dueDate, "2026-11-25");
     assert.equal(savedTask(sub.id).notes, "director note");
-    assert.equal(rowsFor(sub.id).length, 1);
+    assert.equal(rowsFor(sub.id).length, 2);
 
     const bySubAssignee = updateTask(
       sub.id,
@@ -487,7 +501,7 @@ describe("task deadline change log", { concurrency: false }, () => {
       }
     );
     assert.equal(bySubAssignee?.dueDate, "2026-12-01");
-    assert.equal(rowsFor(sub.id).length, 2);
+    assert.equal(rowsFor(sub.id).length, 3);
 
     const byInstallManager = assignTask(
       sub.id,
@@ -501,11 +515,14 @@ describe("task deadline change log", { concurrency: false }, () => {
     assert.equal(byInstallManager.ok, true);
     assert.equal(savedTask(sub.id).dueDate, "2026-12-15");
     assert.equal(savedTask(parent.id).dueDate, "2026-11-15");
-    assert.equal(rowsFor(parent.id).length, 0);
-    assert.equal(rowsFor(sub.id).length, 3);
+    assert.deepEqual(
+      rowsFor(parent.id).flatMap((row) => describeTaskChangeLog(row)),
+      ["Subtask added: Install frames"]
+    );
+    assert.equal(rowsFor(sub.id).length, 4);
   });
 
-  test("notes and status do not write a deadline log row", () => {
+  test("notes and status write one line each, and an unchanged save writes none", () => {
     resetWorkspaceClientForTests();
     const row = freshTask({ title: "Other fields", dueDate: "2026-11-15" });
     updateTask(
@@ -513,11 +530,24 @@ describe("task deadline change log", { concurrency: false }, () => {
       { notes: "progress" },
       { actor: assignee, people }
     );
-    updateTaskStatus(row.id, "in_progress", { actor: assignee, notes: "going" });
+    assert.deepEqual(describeTaskChangeLog(rowsFor(row.id)[0]!), [
+      "Note: — → progress",
+    ]);
+    updateTaskStatus(row.id, "on_hold", { actor: assignee, notes: "going" });
     assert.equal(savedTask(row.id).dueDate, "2026-11-15");
     assert.equal(savedTask(row.id).notes, "going");
-    assert.equal(rowsFor(row.id).length, 0);
-    assert.equal(getData().taskDeadlineChangeLog.length, 0);
+    const lines = rowsFor(row.id);
+    assert.equal(lines.length, 2);
+    assert.equal(lines[0]?.fromDate ?? null, null);
+    assert.equal(lines[1]?.fromDate ?? null, null);
+    assert.match(describeTaskChangeLog(lines[1]!).join("\n"), /Status: In progress → On hold/);
+    assert.match(describeTaskChangeLog(lines[1]!).join("\n"), /Note: progress → going/);
+    updateTask(
+      row.id,
+      { title: "Other fields", notes: "going" },
+      { actor: assignee, people }
+    );
+    assert.equal(rowsFor(row.id).length, 2);
   });
 });
 
@@ -562,7 +592,12 @@ test("the workspace save enforces the deadline rules and does not drop the log",
     { actor: director, people }
   );
   assert.equal(firstSet.tasks[0]?.dueDate, "2026-11-15");
-  assert.equal(firstSet.taskDeadlineChangeLog.length, 0);
+  assert.equal(firstSet.taskDeadlineChangeLog.length, 1);
+  assert.equal(firstSet.taskDeadlineChangeLog[0]?.by, "Deepa Director");
+  assert.equal(firstSet.taskDeadlineChangeLog[0]?.reason ?? null, null);
+  assert.deepEqual(describeTaskChangeLog(firstSet.taskDeadlineChangeLog[0]!), [
+    "Deadline: No deadline → 15-Nov-2026",
+  ]);
 
   const noReason = saved(task({ dueDate: "2026-12-01" }), [], assignee, "user");
   assert.equal(noReason.tasks[0]?.dueDate, "2026-11-15");
@@ -753,11 +788,31 @@ test("a task save does not drop the deadline log, and only master and director r
   if (saved.action !== "save") return;
   assert.equal(saved.data.tasks[0]?.notes, "assignee note");
   assert.equal(saved.data.tasks[0]?.dueDate, "2026-11-15");
-  assert.equal(saved.data.taskDeadlineChangeLog.length, 2);
-  assert.deepEqual(
-    saved.data.taskDeadlineChangeLog.map((row) => row.id).sort(),
-    ["row-1", "row-2"]
+  const ids = saved.data.taskDeadlineChangeLog.map((row) => row.id);
+  assert.ok(ids.includes("row-1"));
+  assert.ok(ids.includes("row-2"));
+  assert.equal(saved.data.taskDeadlineChangeLog.length, 3);
+  const added = saved.data.taskDeadlineChangeLog.find(
+    (row) => row.id !== "row-1" && row.id !== "row-2"
   );
+  assert.equal(added?.by, "Anil User");
+  assert.deepEqual(describeTaskChangeLog(added!), ["Note: keep → assignee note"]);
+  assert.equal(
+    workspaceForAccount(saved.data, map, "user").taskDeadlineChangeLog.length,
+    0
+  );
+  assert.equal(
+    workspaceForAccount(saved.data, map, "user").tasks[0]?.notes,
+    "assignee note"
+  );
+  assert.equal(
+    workspaceForAccount(saved.data, map, "director").taskDeadlineChangeLog.length,
+    3
+  );
+  const legacy = saved.data.taskDeadlineChangeLog.find((row) => row.id === "row-1");
+  assert.deepEqual(describeTaskChangeLog(legacy!), [
+    "Deadline: 01-Oct-2026 → 15-Nov-2026. Reason: Earlier move",
+  ]);
 });
 
 test("a due date can be changed only by the people on that task", () => {
@@ -915,4 +970,195 @@ test("a due date can be changed only by the people on that task", () => {
   );
   assert.equal(byInstall?.dueDate, "2026-12-15");
   assert.equal(savedTask(row.id).dueDate, "2026-11-01");
+});
+
+test("one task save writes one line for every field that changed", () => {
+  resetWorkspaceClientForTests();
+  const row = freshTask({
+    title: "Check site",
+    dueDate: "2026-11-15",
+    assignees: ["Anil User"],
+  });
+  const saved = updateTask(
+    row.id,
+    {
+      title: "Site check",
+      assignees: ["Anil User", "Priya Manager"],
+      dueDate: "2026-12-01",
+      status: "on_hold",
+      notes: "Slipped a week",
+    },
+    { actor: assignee, people, deadlineReason: "Drawings slipped" }
+  );
+  assert.ok(saved);
+  const lines = rowsFor(row.id);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0]?.by, "Anil User");
+  assert.equal(lines[0]?.taskId, row.id);
+  assert.equal(lines[0]?.contractId, row.contractId);
+  assert.equal(lines[0]?.fromDate, "2026-11-15");
+  assert.equal(lines[0]?.toDate, "2026-12-01");
+  assert.equal(lines[0]?.reason, "Drawings slipped");
+  assert.deepEqual(describeTaskChangeLog(lines[0]!), [
+    "Task name: Check site → Site check",
+    "People: Anil User → Anil User, Priya Manager",
+    "Deadline: 15-Nov-2026 → 01-Dec-2026. Reason: Drawings slipped",
+    "Status: In progress → On hold",
+    "Note: — → Slipped a week",
+  ]);
+
+  const sub = addSubtask(row.id, { title: "Frames" }, { actor: assignee });
+  assert.ok(sub);
+  assert.equal(rowsFor(sub.id).length, 0);
+  assert.deepEqual(describeTaskChangeLog(rowsFor(row.id)[1]!), [
+    "Subtask added: Frames",
+  ]);
+
+  const open = addSubtask(
+    row.id,
+    { title: "Open step", department: null, assignees: [] },
+    { actor: director }
+  );
+  assert.ok(open);
+  const placed = assignTask(
+    open.id,
+    {
+      department: "Installation Department",
+      assignees: ["Site Lead"],
+    },
+    { actor: installManager, people }
+  );
+  assert.equal(placed.ok, true);
+  assert.deepEqual(describeTaskChangeLog(rowsFor(open.id)[0]!), [
+    "Department: — → Installation",
+    "People: — → Site Lead",
+    "Status: Pending → In progress",
+  ]);
+
+  assert.equal(deleteSubtask(sub.id, { actor: assignee }), true);
+  assert.deepEqual(describeTaskChangeLog(rowsFor(row.id).at(-1)!), [
+    "Subtask removed: Frames",
+  ]);
+  assert.equal(savedTask(row.id).notes, "Slipped a week");
+});
+
+test("a screen save that changes the task and a subtask writes one line", () => {
+  resetWorkspaceClientForTests();
+  const row = freshTask({ title: "Check site", dueDate: "2026-11-15" });
+  const sub = addSubtask(
+    row.id,
+    { title: "Frames", assignees: ["Anil User"] },
+    { actor: assignee }
+  );
+  assert.ok(sub);
+  beginTaskChangeSave();
+  updateTask(
+    row.id,
+    { title: "Site check", notes: "parent note" },
+    { actor: assignee, people }
+  );
+  updateTask(sub.id, { notes: "sub note" }, { actor: assignee, people });
+  finishTaskChangeSave(assignee);
+  const parentLines = rowsFor(row.id);
+  assert.equal(parentLines.length, 2);
+  assert.equal(rowsFor(sub.id).length, 0);
+  assert.deepEqual(describeTaskChangeLog(parentLines[1]!), [
+    "Task name: Check site → Site check",
+    "Note: — → parent note",
+    "Subtask edited: Frames — Note: — → sub note",
+  ]);
+
+  beginTaskChangeSave();
+  updateTask(row.id, { title: "Site check" }, { actor: assignee, people });
+  finishTaskChangeSave(assignee);
+  assert.equal(rowsFor(row.id).length, 2);
+});
+
+test("one workspace save writes one line and drops a forged field list", () => {
+  const parent = task({ id: "p", notes: "" });
+  const sub = task({
+    id: "s",
+    parentId: "p",
+    title: "Frames",
+    department: "Installation Department",
+    assignees: ["Site Lead"],
+    dueDate: "2026-11-20",
+    status: "in_progress",
+  });
+  const saved = mergeWorkspaceSave(
+    file({ tasks: [parent, sub] }),
+    file({
+      tasks: [
+        task({ ...parent, title: "Checked", notes: "done" }),
+        task({ ...sub, dueDate: "2026-12-01", notes: "moved" }),
+      ],
+      taskDeadlineChangeLog: [
+        logRow({
+          id: "sub-move",
+          taskId: "s",
+          taskTitle: "Frames",
+          fromDate: "2026-11-20",
+          toDate: "2026-12-01",
+          reason: "Site asked",
+          by: "Spoof",
+        }),
+        logRow({
+          id: "forged-note",
+          taskId: "p",
+          fromDate: "2026-01-01",
+          toDate: "2026-02-01",
+          reason: "Not real",
+        }),
+      ],
+    }),
+    access({ tasks: "edit" }),
+    "director",
+    { actor: director, people }
+  );
+  assert.equal(saved.tasks.find((item) => item.id === "p")?.title, "Checked");
+  assert.equal(saved.tasks.find((item) => item.id === "p")?.notes, "done");
+  assert.equal(saved.tasks.find((item) => item.id === "s")?.dueDate, "2026-12-01");
+  assert.equal(saved.tasks.find((item) => item.id === "s")?.notes, "moved");
+  assert.equal(saved.taskDeadlineChangeLog.length, 1);
+  const line = saved.taskDeadlineChangeLog[0];
+  assert.ok(line);
+  assert.equal(line.taskId, "p");
+  assert.equal(line.by, "Deepa Director");
+  assert.equal(line.contractId, "c1");
+  assert.equal(line.fromDate ?? null, null);
+  assert.deepEqual(describeTaskChangeLog(line), [
+    "Task name: Check site → Checked",
+    "Note: — → done",
+    "Subtask edited: Frames — Deadline: 20-Nov-2026 → 01-Dec-2026. Reason: Site asked; Note: — → moved",
+  ]);
+
+  const quiet = mergeWorkspaceSave(
+    file({
+      tasks: [task()],
+      taskDeadlineChangeLog: [logRow({ id: "old" })],
+    }),
+    file({
+      tasks: [task()],
+      taskDeadlineChangeLog: [
+        logRow({ id: "old" }),
+        {
+          id: "forged",
+          at: "2026-10-02T00:00:00.000Z",
+          by: "Spoof",
+          taskId: "task-1",
+          contractId: "c1",
+          taskTitle: "Check site",
+          changes: [{ kind: "note", from: "—", to: "forged" }],
+        },
+      ],
+    }),
+    access({ tasks: "edit" }),
+    "director",
+    { actor: director, people }
+  );
+  assert.equal(quiet.tasks[0]?.notes, "");
+  assert.equal(quiet.taskDeadlineChangeLog.length, 1);
+  assert.equal(quiet.taskDeadlineChangeLog[0]?.id, "old");
+  assert.equal(quiet.taskDeadlineChangeLog[0]?.fromDate, "2026-10-01");
+  assert.equal(quiet.taskDeadlineChangeLog[0]?.reason, "Earlier move");
 });

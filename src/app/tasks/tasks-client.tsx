@@ -18,6 +18,7 @@ import {
   afterGadCompleted,
   afterKickoffCompleted,
   assignTask,
+  beginTaskChangeSave,
   canConfirmTaskVerification,
   clearTaskDeadlineChangeLog,
   completeTaskWithSubtasks,
@@ -25,6 +26,7 @@ import {
   confirmTaskVerification,
   deleteSubtask,
   deleteTask,
+  finishTaskChangeSave,
   flushWorkspace,
   taskIsOpen,
   taskVisibleInLists,
@@ -62,6 +64,10 @@ import {
   formatDisplayDateTime,
 } from "@/lib/dates";
 import type { TaskDeadlineChangeLogEntry } from "@/lib/types";
+import {
+  describeTaskChangeLog,
+  taskChangeSearchBits,
+} from "@/lib/task-deadline-log";
 import { confirmWorkspaceSave } from "@/lib/save-notice";
 import {
   canEditTaskSchedule,
@@ -568,6 +574,7 @@ function TasksPageInner({
             contract?.projectName,
             contract?.city,
             contract?.state,
+            ...taskChangeSearchBits(entry),
             ...dateSearchForms(entry.at),
             ...dateSearchForms(entry.fromDate),
             ...dateSearchForms(entry.toDate),
@@ -667,7 +674,7 @@ function TasksPageInner({
           onChange={setQ}
           placeholder={
             showLog
-              ? "Search task, who, reason, date…"
+              ? "Search task, who, change, date…"
               : "Search title, contract, person, status, date…"
           }
         />
@@ -868,13 +875,14 @@ function TaskDeadlineLogPanel({
         ) : null}
       </div>
       <HubDataScroll className="overflow-x-auto rounded-xl border border-[var(--fh-line)] bg-white">
-        <table className="list-sticky-head w-full min-w-[760px] text-left text-sm">
+        <table className="list-sticky-head w-full min-w-[960px] text-left text-sm">
           <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-xs uppercase tracking-wide text-[var(--fh-muted)]">
             <tr>
               <th className="px-3 py-2 font-medium">When</th>
               <th className="px-3 py-2 font-medium">Who</th>
               <th className="px-3 py-2 font-medium">Project</th>
               <th className="px-3 py-2 font-medium">Task</th>
+              <th className="px-3 py-2 font-medium">Changes</th>
               <th className="px-3 py-2 font-medium">From</th>
               <th className="px-3 py-2 font-medium">To</th>
               <th className="px-3 py-2 font-medium">Reason</th>
@@ -884,12 +892,12 @@ function TaskDeadlineLogPanel({
             {entries.length === 0 ? (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={8}
                   className="px-3 py-8 text-center text-[var(--fh-muted)]"
                 >
                   {query.trim()
                     ? "No changes match your search."
-                    : "No deadline changes yet."}
+                    : "No changes yet."}
                 </td>
               </tr>
             ) : (
@@ -899,6 +907,7 @@ function TaskDeadlineLogPanel({
                 const contract = contractId
                   ? contracts.find((row) => row.id === contractId)
                   : null;
+                const lines = describeTaskChangeLog(entry);
                 return (
                   <tr key={entry.id}>
                     <td className="px-3 py-2 tabular-nums text-xs text-[var(--fh-muted)]">
@@ -909,13 +918,22 @@ function TaskDeadlineLogPanel({
                     <td className="px-3 py-2">
                       {task?.title || entry.taskTitle || "—"}
                     </td>
+                    <td className="px-3 py-2">
+                      {lines.length === 0 ? (
+                        "—"
+                      ) : (
+                        <span className="block whitespace-pre-line">
+                          {lines.join("\n")}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 tabular-nums">
                       {formatDisplayDate(entry.fromDate)}
                     </td>
                     <td className="px-3 py-2 tabular-nums">
                       {formatDisplayDate(entry.toDate)}
                     </td>
-                    <td className="px-3 py-2">{entry.reason}</td>
+                    <td className="px-3 py-2">{entry.reason || "—"}</td>
                   </tr>
                 );
               })
@@ -927,7 +945,7 @@ function TaskDeadlineLogPanel({
         filename="tasks-change-log"
         title="Tasks — Change log"
         filters={reportFilterSummary({ tab: "Change log", search: query })}
-        headers={["When", "Who", "Project no.", "Project", "Task", "From", "To", "Reason"]}
+        headers={["When", "Who", "Project no.", "Project", "Task", "Changes", "From", "To", "Reason"]}
         rows={entries.map((entry) => {
           const task = tasks.find((row) => row.id === entry.taskId);
           const contractId = entry.contractId || task?.contractId || null;
@@ -940,9 +958,10 @@ function TaskDeadlineLogPanel({
             contract?.projectNo ?? "",
             contract?.projectName ?? "",
             task?.title || entry.taskTitle || "",
+            describeTaskChangeLog(entry).join("; "),
             formatDisplayDate(entry.fromDate),
             formatDisplayDate(entry.toDate),
-            entry.reason,
+            entry.reason || "",
           ];
         })}
       />
@@ -1225,12 +1244,14 @@ export function TaskEditor({
   }
 
   async function saveUpdates() {
+    beginTaskChangeSave();
     const errors: string[] = [];
     let wrote = false;
     let statusResult: { status: TaskStatus; sideEffects: boolean } | null =
       null;
     let subtaskClosed = false;
 
+    try {
     if (editing && canUpdate) {
       const { nextDepartment, nextAssignees } = parentAssignees();
       const saved = assignTask(
@@ -1324,6 +1345,9 @@ export function TaskEditor({
     } else {
       setErr(null);
     }
+    } finally {
+      finishTaskChangeSave(actor);
+    }
     if (!wrote) return;
     const persisted = await confirmWorkspaceSave();
     if (!persisted || !statusResult) return;
@@ -1414,7 +1438,7 @@ export function TaskEditor({
   }
 
   function removeSubtask(id: string) {
-    deleteSubtask(id);
+    deleteSubtask(id, { actor });
     void flushWorkspace();
   }
 
