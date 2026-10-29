@@ -209,7 +209,7 @@ function DetailView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-      <HubDataScroll className="space-y-4">
+      <HubDataScroll className="space-y-4 overflow-x-auto">
       <section className="rounded-xl border border-[var(--fh-line)] bg-white p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -246,8 +246,8 @@ function DetailView({
         <h3 className="font-[family-name:var(--font-display)] text-xl text-[var(--fh-steel)]">
           Tax invoices
         </h3>
-        <ReportsTableScroll className="mt-3">
-          <table className="w-full table-fixed text-left text-sm">
+        <ReportsTableScroll className="mt-3" scroll={false}>
+          <table className="list-sticky-head w-full table-fixed text-left text-sm">
             <colgroup>
               <col className="w-[7%]" />
               <col className="w-[7%]" />
@@ -343,8 +343,8 @@ function DetailView({
         <h3 className="font-[family-name:var(--font-display)] text-xl text-[var(--fh-steel)]">
           Payments
         </h3>
-        <ReportsTableScroll className="mt-3">
-          <table className="w-full table-fixed text-left text-sm">
+        <ReportsTableScroll className="mt-3" scroll={false}>
+          <table className="list-sticky-head w-full table-fixed text-left text-sm">
             <colgroup>
               <col className="w-[16%]" />
               <col className="w-[12%]" />
@@ -583,7 +583,7 @@ function SummaryView({
         </p>
       </div>
       <ReportsTableScroll className="mt-3">
-        <table className="w-full table-fixed text-left text-sm">
+        <table className="list-sticky-head w-full table-fixed text-left text-sm">
           <colgroup>
             <col className="w-[28%]" />
             <col className="w-[10%]" />

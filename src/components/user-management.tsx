@@ -165,7 +165,7 @@ export function UsersTable({
 
   return (
     <div className="rounded-xl border border-[var(--fh-line)] bg-white">
-      <table className="w-full text-left text-sm">
+      <table className="list-sticky-head w-full text-left text-sm">
         <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-xs uppercase tracking-wide text-[var(--fh-muted)]">
           <tr>
             <th className="px-3 py-2 font-medium">Name</th>

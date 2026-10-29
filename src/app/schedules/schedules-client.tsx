@@ -479,7 +479,7 @@ function SchedulesClientInner({
             ) : null}
           </div>
           <HubDataScroll className="overflow-x-auto rounded-xl border border-[var(--fh-line)] bg-white">
-            <table className="w-full min-w-[640px] text-left text-sm">
+            <table className="list-sticky-head w-full min-w-[640px] text-left text-sm">
               <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-xs uppercase tracking-wide text-[var(--fh-muted)]">
                 <tr>
                   <th className="px-3 py-2 font-medium">When</th>
@@ -542,7 +542,7 @@ function SchedulesClientInner({
       ) : tab === "view" ? null : (
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
           <HubDataScroll className="overflow-x-auto rounded-xl border border-[var(--fh-line)] bg-white">
-            <table className="w-full min-w-[720px] text-left text-sm">
+            <table className="list-sticky-head w-full min-w-[720px] text-left text-sm">
               <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-xs uppercase tracking-wide text-[var(--fh-muted)]">
                 <tr>
                   <th className="px-3 py-2 font-medium">Project</th>

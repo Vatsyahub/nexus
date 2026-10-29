@@ -154,7 +154,7 @@ export function SchedulesTab({ data }: { data: FlowhubData }) {
         onDateToChange={setDateTo}
       />
       <ReportsTableScroll className="mt-4">
-        <table className="w-full table-fixed text-left text-sm">
+        <table className="list-sticky-head w-full table-fixed text-left text-sm">
           <colgroup>
             <col className="w-[16%]" />
             <col className="w-[10%]" />
@@ -289,7 +289,7 @@ export function SummaryTab({ data }: { data: FlowhubData }) {
         placeholder="Search project, city, item…"
       />
       <ReportsTableScroll className="mt-4" scrollX>
-        <table className="w-max min-w-full text-left text-sm">
+        <table className="list-sticky-head w-max min-w-full text-left text-sm">
           <thead className={theadClass}>
             <tr>
               <th className={cn(reportTh, "whitespace-nowrap")}>Project</th>
@@ -504,7 +504,7 @@ export function ItemListTab({
         placeholder="Search item, city…"
       />
       <ReportsTableScroll className="mt-4" scrollX>
-        <table className="w-max min-w-full text-left text-sm">
+        <table className="list-sticky-head w-max min-w-full text-left text-sm">
           <thead className={theadClass}>
             <tr>
               {headers.map((header, i) => (
@@ -759,7 +759,7 @@ function WorkordersTable({ data }: { data: FlowhubData }) {
         placeholder="Search project, city, status…"
       />
       <ReportsTableScroll className="mt-4">
-        <table className="w-full table-fixed text-left text-sm">
+        <table className="list-sticky-head w-full table-fixed text-left text-sm">
           <colgroup>
             <col className="w-[18%]" />
             <col className="w-[8%]" />
@@ -890,7 +890,7 @@ function TasksTable({ data }: { data: FlowhubData }) {
         placeholder="Search project…"
       />
       <ReportsTableScroll className="mt-4">
-        <table className="w-full table-fixed text-left text-sm">
+        <table className="list-sticky-head w-full table-fixed text-left text-sm">
           <colgroup>
             <col className="w-[40%]" />
             <col className="w-[15%]" />
@@ -1063,7 +1063,7 @@ function DcRecordsTable({
         className="mt-3"
       />
       <ReportsTableScroll className="mt-4">
-        <table className="w-full table-fixed text-left text-sm">
+        <table className="list-sticky-head w-full table-fixed text-left text-sm">
           <colgroup>
             <col className={canEdit ? "w-[24%]" : "w-[26%]"} />
             <col className="w-[15%]" />

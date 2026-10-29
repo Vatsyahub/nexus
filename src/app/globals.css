@@ -799,3 +799,39 @@ html[data-theme="matrix"] [class~="bg-amber-50/60"],
 html[data-theme="matrix"] [class~="bg-amber-100"] {
   background-color: #1a2608;
 }
+
+/* List column headers stay pinned inside HubDataScroll / ReportsTableScroll.
+   Sticky is top-only, so a sideways scroll still moves each heading with
+   its column. The cell fill is opaque so body rows cannot show through. */
+table.list-sticky-head > thead > tr > th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background-color: var(--fh-bg);
+  background-clip: padding-box;
+  box-shadow: inset 0 -1px 0 var(--fh-line);
+}
+
+/* Two-row header (opened amendment). The whole head pins as one unit.
+   border-collapse: collapse keeps a sticky thead from pinning. */
+table.list-sticky-group {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+table.list-sticky-group > thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+table.list-sticky-group > thead > tr > th {
+  background-color: var(--list-head-bg, var(--fh-bg));
+  background-clip: padding-box;
+  box-shadow: inset 0 -1px 0 var(--fh-line);
+}
+table.list-sticky-group > tbody > tr:not(:last-child) > td {
+  border-bottom: 1px solid var(--fh-line);
+}
+table.list-sticky-group > tfoot > tr:first-child > td {
+  border-top: 1px solid var(--fh-line);
+  background-color: var(--fh-bg);
+}

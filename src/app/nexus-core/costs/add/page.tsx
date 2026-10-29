@@ -83,7 +83,7 @@ export default function AddCostsPage() {
           Loading workspace from server…
         </p>
       ) : (
-        <HubDataScroll className="space-y-4">
+        <HubDataScroll className="space-y-4 overflow-x-auto">
           <section className="rounded-xl border border-[var(--fh-line)] bg-white p-4">
             <div className="max-w-xl">
               <ContractTypeahead
@@ -109,8 +109,8 @@ export default function AddCostsPage() {
           </section>
 
           {contract && (
-            <section className="overflow-hidden rounded-xl border border-[var(--fh-line)] bg-white">
-              <dl className="grid grid-cols-1 gap-px bg-[var(--fh-line)] sm:grid-cols-2 lg:grid-cols-5">
+            <section className="rounded-xl border border-[var(--fh-line)] bg-white">
+              <dl className="grid grid-cols-1 gap-px overflow-hidden rounded-t-xl bg-[var(--fh-line)] sm:grid-cols-2 lg:grid-cols-5">
                 <Readout label="Project name" value={contract.projectName} />
                 <Readout label="Project number" value={contract.projectNo} />
                 <div className="bg-white px-3 py-3 sm:px-4">
@@ -185,8 +185,7 @@ function BoqList({
       {items.length === 0 ? (
         <p className="px-4 py-6 text-sm text-[var(--fh-muted)]">No BOQ items.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[40rem] border-collapse text-left">
+          <table className="list-sticky-head w-full min-w-[40rem] border-collapse text-left">
             <thead>
               <tr className="border-b border-[var(--fh-line)]">
                 <th className="px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--fh-muted)] sm:px-4">
@@ -233,7 +232,6 @@ function BoqList({
               ))}
             </tbody>
           </table>
-        </div>
       )}
     </div>
   );
