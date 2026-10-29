@@ -132,8 +132,8 @@ function PaymentsPageInner() {
           order={LIST_WINDOW_ORDER.payments}
         />
 
-        <HubDataScroll className="space-y-4 overflow-x-auto">
-          <table className="list-sticky-head w-full min-w-[640px] border border-[var(--fh-line)] text-left text-sm">
+        <HubDataScroll className="overflow-x-auto rounded-lg border border-[var(--fh-line)] bg-white">
+          <table className="payments-list-head list-sticky-head w-full min-w-[640px] border-separate border-spacing-0 text-left text-sm">
             <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-xs uppercase tracking-wide text-[var(--fh-muted)]">
               <tr>
                 <th className="px-3 py-2 font-medium">Project</th>

@@ -812,6 +812,26 @@ table.list-sticky-head > thead > tr > th {
   box-shadow: inset 0 -1px 0 var(--fh-line);
 }
 
+/* Payments was the only list with its frame on the table. Collapsed borders
+   leave a strip above the sticky cells, and scrolled rows stay visible there.
+   The frame now sits on the scroll area. This fills any strip that remains,
+   and only this table matches. */
+table.payments-list-head {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+table.payments-list-head > thead > tr > th {
+  z-index: 3;
+  background-color: var(--fh-bg);
+  background-clip: border-box;
+  box-shadow:
+    inset 0 -1px 0 var(--fh-line),
+    0 -100vh 0 100vh var(--fh-bg);
+}
+table.payments-list-head > tbody > tr:not(:last-child) > td {
+  border-bottom: 1px solid var(--fh-line);
+}
+
 /* Two-row header (opened amendment). The whole head pins as one unit.
    border-collapse: collapse keeps a sticky thead from pinning. */
 table.list-sticky-group {
