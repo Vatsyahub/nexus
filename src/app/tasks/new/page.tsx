@@ -3,13 +3,14 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { defaultAccess } from "@/lib/access";
 import type { ClearanceRole } from "@/lib/clearance";
+import { safeTaskListReturn } from "@/lib/task-list";
 import type { AssignablePerson } from "../tasks-client";
 import { NewTaskClient } from "./new-task-client";
 
 export default async function NewTaskPage({
   searchParams,
 }: {
-  searchParams: Promise<{ contractId?: string | string[] }>;
+  searchParams: Promise<{ contractId?: string | string[]; from?: string | string[] }>;
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
@@ -17,6 +18,7 @@ export default async function NewTaskPage({
   const params = await searchParams;
   const raw = params.contractId;
   const contractId = typeof raw === "string" ? raw : "";
+  const from = typeof params.from === "string" ? params.from : "";
 
   const rows = await prisma.user.findMany({
     where: { clearance: { in: ["USER", "MANAGER"] } },
@@ -45,6 +47,7 @@ export default async function NewTaskPage({
       role={role}
       defaultContractId={contractId}
       canEditTasks={access.tasks === "edit"}
+      returnTo={from ? safeTaskListReturn(from) : ""}
     />
   );
 }

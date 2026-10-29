@@ -1,3 +1,4 @@
+import { storedResponsible } from "@/lib/task-responsible";
 import { TASK_CATALOG, type Task } from "@/lib/types";
 import {
   canConfirmTaskVerification,
@@ -380,6 +381,7 @@ function restoreEditableFields(prev: Task, next: Task): Task {
     contractId: prev.contractId,
     department: prev.department,
     assignees: prev.assignees,
+    responsible: prev.responsible ?? null,
     status: prev.status,
     dueDate: prev.dueDate,
     parentId: prev.parentId,
@@ -430,7 +432,15 @@ function withAllowedEdits(
     people,
   });
   const priority = canEditTaskSchedule(actor, prev) ? next.priority : prev.priority;
-  return settleTaskCompletion(prev, { ...next, department, assignees, priority }, actor);
+  const responsible = storedResponsible(
+    assignees,
+    next.responsible === undefined ? prev.responsible : next.responsible
+  );
+  return settleTaskCompletion(
+    prev,
+    { ...next, department, assignees, responsible, priority },
+    actor
+  );
 }
 
 function finishTaskNow(next: Task): Task {
@@ -537,6 +547,7 @@ function sanitizeNewTask(
     ...next,
     department,
     assignees,
+    responsible: storedResponsible(assignees, next.responsible),
     dueDate: next.dueDate,
     priority: priorityLocked ? "normal" : next.priority,
   };
@@ -576,18 +587,26 @@ export function applyTaskEditPolicy(
   people: TaskDirectoryPerson[]
 ): Task[] {
   const currentById = new Map(current.map((task) => [task.id, task]));
-  return incoming.map((next) => {
+  return incoming.flatMap((next) => {
     const prev = currentById.get(next.id);
-    if (!prev) return sanitizeNewTask(next, actor, people);
+    if (!prev) {
+      if (isSubtask(next.parentId)) {
+        const parent =
+          currentById.get(next.parentId || "") ??
+          incoming.find((row) => row.id === next.parentId);
+        if (parent && isSubtask(parent.parentId)) return [];
+      }
+      return [sanitizeNewTask(next, actor, people)];
+    }
     if (!canUpdateTask(actor, prev)) {
       if (
         next.status === "completed" &&
         canConfirmTaskVerification(actor, prev)
       ) {
-        return acceptVerificationConfirm(prev, next);
+        return [acceptVerificationConfirm(prev, next)];
       }
-      return restoreEditableFields(prev, next);
+      return [restoreEditableFields(prev, next)];
     }
-    return withAllowedEdits(prev, next, actor, people);
+    return [withAllowedEdits(prev, next, actor, people)];
   });
 }

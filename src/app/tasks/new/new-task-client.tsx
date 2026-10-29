@@ -5,19 +5,19 @@ import { HubReturnLink } from "@/components/hub-return-link";
 import { useRouter } from "next/navigation";
 import { addManualTask, flushWorkspace, listDepartments, useFlowhubData } from "@/lib/store";
 import {
-  TASK_CATALOG,
   TASK_PRIORITY_LABELS,
   departmentDisplayName,
-  type TaskCatalogKey,
   type TaskPriority,
 } from "@/lib/types";
 import type { ClearanceRole } from "@/lib/clearance";
+import { safeTaskListReturn } from "@/lib/task-list";
 import {
   canEditTaskSchedule,
   peopleNamedInDepartment,
   taskDepartmentControl,
 } from "@/lib/task-permissions";
-import type { AssignablePerson } from "../tasks-client";
+import { samePerson } from "@/lib/task-responsible";
+import { PeoplePicker, type AssignablePerson } from "../tasks-client";
 import { ADD_CONTRACT_MATCH_LIMIT } from "@/lib/add-contract-matches";
 import { ContractTypeahead } from "@/components/contract-typeahead";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
@@ -45,11 +45,13 @@ export function NewTaskClient({
   role,
   defaultContractId,
   canEditTasks,
+  returnTo,
 }: {
   people: AssignablePerson[];
   role: ClearanceRole;
   defaultContractId: string;
   canEditTasks: boolean;
+  returnTo: string;
 }) {
   const data = useFlowhubData();
   const router = useRouter();
@@ -72,36 +74,37 @@ export function NewTaskClient({
       ),
     [data.contracts]
   );
-  const listHref = defaultContractId
-    ? `/tasks?contractId=${encodeURIComponent(defaultContractId)}`
-    : "/tasks";
+  const listHref = returnTo
+    ? safeTaskListReturn(returnTo)
+    : defaultContractId
+      ? `/tasks?contractId=${encodeURIComponent(defaultContractId)}`
+      : "/tasks";
 
-  const [catalogKey, setCatalogKey] = useState<TaskCatalogKey>("custom");
   const [title, setTitle] = useState("");
   const [contractId, setContractId] = useState(defaultContractId);
   const [department, setDepartment] = useState("none");
   const [assignees, setAssignees] = useState<string[]>([]);
+  const [responsible, setResponsible] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("normal");
   const [error, setError] = useState<string | null>(null);
 
   const selectable = peopleForDepartment(people, department);
-  const catalog = TASK_CATALOG.find((c) => c.key === catalogKey);
-  const isCustom = catalogKey === "custom";
 
   function onDepartmentChange(next: string) {
     setDepartment(next);
-    setAssignees((prev) =>
-      prev.filter((name) =>
-        peopleForDepartment(people, next).some((p) => p.name === name)
-      )
-    );
-  }
-
-  function toggleAssignee(name: string) {
-    setAssignees((prev) =>
-      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
-    );
+    const allowed = peopleForDepartment(people, next);
+    setAssignees((prev) => {
+      const kept = prev.filter((name) =>
+        allowed.some((person) => samePerson(person.name, name))
+      );
+      setResponsible((current) =>
+        current && kept.some((name) => samePerson(name, current))
+          ? current
+          : (kept[0] ?? null)
+      );
+      return kept;
+    });
   }
 
   function submit(e: FormEvent) {
@@ -110,19 +113,9 @@ export function NewTaskClient({
       setError("Select a contract.");
       return;
     }
-    const contract = contracts.find((c) => c.id === contractId);
-    let finalTitle = title.trim();
-    if (!isCustom) {
-      if (catalogKey === "create_abg") {
-        finalTitle = `Create ABG — ${contract?.projectNo ?? ""}`;
-      } else if (catalogKey === "create_pbg") {
-        finalTitle = `Create PBG — ${contract?.projectNo ?? ""}`;
-      } else {
-        finalTitle = catalog?.title ?? finalTitle;
-      }
-    }
+    const finalTitle = title.trim();
     if (!finalTitle) {
-      setError("Enter a task title.");
+      setError("Enter a task name.");
       return;
     }
     const chosen =
@@ -131,22 +124,21 @@ export function NewTaskClient({
       departmentControl.options.includes(department)
         ? department
         : null;
+    const named = assignPeople
+      ? assignees.filter((name) =>
+          selectable.some((person) => samePerson(person.name, name))
+        )
+      : [];
     addManualTask({
       title: finalTitle,
       contractId,
       department: chosen,
-      assignees: assignPeople
-        ? assignees.filter((name) =>
-            selectable.some(
-              (person) =>
-                person.name.trim().toLowerCase() === name.trim().toLowerCase()
-            )
-          )
-        : [],
+      assignees: named,
+      responsible: assignPeople ? responsible : null,
       dueDate: dueDate || null,
       priority: maySetPriority ? priority : "normal",
-      catalogKey,
-      source: catalog?.system ? "system" : "manual",
+      catalogKey: "custom",
+      source: "manual",
     }, { actor: { name: "", clearance: role, department: null } });
     void flushWorkspace();
     router.push(listHref);
@@ -178,38 +170,14 @@ export function NewTaskClient({
         )}
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1 sm:col-span-2">
-            <Label>Type</Label>
-            <select
-              className="flex h-9 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
-              value={catalogKey}
-              onChange={(e) => {
-                const key = e.target.value as TaskCatalogKey;
-                setCatalogKey(key);
-                if (key !== "custom") setTitle("");
-              }}
-            >
-              {TASK_CATALOG.filter((c) =>
-                ["custom", "kickoff", "gad", "create_abg", "create_pbg"].includes(
-                  c.key
-                )
-              ).map((c) => (
-                <option key={c.key} value={c.key}>
-                  {c.title}
-                </option>
-              ))}
-            </select>
+            <Label>Task name</Label>
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="What needs doing"
+              required
+            />
           </div>
-          {isCustom && (
-            <div className="space-y-1 sm:col-span-2">
-              <Label>Title</Label>
-              <Input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="What needs doing"
-                required
-              />
-            </div>
-          )}
           <div className="sm:col-span-2">
             <ContractTypeahead
               contracts={contracts}
@@ -270,28 +238,16 @@ export function NewTaskClient({
           </div>
           {assignPeople && department !== "none" && (
             <div className="space-y-1 sm:col-span-2">
-              <Label>People (optional — equal owners)</Label>
-              <div className="flex flex-wrap gap-2 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)]/40 p-2">
-                {selectable.length === 0 ? (
-                  <p className="text-xs text-[var(--fh-muted)]">
-                    No users/managers in this department.
-                  </p>
-                ) : (
-                  selectable.map((p) => (
-                    <label
-                      key={p.id}
-                      className="flex items-center gap-1.5 text-sm"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={assignees.includes(p.name)}
-                        onChange={() => toggleAssignee(p.name)}
-                      />
-                      {p.name}
-                    </label>
-                  ))
-                )}
-              </div>
+              <Label>People</Label>
+              <PeoplePicker
+                people={selectable}
+                assignees={assignees}
+                responsible={responsible}
+                onChange={(next) => {
+                  setAssignees(next.assignees);
+                  setResponsible(next.responsible);
+                }}
+              />
             </div>
           )}
           {!assignPeople && (
