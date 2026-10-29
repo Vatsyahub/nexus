@@ -510,7 +510,7 @@ function ExpensesClientInner({
           order={LIST_WINDOW_ORDER.expenses}
           className="px-3 pt-3"
         />
-        <table className="w-full min-w-[720px] text-left text-sm">
+        <table className="list-sticky-head w-full min-w-[720px] text-left text-sm">
           <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-xs uppercase tracking-wide text-[var(--fh-muted)]">
             <tr>
               <th className="px-3 py-2 font-medium">Project</th>

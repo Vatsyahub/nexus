@@ -122,7 +122,7 @@ function AmendmentsList({
         placeholder="Search project, city…"
       />
       <ReportsTableScroll className="mt-4">
-        <table className="w-full table-fixed text-left text-sm">
+        <table className="list-sticky-head w-full table-fixed text-left text-sm">
           <colgroup>
             <col className="w-[24%]" />
             <col className="w-[12%]" />
@@ -288,7 +288,7 @@ function AmendmentDetails({
         )}
       >
         <table
-          className="w-full table-fixed text-left text-sm"
+          className="list-sticky-group w-full table-fixed text-left text-sm"
           style={
             versions.length > 3
               ? { minWidth: `${280 + versions.length * 220}px` }
@@ -315,11 +315,15 @@ function AmendmentDetails({
                 <th
                   key={version.key}
                   colSpan={2}
+                  style={{
+                    backgroundColor:
+                      version.kind === "wo"
+                        ? "var(--fh-steel)"
+                        : "color-mix(in srgb, var(--fh-accent) 15%, white)",
+                  }}
                   className={cn(
                     "border-l border-[var(--fh-line)] px-2 py-2 align-top text-left font-normal normal-case",
-                    version.kind === "wo"
-                      ? "bg-[var(--fh-steel)] text-white"
-                      : "bg-[var(--fh-accent)]/15 text-[var(--fh-ink)]"
+                    version.kind === "wo" ? "text-white" : "text-[var(--fh-ink)]"
                   )}
                 >
                   <VersionHeader version={version} contract={contract} />

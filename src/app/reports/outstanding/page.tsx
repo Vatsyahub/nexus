@@ -398,7 +398,7 @@ function InvoicesTable({
   return (
     <>
       <ReportsTableScroll className="mt-4">
-        <table className="w-full table-fixed text-left text-sm">
+        <table className="list-sticky-head w-full table-fixed text-left text-sm">
           <colgroup>
             <col className="w-[14%]" />
             <col className="w-[6%]" />
@@ -537,7 +537,7 @@ function ProformasTable({
   return (
     <>
       <ReportsTableScroll className="mt-4">
-        <table className="w-full table-fixed text-left text-sm">
+        <table className="list-sticky-head w-full table-fixed text-left text-sm">
           <colgroup>
             <col className="w-[16%]" />
             <col className="w-[8%]" />

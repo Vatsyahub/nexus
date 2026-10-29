@@ -109,6 +109,7 @@ export function ReportsTableScroll({
   children,
   className,
   scrollX = false,
+  scroll = true,
 }: {
   children: ReactNode;
   className?: string;
@@ -117,13 +118,22 @@ export function ReportsTableScroll({
    * Other reports leave this off and keep fitting the viewport.
    */
   scrollX?: boolean;
+  /**
+   * False when this frame sits inside HubDataScroll, which already scrolls
+   * the rows. A second scrollport would stop the header pinning there.
+   */
+  scroll?: boolean;
 }) {
   return (
     <div
-      data-hub-data-scroll=""
+      data-hub-data-scroll={scroll ? "" : undefined}
       className={cn(
-        "min-h-24 w-full max-w-full flex-1 overscroll-contain rounded-lg border border-[var(--fh-line)] [scrollbar-gutter:stable]",
-        scrollX ? "overflow-auto" : "overflow-x-hidden overflow-y-auto",
+        "w-full max-w-full overscroll-contain rounded-lg border border-[var(--fh-line)] [scrollbar-gutter:stable]",
+        scroll
+          ? scrollX
+            ? "min-h-24 flex-1 overflow-auto"
+            : "min-h-24 flex-1 overflow-x-hidden overflow-y-auto"
+          : "overflow-visible",
         className
       )}
     >

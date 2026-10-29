@@ -474,7 +474,7 @@ function CollectionsTable({
   return (
     <>
       <ReportsTableScroll className="mt-4">
-        <table className="w-full table-fixed text-left text-sm">
+        <table className="list-sticky-head w-full table-fixed text-left text-sm">
           <colgroup>
             <col className="w-[16%]" />
             <col className="w-[9%]" />
@@ -613,7 +613,7 @@ function GuaranteesTable({
   return (
     <>
       <ReportsTableScroll className="mt-4">
-        <table className="w-full table-fixed text-left text-sm">
+        <table className="list-sticky-head w-full table-fixed text-left text-sm">
           <colgroup>
             <col className="w-[18%]" />
             <col className="w-[7%]" />
@@ -756,7 +756,7 @@ function RetentionsTable({
   return (
     <>
       <ReportsTableScroll className="mt-4">
-        <table className="w-full table-fixed text-left text-sm">
+        <table className="list-sticky-head w-full table-fixed text-left text-sm">
           <colgroup>
             <col className="w-[28%]" />
             <col className="w-[18%]" />
@@ -912,7 +912,7 @@ function ExpensesTable({
   return (
     <>
       <ReportsTableScroll className="mt-4">
-        <table className="w-full table-fixed text-left text-sm">
+        <table className="list-sticky-head w-full table-fixed text-left text-sm">
           <colgroup>
             <col className="w-[26%]" />
             <col className="w-[14%]" />

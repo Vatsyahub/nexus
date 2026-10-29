@@ -774,7 +774,7 @@ function TasksPageInner({
       </div>
 
       <HubDataScroll className="space-y-2">
-        <div className="hidden gap-3 px-4 text-[11px] font-medium uppercase tracking-wide text-[var(--fh-muted)] lg:grid lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1.1fr)_minmax(0,0.9fr)_8rem_7.5rem]">
+        <div className="sticky top-0 z-10 mb-0 hidden gap-3 border-b border-[var(--fh-line)] bg-[var(--fh-bg)] px-4 pb-2 text-[11px] font-medium uppercase tracking-wide text-[var(--fh-muted)] lg:grid lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1.1fr)_minmax(0,0.9fr)_8rem_7.5rem]">
           <span>Task name</span>
           <span>Contract</span>
           <span>Department</span>
@@ -925,7 +925,7 @@ function TaskDeadlineLogPanel({
         ) : null}
       </div>
       <HubDataScroll className="overflow-x-auto rounded-xl border border-[var(--fh-line)] bg-white">
-        <table className="w-full min-w-[760px] text-left text-sm">
+        <table className="list-sticky-head w-full min-w-[760px] text-left text-sm">
           <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-xs uppercase tracking-wide text-[var(--fh-muted)]">
             <tr>
               <th className="px-3 py-2 font-medium">When</th>

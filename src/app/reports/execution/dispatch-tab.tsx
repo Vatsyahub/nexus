@@ -239,7 +239,7 @@ function AddDcForm({
           Add delivery challan
         </h3>
         <ReportsTableScroll className="min-h-0 bg-white">
-          <table className="w-full table-fixed text-left text-sm">
+          <table className="list-sticky-head w-full table-fixed text-left text-sm">
             <colgroup>
               <col className="w-[34%]" />
               <col className="w-[10%]" />

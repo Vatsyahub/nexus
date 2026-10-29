@@ -84,7 +84,7 @@ function ContractsPageInner() {
       />
 
       <HubDataScroll className="overflow-x-auto rounded-xl border border-[var(--fh-line)] bg-white">
-        <Table>
+        <Table className="list-sticky-head">
           <TableHeader className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-xs uppercase tracking-wide text-[var(--fh-muted)]">
             <TableRow>
               <TableHead>PROJECT</TableHead>

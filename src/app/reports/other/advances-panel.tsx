@@ -59,7 +59,7 @@ export function RecoverableAdvancesPanel({ data }: { data: FlowhubData }) {
         placeholder="Search project…"
       />
       <ReportsTableScroll className="mt-4">
-        <table className="w-full table-fixed text-left text-sm">
+        <table className="list-sticky-head w-full table-fixed text-left text-sm">
           <colgroup>
             <col className="w-[40%]" />
             <col className="w-[20%]" />

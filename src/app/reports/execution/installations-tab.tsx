@@ -267,7 +267,7 @@ export function InstallationsTab({
             </p>
           )}
           <ReportsTableScroll className="min-h-0">
-            <table className="w-full table-fixed text-left text-sm">
+            <table className="list-sticky-head w-full table-fixed text-left text-sm">
               <colgroup>
                 <col className={canEdit ? "w-[34%]" : "w-[40%]"} />
                 <col className={canEdit ? "w-[12%]" : "w-[11%]"} />
@@ -371,7 +371,7 @@ export function InstallationsTab({
               Installation history
             </h3>
             <ReportsTableScroll className="mt-2 min-h-0">
-              <table className="w-full table-fixed text-left text-sm">
+              <table className="list-sticky-head w-full table-fixed text-left text-sm">
                 <colgroup>
                   <col className="w-[16%]" />
                   <col className="w-[38%]" />
