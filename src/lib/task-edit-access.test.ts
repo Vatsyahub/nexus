@@ -117,11 +117,10 @@ test("task and subtask saves follow the department on that row", () => {
 
   const byNamed = updateTask(
     created.id,
-    { notes: "named note", priority: "high" },
+    { notes: "named note" },
     { actor: named, people }
   );
   assert.equal(byNamed?.notes, "named note");
-  assert.equal(byNamed?.priority, "high");
 
   const waiting = updateTaskStatus(created.id, "completed", {
     actor: named,
@@ -130,12 +129,6 @@ test("task and subtask saves follow the department on that row", () => {
   assert.equal(waiting?.status, "awaiting_verification");
   assert.equal(taskByTitle("Dept lock parent").status, "awaiting_verification");
 
-  const byDirector = updateTask(
-    created.id,
-    { priority: "urgent" },
-    { actor: director, people }
-  );
-  assert.equal(byDirector?.priority, "urgent");
   const finished = updateTaskStatus(created.id, "completed", { actor: director });
   assert.equal(finished?.status, "completed");
 

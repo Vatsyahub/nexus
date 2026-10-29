@@ -34,11 +34,9 @@ import {
   type TaskActor,
 } from "@/lib/store";
 import {
-  TASK_PRIORITY_LABELS,
   TASK_STATUS_LABELS,
   departmentDisplayName,
   type Task,
-  type TaskPriority,
   type TaskStatus,
 } from "@/lib/types";
 import type { ClearanceRole } from "@/lib/clearance";
@@ -80,6 +78,7 @@ import {
   assembleDepartmentView,
   assembleMatchedRows,
   assembleSubtaskView,
+  compareTasks,
   subtasksOnlyLines,
   type TaskListRow,
 } from "@/lib/task-list";
@@ -125,13 +124,6 @@ function parseTaskView(raw: string): ViewFilter {
 function taskFilterParam(view: ViewFilter): string | null {
   if (view === "all") return null;
   return view;
-}
-
-function parseTaskPriority(raw: string): "all" | TaskPriority {
-  if (raw === "low" || raw === "normal" || raw === "high" || raw === "urgent") {
-    return raw;
-  }
-  return "all";
 }
 
 function todayIso() {
@@ -226,25 +218,6 @@ function isOverdue(t: Task, today: string) {
   return taskIsOpen(t) && !!t.dueDate && t.dueDate < today;
 }
 
-function priorityRank(p: TaskPriority) {
-  return { urgent: 0, high: 1, normal: 2, low: 3 }[p];
-}
-
-function sortTasks(a: Task, b: Task, today: string) {
-  const aDone = taskIsOpen(a) ? 0 : 1;
-  const bDone = taskIsOpen(b) ? 0 : 1;
-  if (aDone !== bDone) return aDone - bDone;
-  const aOd = isOverdue(a, today) ? 0 : 1;
-  const bOd = isOverdue(b, today) ? 0 : 1;
-  if (aOd !== bOd) return aOd - bOd;
-  const pr = priorityRank(a.priority) - priorityRank(b.priority);
-  if (pr !== 0) return pr;
-  const aDue = a.dueDate || "9999-99-99";
-  const bDue = b.dueDate || "9999-99-99";
-  if (aDue !== bDue) return aDue.localeCompare(bDue);
-  return b.createdAt.localeCompare(a.createdAt);
-}
-
 function formatLastUpdated(t: Task) {
   return formatDisplayDate(t.notesUpdatedAt);
 }
@@ -333,7 +306,6 @@ function TasksPageInner({
     : parseTaskView(get("view") || urlFilter);
   const view: ViewFilter =
     requestedView === "dept" && !showDept ? "all" : requestedView;
-  const priorityFilter = focusTaskId ? "all" : parseTaskPriority(get("priority"));
   const showLog = get("log") === "1";
   const subtasksOnly = get("subs") === "1";
 
@@ -348,10 +320,6 @@ function TasksPageInner({
       task: null,
       highlight: null,
     });
-  }
-
-  function setPriorityFilter(next: "all" | TaskPriority) {
-    commit({ priority: next === "all" ? null : next, task: null, highlight: null });
   }
 
   function setShowLog(next: boolean) {
@@ -376,6 +344,11 @@ function TasksPageInner({
   }, [data.contracts]);
 
   useEffect(() => {
+    if (!get("priority")) return;
+    commit({ priority: null });
+  }, [get, commit]);
+
+  useEffect(() => {
     if (!focusTaskId) return;
     const target = data.tasks.find((t) => t.id === focusTaskId && !t.deletedAt);
     if (!target) return;
@@ -394,8 +367,6 @@ function TasksPageInner({
     return data.tasks.filter((t) => {
       if (!taskVisibleInLists(t)) return false;
       if (contractId && t.contractId !== contractId) return false;
-      if (priorityFilter !== "all" && t.priority !== priorityFilter)
-        return false;
       if (!needle) return true;
       const c = t.contractId ? contractById.get(t.contractId) ?? null : null;
       if (taskMatchesQuery(t, c, q)) return true;
@@ -420,7 +391,6 @@ function TasksPageInner({
     contractById,
     q,
     contractId,
-    priorityFilter,
   ]);
 
   const roots = useMemo(
@@ -434,7 +404,6 @@ function TasksPageInner({
     return (t: Task) => {
       if (!taskVisibleInLists(t)) return false;
       if (contractId && t.contractId !== contractId) return false;
-      if (priorityFilter !== "all" && t.priority !== priorityFilter) return false;
       if (!needle) return true;
       const c = t.contractId ? contractById.get(t.contractId) ?? null : null;
       if (taskMatchesQuery(t, c, q)) return true;
@@ -446,7 +415,7 @@ function TasksPageInner({
         : null;
       return taskMatchesQuery(parent, pc, q);
     };
-  }, [q, contractId, priorityFilter, contractById, data.tasks]);
+  }, [q, contractId, contractById, data.tasks]);
 
   const openSubtasksByParent = useMemo(() => {
     const counts = new Map<string, number>();
@@ -459,7 +428,7 @@ function TasksPageInner({
 
   const subtaskViews = useMemo(() => {
     const ids = ["unassigned", "overdue", "completed"] as const;
-    const compare = (a: Task, b: Task) => sortTasks(a, b, today);
+    const compare = (a: Task, b: Task) => compareTasks(a, b, today);
     const tasks = data.tasks.filter(
       (t) => !t.deletedAt && (!contractId || t.contractId === contractId)
     );
@@ -501,7 +470,7 @@ function TasksPageInner({
         matchesTask: (task) =>
           matchesHubRow(task) &&
           namedOnTask({ name: currentUserName }, task),
-        compare: (a, b) => sortTasks(a, b, today),
+        compare: (a, b) => compareTasks(a, b, today),
       }),
     [listTasks, matchesHubRow, currentUserName, today]
   );
@@ -511,7 +480,7 @@ function TasksPageInner({
         tasks: listTasks,
         departments: deptDepartments,
         matchesRow: matchesHubRow,
-        compare: (a, b) => sortTasks(a, b, today),
+        compare: (a, b) => compareTasks(a, b, today),
       }),
     [listTasks, deptDepartments, matchesHubRow, today]
   );
@@ -528,7 +497,7 @@ function TasksPageInner({
   }, [roots, myView, deptView, subtaskViews]);
 
   const visibleRoots = useMemo(() => {
-    return roots.slice().sort((a, b) => sortTasks(a, b, today));
+    return roots.slice().sort((a, b) => compareTasks(a, b, today));
   }, [roots, today]);
 
   const listView: ViewFilter =
@@ -566,7 +535,6 @@ function TasksPageInner({
     const viewParam = taskFilterParam(listView);
     if (viewParam) params.set("view", viewParam);
     if (q) params.set("q", q);
-    if (priorityFilter !== "all") params.set("priority", priorityFilter);
     if (subtasksOnly) params.set("subs", "1");
     const search = params.toString();
     return search ? `/tasks?${search}` : "/tasks";
@@ -703,25 +671,6 @@ function TasksPageInner({
               : "Search title, contract, person, status, date…"
           }
         />
-        {!showLog && (
-        <div className="flex items-center gap-2">
-          <Label className="text-xs text-[var(--fh-muted)]">Priority</Label>
-          <select
-            className="flex h-9 rounded-lg border border-input bg-white px-2 text-sm"
-            value={priorityFilter}
-            onChange={(e) =>
-              setPriorityFilter(e.target.value as "all" | TaskPriority)
-            }
-          >
-            <option value="all">All</option>
-            {(Object.keys(TASK_PRIORITY_LABELS) as TaskPriority[]).map((p) => (
-              <option key={p} value={p}>
-                {TASK_PRIORITY_LABELS[p]}
-              </option>
-            ))}
-          </select>
-        </div>
-        )}
       </div>
 
       {canViewDeadlineLog && showLog ? (
@@ -863,12 +812,6 @@ function TasksPageInner({
           tab: views.find((v) => v.id === listView)?.label ?? null,
           contract: contractLabel ?? null,
           search: q,
-          extra: [
-            [
-              "Priority",
-              priorityFilter === "all" ? "" : TASK_PRIORITY_LABELS[priorityFilter],
-            ],
-          ],
         })}
         headers={["Task name", "Parent", "Contract", "Project no.", "Department", "Deadline", "Status"]}
         rows={displayLines.map((line) => {
@@ -1140,7 +1083,6 @@ export function TaskEditor({
   const [assignees, setAssignees] = useState<string[]>(task.assignees);
   const [dueDate, setDueDate] = useState(task.dueDate ?? "");
   const [deadlineReason, setDeadlineReason] = useState("");
-  const [priority, setPriority] = useState<TaskPriority>(task.priority);
   const [status, setStatus] = useState<TaskStatus>(
     task.status === "not_required" ? "completed" : task.status
   );
@@ -1227,7 +1169,6 @@ export function TaskEditor({
     setAssignees([...task.assignees]);
     setDueDate(task.dueDate ?? "");
     setDeadlineReason("");
-    setPriority(task.priority);
     setStatus(task.status === "not_required" ? "completed" : task.status);
     setNotes(task.notes ?? "");
     setClosures({});
@@ -1311,7 +1252,6 @@ export function TaskEditor({
         task.id,
         {
           title: title.trim() || task.title,
-          priority: mayEditSchedule ? priority : task.priority,
         },
         { actor, people }
       );
@@ -1790,9 +1730,6 @@ export function TaskEditor({
           <SummaryField label="Deadline">
             {task.dueDate ? formatDisplayDate(task.dueDate) : "No deadline"}
           </SummaryField>
-          <SummaryField label="Priority">
-            {TASK_PRIORITY_LABELS[task.priority]}
-          </SummaryField>
           <SummaryField label="Status">
             {TASK_STATUS_LABELS[task.status]}
           </SummaryField>
@@ -1904,26 +1841,6 @@ export function TaskEditor({
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
               />
-            )}
-          </div>
-          <div className="col-span-2 min-w-0 space-y-1 lg:col-span-2">
-            <Label className="text-xs">Priority</Label>
-            {mayEditSchedule ? (
-              <select
-                className="flex h-9 w-full rounded-lg border border-input bg-white px-2 text-sm"
-                value={priority}
-                onChange={(e) => setPriority(e.target.value as TaskPriority)}
-              >
-                {(Object.keys(TASK_PRIORITY_LABELS) as TaskPriority[]).map((p) => (
-                  <option key={p} value={p}>
-                    {TASK_PRIORITY_LABELS[p]}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <p className="flex h-9 items-center text-sm text-[var(--fh-ink)]">
-                {TASK_PRIORITY_LABELS[task.priority]}
-              </p>
             )}
           </div>
           {canName && (
@@ -2153,7 +2070,6 @@ function SubtaskEditor({
   const [assignees, setAssignees] = useState<string[]>(task.assignees);
   const [dueDate, setDueDate] = useState(task.dueDate ?? "");
   const [deadlineReason, setDeadlineReason] = useState("");
-  const [priority, setPriority] = useState<TaskPriority>(task.priority);
   const [status, setStatus] = useState<TaskStatus>(task.status);
   const [notes, setNotes] = useState(task.notes ?? "");
   const [reason, setReason] = useState(task.notRequiredReason ?? "");
@@ -2221,14 +2137,6 @@ function SubtaskEditor({
         return { ok: false, error: assigned.error, wrote: false };
       }
       setDeadlineReason("");
-      const scheduled = updateTask(
-        task.id,
-        { priority: mayEditSchedule ? priority : task.priority },
-        { actor, people }
-      );
-      if (!scheduled) {
-        return { ok: false, error: TASK_SAVE_DENIED, wrote: true };
-      }
       const result = updateTaskStatus(task.id, status, {
         notes,
         notRequiredReason: reason,
@@ -2274,7 +2182,7 @@ function SubtaskEditor({
       className="mt-1 w-full space-y-1.5 border-t border-[var(--fh-line)] pt-1.5"
       data-task-access="edit"
     >
-      <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
         <DepartmentField
           control={departmentControl}
           value={department}
@@ -2295,23 +2203,6 @@ function SubtaskEditor({
             value={dueDate}
             onChange={(e) => setDueDate(e.target.value)}
           />
-        )}
-        {mayEditSchedule ? (
-          <select
-            className="flex h-9 rounded-lg border border-input bg-white px-2 text-sm"
-            value={priority}
-            onChange={(e) => setPriority(e.target.value as TaskPriority)}
-          >
-            {(Object.keys(TASK_PRIORITY_LABELS) as TaskPriority[]).map((p) => (
-              <option key={p} value={p}>
-                {TASK_PRIORITY_LABELS[p]}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <p className="flex h-9 items-center text-sm text-[var(--fh-ink)]">
-            {TASK_PRIORITY_LABELS[task.priority]}
-          </p>
         )}
         <select
           className="flex h-9 rounded-lg border border-input bg-white px-2 text-sm"

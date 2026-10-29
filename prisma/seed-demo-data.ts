@@ -443,7 +443,6 @@ function buildWorkspace(): FlowhubData {
   const task = (
     partial: Omit<
       Task,
-      | "priority"
       | "notes"
       | "assignees"
       | "catalogKey"
@@ -454,7 +453,6 @@ function buildWorkspace(): FlowhubData {
       Partial<
         Pick<
           Task,
-          | "priority"
           | "notes"
           | "assignees"
           | "catalogKey"
@@ -470,7 +468,6 @@ function buildWorkspace(): FlowhubData {
     const closed =
       rest.status === "completed" || rest.status === "not_required";
     return {
-      priority: "normal",
       notes: "",
       catalogKey: null,
       notesUpdatedAt: null,
@@ -506,7 +503,6 @@ function buildWorkspace(): FlowhubData {
       parentId: null,
       source: "system",
       catalogKey: "gad",
-      priority: "high",
       notes: "Rev-B with client for markups",
       notesUpdatedAt: isoDaysFromToday(-1) + "T09:00:00.000Z",
       createdAt: isoDaysFromToday(-120) + "T10:00:00.000Z",
@@ -561,7 +557,6 @@ function buildWorkspace(): FlowhubData {
       parentId: null,
       source: "system",
       catalogKey: "kickoff",
-      priority: "high",
       createdAt: isoDaysFromToday(-60) + "T10:00:00.000Z",
     }),
     task({
@@ -575,7 +570,6 @@ function buildWorkspace(): FlowhubData {
       parentId: null,
       source: "system",
       catalogKey: "create_pbg",
-      priority: "urgent",
       createdAt: isoDaysFromToday(-60) + "T10:00:00.000Z",
     }),
     task({
@@ -589,7 +583,6 @@ function buildWorkspace(): FlowhubData {
       parentId: null,
       source: "manual",
       catalogKey: "custom",
-      priority: "urgent",
       notes: "Site fence not opened; client PO contacted twice.",
       notesUpdatedAt: isoDaysFromToday(-2) + "T14:00:00.000Z",
       createdAt: isoDaysFromToday(-40) + "T10:00:00.000Z",
@@ -631,7 +624,6 @@ function buildWorkspace(): FlowhubData {
       parentId: null,
       source: "manual",
       catalogKey: "custom",
-      priority: "normal",
       notes: "Waiting on client holiday calendar",
       notesUpdatedAt: isoDaysFromToday(-3) + "T11:00:00.000Z",
       createdAt: isoDaysFromToday(-8) + "T10:00:00.000Z",

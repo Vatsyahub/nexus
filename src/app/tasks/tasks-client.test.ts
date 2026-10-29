@@ -71,7 +71,6 @@ function task(partial: Partial<EditorProps["task"]> = {}): EditorProps["task"] {
     parentId: null,
     source: "manual",
     catalogKey: "custom",
-    priority: "low",
     notes: "Bring the drawing",
     notesUpdatedAt: null,
     completedAt: null,
@@ -90,7 +89,6 @@ function editorProps(extra: Partial<EditorProps> = {}): EditorProps {
         id: "s1",
         title: "Lay cable",
         parentId: parent.id,
-        priority: "normal",
       }),
     ],
     people: [
@@ -127,7 +125,8 @@ test("opening a task shows the summary and Add updates with the box closed", () 
   assert.equal(html.includes("Lay cable"), false);
   assert.equal(html.includes("Update note"), false);
   assert.equal((html.match(/Task name/g) ?? []).length, 1);
-  assert.match(html, /Low/);
+  assert.match(html, /Pending/);
+  assert.equal(html.includes("Priority"), false);
   assert.match(html, /Check site/);
 });
 
@@ -144,13 +143,14 @@ test("Add updates shows the fields, subtasks, and a larger centred Save updates"
   assert.equal(html.includes("Add updates"), false);
   assert.match(html, /Lay cable/);
   assert.match(html, /Update note/);
-  assert.match(html, /<option[^>]*>Low<\/option>/);
+  assert.equal(html.includes("Priority"), false);
+  assert.equal(html.includes(">Low<"), false);
+  assert.equal(html.includes(">Normal<"), false);
   for (const label of [
     "Task name",
     "Department",
     "People",
     "Deadline",
-    "Priority",
     "Status",
   ]) {
     assert.ok(html.includes(label), label);

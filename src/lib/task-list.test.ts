@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   assembleDepartmentView,
   assembleSubtaskView,
+  compareTasks,
   safeTaskListReturn,
   subtasksOnlyLines,
 } from "@/lib/task-list";
@@ -18,7 +19,6 @@ function task(partial: Partial<Task> & Pick<Task, "id" | "title">): Task {
     parentId: null,
     source: "manual",
     catalogKey: "custom",
-    priority: "normal",
     notes: "",
     notesUpdatedAt: null,
     completedAt: null,
@@ -199,6 +199,58 @@ test("subtasks only drops a parent that is listed for a matching subtask", () =>
   assert.deepEqual(
     lines.map((line) => [line.task.id, line.parent.title]),
     [["sub", "Parent"]]
+  );
+});
+
+test("list order is open, then overdue, then earlier deadline, then newer", () => {
+  const today = "2026-10-17";
+  const rows = [
+    task({
+      id: "done",
+      title: "Finished",
+      status: "completed",
+      dueDate: "2026-01-01",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    }),
+    task({
+      id: "later",
+      title: "Later deadline",
+      status: "pending",
+      dueDate: "2026-12-20",
+      createdAt: "2026-10-02T00:00:00.000Z",
+    }),
+    task({
+      id: "overdue-new",
+      title: "Overdue newer",
+      status: "in_progress",
+      dueDate: "2026-10-01",
+      createdAt: "2026-10-03T00:00:00.000Z",
+    }),
+    task({
+      id: "open-new",
+      title: "Same deadline newer",
+      status: "pending",
+      dueDate: "2026-11-01",
+      createdAt: "2026-10-05T00:00:00.000Z",
+    }),
+    task({
+      id: "open-old",
+      title: "Same deadline older",
+      status: "pending",
+      dueDate: "2026-11-01",
+      createdAt: "2026-09-01T00:00:00.000Z",
+    }),
+    task({
+      id: "overdue-old",
+      title: "Overdue earlier",
+      status: "pending",
+      dueDate: "2026-09-01",
+      createdAt: "2026-08-01T00:00:00.000Z",
+    }),
+  ];
+  assert.deepEqual(
+    rows.slice().sort((a, b) => compareTasks(a, b, today)).map((row) => row.id),
+    ["overdue-old", "overdue-new", "open-new", "open-old", "later", "done"]
   );
 });
 

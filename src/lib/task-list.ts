@@ -16,6 +16,30 @@ function isOpen(task: Pick<Task, "status" | "deletedAt">): boolean {
   return task.status !== "completed" && task.status !== "not_required";
 }
 
+function isOverdueOpen(
+  task: Pick<Task, "status" | "deletedAt" | "dueDate">,
+  today: string
+): boolean {
+  return isOpen(task) && !!task.dueDate && task.dueDate < today;
+}
+
+/**
+ * Open tasks above finished ones, overdue open tasks above the rest,
+ * then an earlier deadline, then a newer task.
+ */
+export function compareTasks(a: Task, b: Task, today: string): number {
+  const aDone = isOpen(a) ? 0 : 1;
+  const bDone = isOpen(b) ? 0 : 1;
+  if (aDone !== bDone) return aDone - bDone;
+  const aLate = isOverdueOpen(a, today) ? 0 : 1;
+  const bLate = isOverdueOpen(b, today) ? 0 : 1;
+  if (aLate !== bLate) return aLate - bLate;
+  const aDue = a.dueDate || "9999-99-99";
+  const bDue = b.dueDate || "9999-99-99";
+  if (aDue !== bDue) return aDue.localeCompare(bDue);
+  return b.createdAt.localeCompare(a.createdAt);
+}
+
 export function taskMatchesHubView(
   task: Pick<Task, "status" | "department" | "assignees" | "dueDate" | "deletedAt">,
   view: SubtaskListView,

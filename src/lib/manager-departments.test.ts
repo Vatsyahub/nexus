@@ -48,7 +48,6 @@ function task(partial: Partial<Task> = {}): Task {
     parentId: null,
     source: "manual",
     catalogKey: "custom",
-    priority: "normal",
     notes: "keep",
     notesUpdatedAt: null,
     completedAt: null,

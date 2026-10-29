@@ -1,5 +1,5 @@
 import { storedResponsible } from "@/lib/task-responsible";
-import { TASK_CATALOG, type Task } from "@/lib/types";
+import { TASK_CATALOG, withoutTaskPriority, type Task } from "@/lib/types";
 import {
   canConfirmTaskVerification,
   clearanceKey,
@@ -70,12 +70,12 @@ function managesDepartment(
 }
 
 /**
- * Deadline and priority on a task that already exists, and priority on a new
- * task. The due date submitted with a new parent task or subtask is kept;
- * this check does not remove it. Master, any Director, a person already named
- * on this task, or the manager of this task’s own department (either
- * department that manager holds). Before a department is saved, a manager is
- * not included. A subtask uses its own department and its own assignees.
+ * Deadline on a task that already exists. The due date submitted with a new
+ * parent task or subtask is kept; this check does not remove it. Master, any
+ * Director, a person already named on this task, or the manager of this
+ * task’s own department (either department that manager holds). Before a
+ * department is saved, a manager is not included. A subtask uses its own
+ * department and its own assignees.
  */
 export function canEditTaskSchedule(
   actor: TaskActor | null | undefined,
@@ -387,7 +387,6 @@ function restoreEditableFields(prev: Task, next: Task): Task {
     parentId: prev.parentId,
     source: prev.source,
     catalogKey: prev.catalogKey,
-    priority: prev.priority,
     notes: prev.notes,
     notesUpdatedAt: prev.notesUpdatedAt,
     completedAt: prev.completedAt,
@@ -431,14 +430,13 @@ function withAllowedEdits(
     nextAssignees: next.assignees,
     people,
   });
-  const priority = canEditTaskSchedule(actor, prev) ? next.priority : prev.priority;
   const responsible = storedResponsible(
     assignees,
     next.responsible === undefined ? prev.responsible : next.responsible
   );
   return settleTaskCompletion(
     prev,
-    { ...next, department, assignees, responsible, priority },
+    { ...next, department, assignees, responsible },
     actor
   );
 }
@@ -538,18 +536,13 @@ function sanitizeNewTask(
     nextAssignees: next.assignees,
     people,
   });
-  // Due date and priority used to share this lock. Only priority stays locked
-  // on create. The due date is the one the creator submitted.
-  const priorityLocked =
-    !isAppSystemTask(next) &&
-    !canEditTaskSchedule(actor, { department: null, assignees: [] });
+  // The due date is the one the creator submitted.
   const drafted: Task = {
     ...next,
     department,
     assignees,
     responsible: storedResponsible(assignees, next.responsible),
     dueDate: next.dueDate,
-    priority: priorityLocked ? "normal" : next.priority,
   };
   return settleTaskCompletion(
     { ...drafted, status: "pending", completedAt: null },
@@ -608,5 +601,5 @@ export function applyTaskEditPolicy(
       return [restoreEditableFields(prev, next)];
     }
     return [withAllowedEdits(prev, next, actor, people)];
-  });
+  }).map(withoutTaskPriority);
 }

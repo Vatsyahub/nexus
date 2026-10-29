@@ -4,15 +4,10 @@ import { useMemo, useState, type FormEvent } from "react";
 import { HubReturnLink } from "@/components/hub-return-link";
 import { useRouter } from "next/navigation";
 import { addManualTask, flushWorkspace, listDepartments, useFlowhubData } from "@/lib/store";
-import {
-  TASK_PRIORITY_LABELS,
-  departmentDisplayName,
-  type TaskPriority,
-} from "@/lib/types";
+import { departmentDisplayName } from "@/lib/types";
 import type { ClearanceRole } from "@/lib/clearance";
 import { safeTaskListReturn } from "@/lib/task-list";
 import {
-  canEditTaskSchedule,
   peopleNamedInDepartment,
   taskDepartmentControl,
 } from "@/lib/task-permissions";
@@ -57,10 +52,6 @@ export function NewTaskClient({
   const router = useRouter();
   const departments = useMemo(() => listDepartments(data), [data]);
   const assignPeople = canAssignPeople(role);
-  const maySetPriority = canEditTaskSchedule(
-    { name: "", clearance: role, department: null },
-    { department: null, assignees: [] }
-  );
   const departmentControl = taskDepartmentControl(
     { name: "", clearance: role, department: null },
     { parentId: null, department: null, assignees: [] },
@@ -85,7 +76,6 @@ export function NewTaskClient({
   const [department, setDepartment] = useState("none");
   const [assignees, setAssignees] = useState<string[]>([]);
   const [dueDate, setDueDate] = useState("");
-  const [priority, setPriority] = useState<TaskPriority>("normal");
   const [error, setError] = useState<string | null>(null);
 
   const selectable = peopleForDepartment(people, department);
@@ -128,7 +118,6 @@ export function NewTaskClient({
       department: chosen,
       assignees: named,
       dueDate: dueDate || null,
-      priority: maySetPriority ? priority : "normal",
       catalogKey: "custom",
       source: "manual",
     }, { actor: { name: "", clearance: role, department: null } });
@@ -207,26 +196,6 @@ export function NewTaskClient({
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
             />
-          </div>
-          <div className="space-y-1">
-            <Label>Priority</Label>
-            {maySetPriority ? (
-              <select
-                className="flex h-9 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
-                value={priority}
-                onChange={(e) => setPriority(e.target.value as TaskPriority)}
-              >
-                {(Object.keys(TASK_PRIORITY_LABELS) as TaskPriority[]).map((p) => (
-                  <option key={p} value={p}>
-                    {TASK_PRIORITY_LABELS[p]}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <p className="flex h-9 items-center text-sm text-[var(--fh-muted)]">
-                {TASK_PRIORITY_LABELS.normal}
-              </p>
-            )}
           </div>
           {assignPeople && department !== "none" && (
             <div className="space-y-1 sm:col-span-2">

@@ -6,6 +6,7 @@ import {
   type FlowhubData,
   type ItemCatalogEntry,
   type NexusCosts,
+  withoutTaskPriority,
 } from "@/lib/types";
 import { normalizeNexusCosts } from "@/lib/nexus-core";
 import { departmentCatalogOnSave } from "@/lib/departments";
@@ -500,7 +501,7 @@ export function mergeWorkspaceSave(
     contracts,
     invoices,
     payments,
-    tasks,
+    tasks: tasks.map(withoutTaskPriority),
     schedules,
     scheduleChangeLog,
     taskDeadlineChangeLog,

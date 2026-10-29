@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { TASK_PRIORITY_LABELS } from "@/lib/types";
 import {
   addSubtaskControl,
   closeTaskUpdates,
@@ -97,14 +96,4 @@ test("Save updates is centred and larger than Add subtask", () => {
   assert.ok(saveUpdatesControl.heightPx > addSubtaskControl.heightPx);
   assert.equal(addSubtaskControl.label, "Add subtask");
   assert.equal(saveUpdatesControl.label, "Save updates");
-});
-
-test("Low stays in the priority list", () => {
-  assert.equal(TASK_PRIORITY_LABELS.low, "Low");
-  assert.deepEqual(Object.keys(TASK_PRIORITY_LABELS).sort(), [
-    "high",
-    "low",
-    "normal",
-    "urgent",
-  ]);
 });

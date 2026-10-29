@@ -319,6 +319,7 @@ describe("department rename and delete", { concurrency: false }, () => {
       );
       const gad = afterKickoffCompleted(contract.id, true);
       assert.equal(gad?.department, "Design Department");
+      assert.equal(gad != null && Object.prototype.hasOwnProperty.call(gad, "priority"), false);
 
       assert.equal(
         renameDepartment("Installation Department", "Site Department").ok,
