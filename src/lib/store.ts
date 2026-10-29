@@ -5132,7 +5132,7 @@ function applyCompletion(
       alreadyWaiting: false,
     };
   }
-  if (task.status === "completed" || task.status === "not_required") {
+  if (task.status === "not_required") {
     return { data, task, sideEffects: false, alreadyWaiting: false };
   }
   const already = task.status === "awaiting_verification";
@@ -5379,7 +5379,7 @@ export function updateTask(
         notes: patch.notes,
         notRequiredReason: patch.notRequiredReason,
       });
-    } else if (current.status === "completed" || current.status === "not_required") {
+    } else if (current.status === "not_required") {
       next = base;
     } else {
       const already = current.status === "awaiting_verification";
@@ -5414,11 +5414,7 @@ export function updateTask(
       }),
     ]);
   }
-  if (
-    !taskHasParent(current) &&
-    current.status !== "completed" &&
-    next.status === "completed"
-  ) {
+  if (!taskHasParent(current) && next.status === "completed") {
     nextData = completeOpenSubtasks(nextData, current.id);
   }
   write(

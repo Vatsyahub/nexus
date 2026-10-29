@@ -1065,7 +1065,7 @@ export function PeoplePicker({
 }
 
 type SubtaskSaveResult =
-  | { ok: true; status: TaskStatus; wrote: true }
+  | { ok: true; status: TaskStatus; wrote: boolean }
   | { ok: false; error: string; wrote: boolean };
 
 type SubtaskEditorHandle = {
