@@ -97,7 +97,6 @@ function task(partial: Partial<Task> = {}): Task {
     parentId: null,
     source: "manual",
     catalogKey: "custom",
-    priority: "normal",
     notes: "",
     notesUpdatedAt: null,
     completedAt: null,
@@ -506,18 +505,17 @@ describe("task deadline change log", { concurrency: false }, () => {
     assert.equal(rowsFor(sub.id).length, 3);
   });
 
-  test("notes, status, and priority do not write a deadline log row", () => {
+  test("notes and status do not write a deadline log row", () => {
     resetWorkspaceClientForTests();
     const row = freshTask({ title: "Other fields", dueDate: "2026-11-15" });
     updateTask(
       row.id,
-      { notes: "progress", priority: "high" },
+      { notes: "progress" },
       { actor: assignee, people }
     );
     updateTaskStatus(row.id, "in_progress", { actor: assignee, notes: "going" });
     assert.equal(savedTask(row.id).dueDate, "2026-11-15");
     assert.equal(savedTask(row.id).notes, "going");
-    assert.equal(savedTask(row.id).priority, "high");
     assert.equal(rowsFor(row.id).length, 0);
     assert.equal(getData().taskDeadlineChangeLog.length, 0);
   });
@@ -762,7 +760,7 @@ test("a task save does not drop the deadline log, and only master and director r
   );
 });
 
-test("due date and priority can be changed only by the people on that task", () => {
+test("a due date can be changed only by the people on that task", () => {
   resetWorkspaceClientForTests();
   const row = freshTask({
     title: "Schedule lock",
@@ -773,32 +771,29 @@ test("due date and priority can be changed only by the people on that task", () 
 
   const byNamed = updateTask(
     row.id,
-    { dueDate: "2026-12-01", priority: "high" },
+    { dueDate: "2026-12-01" },
     { actor: assignee, people, deadlineReason: "Named on it" }
   );
   assert.equal(byNamed?.dueDate, "2026-12-01");
-  assert.equal(byNamed?.priority, "high");
 
   const byManager = updateTask(
     row.id,
-    { dueDate: "2026-12-20", priority: "urgent" },
+    { dueDate: "2026-12-20" },
     { actor: manager, people, deadlineReason: "My department" }
   );
   assert.equal(byManager?.dueDate, "2026-12-20");
-  assert.equal(byManager?.priority, "urgent");
 
   const byDirector = updateTask(
     row.id,
-    { dueDate: "2026-11-01", priority: "low" },
+    { dueDate: "2026-11-01" },
     { actor: director, people, deadlineReason: "Director" }
   );
   assert.equal(byDirector?.dueDate, "2026-11-01");
-  assert.equal(byDirector?.priority, "low");
 
   assert.equal(
     updateTask(
       row.id,
-      { dueDate: "2026-10-01", priority: "high", notes: "other manager" },
+      { dueDate: "2026-10-01", notes: "other manager" },
       { actor: installManager, people, deadlineReason: "Not my department" }
     ),
     null
@@ -811,13 +806,12 @@ test("due date and priority can be changed only by the people on that task", () 
   assert.equal(
     updateTask(
       row.id,
-      { dueDate: "2026-10-02", priority: "high", notes: "unrelated" },
+      { dueDate: "2026-10-02", notes: "unrelated" },
       { actor: unrelated, people, deadlineReason: "No" }
     ),
     null
   );
   assert.equal(savedTask(row.id).dueDate, "2026-11-01");
-  assert.equal(savedTask(row.id).priority, "low");
   assert.equal(savedTask(row.id).notes, "");
   assert.equal(savedTask(row.id).department, "Contracts Department");
 
@@ -847,16 +841,14 @@ test("due date and priority can be changed only by the people on that task", () 
     department: null,
     assignees: [],
     dueDate: null,
-    priority: "normal",
   });
   const stillEditable = updateTask(
     open.id,
-    { notes: "notes stay", dueDate: "2026-12-01", priority: "high" },
+    { notes: "notes stay", dueDate: "2026-12-01" },
     { actor: unrelated, people }
   );
   assert.equal(stillEditable?.notes, "notes stay");
   assert.equal(stillEditable?.dueDate, null);
-  assert.equal(stillEditable?.priority, "normal");
 
   const managerFirst = assignTask(
     open.id,
@@ -873,11 +865,10 @@ test("due date and priority can be changed only by the people on that task", () 
   assert.equal(savedTask(open.id).notes, "notes stay");
   const managerAfter = updateTask(
     open.id,
-    { dueDate: "2026-12-01", priority: "high" },
+    { dueDate: "2026-12-01" },
     { actor: manager, people }
   );
   assert.equal(managerAfter?.dueDate, "2026-12-01");
-  assert.equal(managerAfter?.priority, "high");
   const denied = decideTaskDeadline({
     currentDue: null,
     nextDue: "2026-12-01",
@@ -896,11 +887,10 @@ test("due date and priority can be changed only by the people on that task", () 
   });
   const namedSet = updateTask(
     namedOpen.id,
-    { dueDate: "2026-12-01", priority: "high", notes: "named" },
+    { dueDate: "2026-12-01", notes: "named" },
     { actor: assignee, people }
   );
   assert.equal(namedSet?.dueDate, "2026-12-01");
-  assert.equal(namedSet?.priority, "high");
   assert.equal(namedSet?.notes, "named");
 
   const sub = addSubtask(row.id, {
@@ -913,18 +903,16 @@ test("due date and priority can be changed only by the people on that task", () 
   assert.equal(
     updateTask(
       sub.id,
-      { dueDate: "2026-12-01", priority: "urgent" },
+      { dueDate: "2026-12-01" },
       { actor: manager, people, deadlineReason: "Parent department" }
     ),
     null
   );
   const byInstall = updateTask(
     sub.id,
-    { dueDate: "2026-12-15", priority: "high" },
+    { dueDate: "2026-12-15" },
     { actor: installManager, people, deadlineReason: "Own department" }
   );
   assert.equal(byInstall?.dueDate, "2026-12-15");
-  assert.equal(byInstall?.priority, "high");
   assert.equal(savedTask(row.id).dueDate, "2026-11-01");
-  assert.equal(savedTask(row.id).priority, "low");
 });

@@ -220,8 +220,6 @@ export type TaskStatus =
   | "completed"
   | "not_required";
 
-export type TaskPriority = "low" | "normal" | "high" | "urgent";
-
 export type TaskCatalogKey =
   | "kickoff"
   | "gad"
@@ -233,13 +231,6 @@ export type TaskCatalogKey =
   | "bg_expiry_pbg"
   | "collect_retention"
   | "custom";
-
-export const TASK_PRIORITY_LABELS: Record<TaskPriority, string> = {
-  low: "Low",
-  normal: "Normal",
-  high: "High",
-  urgent: "Urgent",
-};
 
 export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   pending: "Pending",
@@ -301,7 +292,6 @@ export type Task = {
   parentId: string | null;
   source: "system" | "manual";
   catalogKey: TaskCatalogKey | null;
-  priority: TaskPriority;
   /** Latest progress note only (not a timeline). */
   notes: string;
   notesUpdatedAt: string | null;
@@ -328,6 +318,18 @@ export type Task = {
   deletedAt?: string | null;
   createdAt: string;
 };
+
+/** Drop a stored priority level. A task does not carry one. */
+export function withoutTaskPriority<T extends object>(
+  row: T
+): Omit<T, "priority"> {
+  if (!Object.prototype.hasOwnProperty.call(row, "priority")) {
+    return row as Omit<T, "priority">;
+  }
+  const copy = { ...row } as T & { priority?: unknown };
+  delete copy.priority;
+  return copy;
+}
 
 export type ItemCatalogEntry = {
   key: string;

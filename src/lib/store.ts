@@ -43,6 +43,7 @@ import {
   defaultAmendmentNumber,
   EMPTY_NEXUS_COSTS,
   type NexusCosts,
+  withoutTaskPriority,
 } from "@/lib/types";
 import {
   acceptedHandoverDate,
@@ -103,7 +104,6 @@ import {
   type TaskActor,
 } from "@/lib/task-notices";
 import {
-  canEditTaskSchedule,
   canUpdateTask,
   resolveTaskAssignees,
   resolveTaskDepartment,
@@ -350,7 +350,7 @@ function normalizeInvoice(i: Invoice): Invoice {
   };
 }
 
-function normalizeTask(t: Task & { assignee?: string | null }): Task {
+function normalizeTask(t: Task & { assignee?: string | null; priority?: unknown }): Task {
   const legacyAssignee = t.assignee;
   const assignees =
     Array.isArray(t.assignees) && t.assignees.length > 0
@@ -361,12 +361,11 @@ function normalizeTask(t: Task & { assignee?: string | null }): Task {
   const status = (t.status ?? "pending") as TaskStatus;
   const closed = status === "completed" || status === "not_required";
   const waiting = status === "awaiting_verification";
-  return {
+  return withoutTaskPriority({
     ...t,
     assignees,
     source: t.source ?? "manual",
     catalogKey: (t.catalogKey as TaskCatalogKey | null) ?? null,
-    priority: t.priority ?? "normal",
     notes: t.notes ?? "",
     notesUpdatedAt: t.notesUpdatedAt ?? null,
     completedAt: closed ? (t.completedAt ?? t.createdAt) : null,
@@ -384,7 +383,7 @@ function normalizeTask(t: Task & { assignee?: string | null }): Task {
     deletedAt: t.deletedAt ? String(t.deletedAt) : null,
     responsible: t.responsible ? String(t.responsible).trim() || null : null,
     status,
-  };
+  });
 }
 
 export function taskIsDeleted(t: Task): boolean {
@@ -2028,7 +2027,6 @@ function systemTask(
     parentId: null,
     source: "system",
     catalogKey,
-    priority: "normal",
     notes: "",
     notesUpdatedAt: null,
     completedAt: null,
@@ -5040,7 +5038,6 @@ export function updateTask(
       | "responsible"
       | "status"
       | "dueDate"
-      | "priority"
       | "notes"
       | "notRequiredReason"
     >
@@ -5093,22 +5090,15 @@ export function updateTask(
   });
   if (!deadline.ok && deadline.error !== TASK_DEADLINE_MOVE_DENIED) return null;
   const dueDate = deadline.ok ? deadline.dueDate : current.dueDate;
-  const priority =
-    patch.priority !== undefined &&
-    patch.priority !== current.priority &&
-    !canEditTaskSchedule(opts.actor, current)
-      ? current.priority
-      : (patch.priority ?? current.priority);
   const now = new Date().toISOString();
-  let next: Task = {
+  let next: Task = withoutTaskPriority({
     ...current,
     ...patch,
     department,
     assignees: nextAssignees,
     responsible,
     dueDate,
-    priority,
-  };
+  });
   if (patch.notes !== undefined && patch.notes !== current.notes) {
     next = {
       ...next,
@@ -5193,7 +5183,6 @@ export function addManualTask(input: {
   assignees?: string[];
   responsible?: string | null;
   dueDate?: string | null;
-  priority?: Task["priority"];
   notes?: string;
   parentId?: string | null;
   catalogKey?: TaskCatalogKey | null;
@@ -5214,10 +5203,6 @@ opts?: { actor?: TaskActor }
     });
     department = decision.ok ? decision.department : null;
   }
-  // Priority on create stays with Master and Director. The due date does not.
-  const maySetPriority =
-    !opts?.actor ||
-    canEditTaskSchedule(opts.actor, { department: null, assignees: [] });
   const full: Task = {
     id: crypto.randomUUID(),
     title: input.title.trim(),
@@ -5231,7 +5216,6 @@ opts?: { actor?: TaskActor }
     parentId: input.parentId ?? null,
     source: input.source ?? "manual",
     catalogKey: input.catalogKey ?? "custom",
-    priority: maySetPriority ? (input.priority ?? "normal") : "normal",
     notes: input.notes?.trim() ?? "",
     notesUpdatedAt: input.notes?.trim() ? new Date().toISOString() : null,
     completedAt: null,
@@ -5268,7 +5252,6 @@ export function addSubtask(
       responsible: input.responsible,
       dueDate: input.dueDate,
       parentId,
-      priority: parent.priority,
       catalogKey: "custom",
     },
     opts?.actor ? { actor: opts.actor } : undefined
@@ -5489,7 +5472,6 @@ function makeSystemTask(input: {
   catalogKey: TaskCatalogKey;
   dueDate?: string | null;
   department?: string | null;
-  priority?: Task["priority"];
 }): Task {
   return {
     id: crypto.randomUUID(),
@@ -5502,7 +5484,6 @@ function makeSystemTask(input: {
     parentId: null,
     source: "system",
     catalogKey: input.catalogKey,
-    priority: input.priority ?? "normal",
     notes: "",
     notesUpdatedAt: null,
     completedAt: null,
@@ -5535,7 +5516,6 @@ export function afterKickoffCompleted(
     contractId,
     catalogKey: "gad",
     department: currentSeedDepartment(data, "Drawings Department"),
-    priority: "high",
   });
   let nextData: FlowhubData = { ...data, tasks: [...data.tasks, task] };
   nextData = notifyForTasks(nextData, [task], { kind: "task_department" });
@@ -5570,7 +5550,6 @@ export function afterGadCompleted(
         contractId,
         catalogKey: "create_schedules",
         department: currentSeedDepartment(data, "Contracts Department"),
-        priority: "high",
       });
       tasks = [...tasks, schedulesTask];
       created.push(schedulesTask);
@@ -5595,7 +5574,6 @@ export function afterGadCompleted(
           contractId,
           catalogKey: "boq_amendment",
           department: currentSeedDepartment(data, "Contracts Department"),
-          priority: "high",
         });
         tasks = [...tasks, amd];
         created.push(amd);
@@ -5646,7 +5624,6 @@ export function syncDatedSystemTasks(): { created: Task[] } {
             catalogKey: "bg_expiry_abg",
             dueDate: c.abgExpiry,
             department: currentSeedDepartment(data, "Accounts Department"),
-            priority: "urgent",
           });
           tasks = [...tasks, t];
           created.push(t);
@@ -5676,7 +5653,6 @@ export function syncDatedSystemTasks(): { created: Task[] } {
             catalogKey: "bg_expiry_pbg",
             dueDate: c.pbgExpiry,
             department: currentSeedDepartment(data, "Accounts Department"),
-            priority: "urgent",
           });
           tasks = [...tasks, t];
           created.push(t);
@@ -5709,7 +5685,6 @@ export function syncDatedSystemTasks(): { created: Task[] } {
               catalogKey: "collect_retention",
               dueDate: dlpEnd,
               department: currentSeedDepartment(data, "Accounts Department"),
-              priority: "high",
             });
             tasks = [...tasks, t];
             created.push(t);

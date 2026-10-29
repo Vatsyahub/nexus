@@ -16,7 +16,11 @@ import {
 import { purgeExpiredScheduleChangeLog } from "@/lib/schedule-change-log";
 import { normalizeTaskDeadlineChangeLog } from "@/lib/task-deadline-log";
 import { departmentCatalogFields } from "@/lib/departments";
-import { EMPTY_NEXUS_COSTS, type FlowhubData } from "@/lib/types";
+import {
+  EMPTY_NEXUS_COSTS,
+  withoutTaskPriority,
+  type FlowhubData,
+} from "@/lib/types";
 import { normalizeNexusCosts } from "@/lib/nexus-core";
 import { defaultAccess } from "@/lib/access";
 import {
@@ -114,7 +118,7 @@ function asFlowhubData(
         ? parsed.workspaceRevision
         : 0,
     contracts: parsed.contracts ?? [],
-    tasks: parsed.tasks ?? [],
+    tasks: (parsed.tasks ?? []).map(withoutTaskPriority),
     itemCatalog: parsed.itemCatalog ?? [],
     invoices: parsed.invoices ?? [],
     payments: parsed.payments ?? [],

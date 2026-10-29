@@ -9,7 +9,6 @@ import type {
 import {
   SCHEDULE_DATE_NA,
   SCHEDULE_KIND_LABELS,
-  TASK_PRIORITY_LABELS,
   TASK_STATUS_LABELS,
   isScheduleDateNa,
 } from "@/lib/types";
@@ -329,7 +328,6 @@ function taskMatchesToken(
     | "department"
     | "assignees"
     | "status"
-    | "priority"
     | "dueDate"
     | "notes"
     | "completedAt"
@@ -348,8 +346,6 @@ function taskMatchesToken(
       ...task.assignees,
       task.status,
       TASK_STATUS_LABELS[task.status],
-      task.priority,
-      TASK_PRIORITY_LABELS[task.priority],
       ...dateSearchForms(task.dueDate),
       task.notes,
       ...dateSearchForms(task.completedAt),
@@ -366,7 +362,6 @@ export function taskMatchesQuery(
     | "department"
     | "assignees"
     | "status"
-    | "priority"
     | "dueDate"
     | "notes"
     | "completedAt"

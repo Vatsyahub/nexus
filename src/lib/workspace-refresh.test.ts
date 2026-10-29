@@ -175,7 +175,6 @@ function task(id: string): Task {
     parentId: null,
     source: "manual",
     catalogKey: null,
-    priority: "normal",
     notes: "",
     notesUpdatedAt: null,
     completedAt: null,
