@@ -25,6 +25,8 @@ export type TaskEditContext = {
 
 export const TASK_SAVE_DENIED = "You cannot save changes to this task.";
 
+export const TASK_COMPLETED_LOCKED = "A completed task cannot be changed.";
+
 export const TASK_DEPARTMENT_LOCKED =
   "Department cannot be changed once it is saved.";
 
@@ -61,6 +63,18 @@ function cleanDepartment(value: string | null | undefined): string | null {
 
 function isSubtask(parentId: string | null | undefined): boolean {
   return (parentId || "").trim().length > 0;
+}
+
+export function taskIsCompleted(task: { status?: string | null }): boolean {
+  return task.status === "completed";
+}
+
+function taskIsStillOpen(task: {
+  status?: string | null;
+  deletedAt?: string | null;
+}): boolean {
+  if (task.deletedAt) return false;
+  return task.status !== "completed" && task.status !== "not_required";
 }
 
 /**
@@ -348,7 +362,17 @@ function restoreEditableFields(prev: Task, next: Task): Task {
     notRequiredReason: prev.notRequiredReason,
     verificationDepartment: prev.verificationDepartment,
     verificationRequestedBy: prev.verificationRequestedBy,
+    deletedAt: prev.deletedAt ?? null,
     createdAt: prev.createdAt,
+  };
+}
+
+/** A completed row keeps every saved field. The rule is the same for every login. */
+function freezeCompletedRecord(prev: Task, next: Task): Task {
+  return {
+    ...restoreEditableFields(prev, next),
+    overdueNotifiedFor: prev.overdueNotifiedFor ?? null,
+    dueTodayNotifiedFor: prev.dueTodayNotifiedFor ?? null,
   };
 }
 
@@ -561,13 +585,43 @@ function withDepartmentChangeOnly(
 }
 
 /**
+ * When this save marks a parent completed, every subtask that was still
+ * open is completed too. A subtask that was already completed or not
+ * required is left as it was.
+ */
+function closeOpenSubtasksOfNewlyCompletedParents(
+  before: Task[],
+  after: Task[]
+): Task[] {
+  const beforeById = new Map(before.map((task) => [task.id, task]));
+  const newlyCompleted = new Set(
+    after
+      .filter((task) => {
+        if (isSubtask(task.parentId) || !taskIsCompleted(task)) return false;
+        return !taskIsCompleted(beforeById.get(task.id) ?? {});
+      })
+      .map((task) => task.id)
+  );
+  if (newlyCompleted.size === 0) return after;
+  return after.map((task) => {
+    if (!task.parentId || !newlyCompleted.has(task.parentId)) return task;
+    const prev = beforeById.get(task.id);
+    if (!prev || !taskIsStillOpen(prev)) return task;
+    return finishTaskNow(task);
+  });
+}
+
+/**
  * Keep task edits the signed-in person is allowed to store.
  * Each row uses its own department and its own assignees.
  * A parent department, once saved, is not replaced.
  * A subtask can be added, and its department set or switched, only by
  * someone who can update the parent. They may pick any department.
  * Someone who cannot update the subtask itself cannot change its other fields.
- * Due-notice markers can still move on a row the person cannot edit.
+ * A completed task or subtask accepts no further field changes, including
+ * from Master. Completing a parent also completes its still-open subtasks.
+ * Due-notice markers can still move on a row the person cannot edit,
+ * except on a completed row, which stays as saved.
  */
 export function applyTaskEditPolicy(
   current: Task[],
@@ -576,34 +630,38 @@ export function applyTaskEditPolicy(
   people: TaskDirectoryPerson[]
 ): Task[] {
   const currentById = new Map(current.map((task) => [task.id, task]));
-  return incoming.flatMap((next) => {
-    const prev = currentById.get(next.id);
-    if (!prev) {
-      if (isSubtask(next.parentId)) {
-        const parent =
-          currentById.get(next.parentId || "") ??
-          incoming.find((row) => row.id === next.parentId);
-        if (!parent || isSubtask(parent.parentId)) return [];
-        if (!canUpdateTask(actor, parent)) return [];
-        return [sanitizeNewTask(next, actor, people, parent)];
+  const edited = incoming
+    .flatMap((next) => {
+      const prev = currentById.get(next.id);
+      if (!prev) {
+        if (isSubtask(next.parentId)) {
+          const parent =
+            currentById.get(next.parentId || "") ??
+            incoming.find((row) => row.id === next.parentId);
+          if (!parent || isSubtask(parent.parentId)) return [];
+          if (!canUpdateTask(actor, parent)) return [];
+          return [sanitizeNewTask(next, actor, people, parent)];
+        }
+        return [sanitizeNewTask(next, actor, people)];
       }
-      return [sanitizeNewTask(next, actor, people)];
-    }
-    const parent = prev.parentId
-      ? (currentById.get(prev.parentId) ?? null)
-      : null;
-    if (!canUpdateTask(actor, prev)) {
-      if (
-        next.status === "completed" &&
-        canConfirmTaskVerification(actor, prev)
-      ) {
-        return [acceptVerificationConfirm(prev, next)];
+      if (taskIsCompleted(prev)) return [freezeCompletedRecord(prev, next)];
+      const parent = prev.parentId
+        ? (currentById.get(prev.parentId) ?? null)
+        : null;
+      if (!canUpdateTask(actor, prev)) {
+        if (
+          next.status === "completed" &&
+          canConfirmTaskVerification(actor, prev)
+        ) {
+          return [acceptVerificationConfirm(prev, next)];
+        }
+        if (parent && canUpdateTask(actor, parent)) {
+          return [withDepartmentChangeOnly(prev, next, actor, people, parent)];
+        }
+        return [restoreEditableFields(prev, next)];
       }
-      if (parent && canUpdateTask(actor, parent)) {
-        return [withDepartmentChangeOnly(prev, next, actor, people, parent)];
-      }
-      return [restoreEditableFields(prev, next)];
-    }
-    return [withAllowedEdits(prev, next, actor, people, parent)];
-  }).map(withoutTaskPriority);
+      return [withAllowedEdits(prev, next, actor, people, parent)];
+    })
+    .map(withoutTaskPriority);
+  return closeOpenSubtasksOfNewlyCompletedParents(current, edited);
 }

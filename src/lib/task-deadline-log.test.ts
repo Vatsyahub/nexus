@@ -17,6 +17,7 @@ import {
 } from "@/lib/store";
 import type { TaskActor } from "@/lib/task-notices";
 import {
+  TASK_COMPLETED_LOCKED,
   TASK_DEPARTMENT_LOCKED,
   type TaskDirectoryPerson,
 } from "@/lib/task-permissions";
@@ -1161,4 +1162,113 @@ test("one workspace save writes one line and drops a forged field list", () => {
   assert.equal(quiet.taskDeadlineChangeLog[0]?.id, "old");
   assert.equal(quiet.taskDeadlineChangeLog[0]?.fromDate, "2026-10-01");
   assert.equal(quiet.taskDeadlineChangeLog[0]?.reason, "Earlier move");
+});
+
+test("completing a parent closes open subtasks on one log line and then freezes them", () => {
+  resetWorkspaceClientForTests();
+  const parent = freshTask({ title: "Check site", dueDate: "2026-11-15" });
+  const frames = addSubtask(
+    parent.id,
+    {
+      title: "Frames",
+      department: "Installation Department",
+      assignees: ["Site Lead"],
+    },
+    { actor: manager }
+  );
+  const already = addSubtask(
+    parent.id,
+    { title: "Already", department: "Installation Department" },
+    { actor: manager }
+  );
+  assert.ok(frames);
+  assert.ok(already);
+  assert.equal(
+    updateTaskStatus(already.id, "completed", { actor: installManager })?.status,
+    "completed"
+  );
+  const alreadyAt = savedTask(already.id).completedAt;
+  const before = rowsFor(parent.id).length;
+
+  beginTaskChangeSave();
+  const finished = updateTaskStatus(parent.id, "completed", { actor: manager });
+  finishTaskChangeSave(manager);
+
+  assert.equal(finished?.status, "completed");
+  assert.equal(savedTask(parent.id).status, "completed");
+  assert.equal(savedTask(frames.id).status, "completed");
+  assert.equal(savedTask(already.id).status, "completed");
+  assert.equal(savedTask(already.id).completedAt, alreadyAt);
+  assert.equal(rowsFor(parent.id).length, before + 1);
+  const line = describeTaskChangeLog(rowsFor(parent.id).at(-1)!);
+  assert.deepEqual(line, [
+    "Status: In progress → Completed",
+    "Subtask edited: Frames — Status: In progress → Completed",
+  ]);
+
+  const logAfter = (getData().taskDeadlineChangeLog ?? []).length;
+  const refused = assignTask(
+    frames.id,
+    { department: "Accounts Department" },
+    { actor: master, people }
+  );
+  assert.equal(refused.ok, false);
+  if (!refused.ok) assert.equal(refused.error, TASK_COMPLETED_LOCKED);
+  assert.equal(savedTask(frames.id).department, "Installation Department");
+  assert.equal(updateTask(parent.id, { notes: "later" }, { actor: master, people }), null);
+  assert.equal(savedTask(parent.id).notes, "");
+  assert.equal((getData().taskDeadlineChangeLog ?? []).length, logAfter);
+
+  const openParent = freshTask({ title: "Open parent", dueDate: null });
+  const frozen = addSubtask(
+    openParent.id,
+    {
+      title: "Frozen",
+      department: "Installation Department",
+      assignees: ["Site Lead"],
+    },
+    { actor: manager }
+  );
+  assert.ok(frozen);
+  assert.equal(
+    updateTaskStatus(frozen.id, "completed", { actor: installManager })?.status,
+    "completed"
+  );
+  const noted = updateTask(
+    openParent.id,
+    { notes: "still open" },
+    { actor: manager, people }
+  );
+  assert.equal(noted?.notes, "still open");
+  assert.equal(savedTask(openParent.id).status, "in_progress");
+  const logBeforeDepartment = (getData().taskDeadlineChangeLog ?? []).length;
+  const departmentTry = assignTask(
+    frozen.id,
+    { department: "Contracts Department" },
+    { actor: manager, people }
+  );
+  assert.equal(departmentTry.ok, false);
+  if (!departmentTry.ok) assert.equal(departmentTry.error, TASK_COMPLETED_LOCKED);
+  assert.equal(savedTask(frozen.id).department, "Installation Department");
+  assert.equal(savedTask(openParent.id).notes, "still open");
+  assert.equal((getData().taskDeadlineChangeLog ?? []).length, logBeforeDepartment);
+
+  const userParent = freshTask({
+    title: "User parent",
+    assignees: ["Anil User"],
+    dueDate: null,
+  });
+  const child = addSubtask(
+    userParent.id,
+    { title: "Still open", department: "Installation Department" },
+    { actor: manager }
+  );
+  assert.ok(child);
+  const waiting = updateTaskStatus(userParent.id, "completed", {
+    actor: assignee,
+    notes: "ready",
+  });
+  assert.equal(waiting?.status, "awaiting_verification");
+  assert.equal(savedTask(userParent.id).status, "awaiting_verification");
+  assert.equal(savedTask(child.id).status, "in_progress");
 });

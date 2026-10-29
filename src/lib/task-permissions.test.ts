@@ -1301,3 +1301,166 @@ test("a save drops a stored priority level, including on a finished task", () =>
   assert.equal(saved.tasks.find((row) => row.id === "finished")?.notes, "done");
   assert.equal(saved.tasks.find((row) => row.id === "open")?.notes, "edited");
 });
+
+test("completing a parent completes open subtasks, then those rows stay frozen", () => {
+  const master = { name: "Master", clearance: "master" as const };
+  const parent = task({
+    id: "parent",
+    status: "in_progress",
+    department: "Contracts Department",
+    assignees: ["Anil User"],
+    notes: "",
+  });
+  const openSub = task({
+    id: "open-sub",
+    parentId: "parent",
+    title: "Frames",
+    status: "in_progress",
+    department: "Installation Department",
+    notes: "keep open",
+    assignees: ["Site Lead"],
+  });
+  const doneSub = task({
+    id: "done-sub",
+    parentId: "parent",
+    title: "Done piece",
+    status: "completed",
+    department: "Installation Department",
+    notes: "already",
+    completedAt: "2026-09-01T00:00:00.000Z",
+    assignees: ["Site Lead"],
+  });
+  const skipped = task({
+    id: "skip-sub",
+    parentId: "parent",
+    title: "Skipped",
+    status: "not_required",
+    notRequiredReason: "out of scope",
+    department: "Installation Department",
+    notes: "skip note",
+  });
+  const saved = applyTaskEditPolicy(
+    [parent, openSub, doneSub, skipped],
+    [
+      { ...parent, status: "completed", notes: "parent done" },
+      {
+        ...openSub,
+        department: "Contracts Department",
+        notes: "edited while open",
+        status: "in_progress",
+      },
+      { ...doneSub, department: "Accounts Department", notes: "hijack" },
+      skipped,
+    ],
+    master,
+    people
+  );
+  const parentRow = saved.find((row) => row.id === "parent");
+  const openRow = saved.find((row) => row.id === "open-sub");
+  const doneRow = saved.find((row) => row.id === "done-sub");
+  const skipRow = saved.find((row) => row.id === "skip-sub");
+  assert.equal(parentRow?.status, "completed");
+  assert.equal(parentRow?.notes, "parent done");
+  assert.equal(parentRow?.department, "Contracts Department");
+  assert.equal(openRow?.status, "completed");
+  assert.equal(openRow?.department, "Contracts Department");
+  assert.equal(openRow?.notes, "edited while open");
+  assert.ok(openRow?.completedAt);
+  assert.equal(doneRow?.status, "completed");
+  assert.equal(doneRow?.department, "Installation Department");
+  assert.equal(doneRow?.notes, "already");
+  assert.equal(doneRow?.completedAt, "2026-09-01T00:00:00.000Z");
+  assert.equal(skipRow?.status, "not_required");
+  assert.equal(skipRow?.notes, "skip note");
+  assert.equal(skipRow?.notRequiredReason, "out of scope");
+
+  const second = applyTaskEditPolicy(
+    saved,
+    saved.map((row) => {
+      if (row.id === "parent") {
+        return { ...row, notes: "nope", department: "Accounts Department" };
+      }
+      if (row.id === "open-sub") {
+        return { ...row, notes: "nope", department: "Accounts Department" };
+      }
+      return row;
+    }),
+    master,
+    people
+  );
+  assert.equal(second.find((row) => row.id === "parent")?.notes, "parent done");
+  assert.equal(
+    second.find((row) => row.id === "parent")?.department,
+    "Contracts Department"
+  );
+  assert.equal(
+    second.find((row) => row.id === "open-sub")?.notes,
+    "edited while open"
+  );
+  assert.equal(
+    second.find((row) => row.id === "open-sub")?.department,
+    "Contracts Department"
+  );
+
+  const openParent = task({
+    id: "p2",
+    status: "in_progress",
+    notes: "old",
+    department: "Contracts Department",
+    assignees: ["Anil User"],
+  });
+  const frozenSub = task({
+    id: "s2",
+    parentId: "p2",
+    title: "Frozen",
+    status: "completed",
+    department: "Installation Department",
+    notes: "frozen",
+    completedAt: "2026-08-01T00:00:00.000Z",
+  });
+  const liveSub = task({
+    id: "s3",
+    parentId: "p2",
+    title: "Live",
+    status: "in_progress",
+    department: "Installation Department",
+    notes: "live",
+  });
+  const moved = applyTaskEditPolicy(
+    [openParent, frozenSub],
+    [
+      { ...openParent, notes: "still open" },
+      { ...frozenSub, department: "Accounts Department", notes: "changed" },
+    ],
+    master,
+    people
+  );
+  assert.equal(moved.find((row) => row.id === "p2")?.notes, "still open");
+  assert.equal(moved.find((row) => row.id === "p2")?.status, "in_progress");
+  assert.equal(
+    moved.find((row) => row.id === "s2")?.department,
+    "Installation Department"
+  );
+  assert.equal(moved.find((row) => row.id === "s2")?.notes, "frozen");
+  assert.equal(
+    moved.find((row) => row.id === "s2")?.completedAt,
+    "2026-08-01T00:00:00.000Z"
+  );
+
+  const waiting = applyTaskEditPolicy(
+    [openParent, liveSub],
+    [
+      { ...openParent, status: "completed", notes: "ready" },
+      liveSub,
+    ],
+    { name: "Anil User", clearance: "user", department: "Drawings Department" },
+    people
+  );
+  assert.equal(
+    waiting.find((row) => row.id === "p2")?.status,
+    "awaiting_verification"
+  );
+  assert.equal(waiting.find((row) => row.id === "p2")?.notes, "ready");
+  assert.equal(waiting.find((row) => row.id === "s3")?.status, "in_progress");
+  assert.equal(waiting.find((row) => row.id === "s3")?.notes, "live");
+});

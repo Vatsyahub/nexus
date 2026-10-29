@@ -107,6 +107,7 @@ import {
   resolveTaskAssignees,
   resolveTaskDepartment,
   subtaskUpdateDenied,
+  TASK_COMPLETED_LOCKED,
   TASK_SAVE_DENIED,
   type TaskDirectoryPerson,
 } from "@/lib/task-permissions";
@@ -4823,6 +4824,75 @@ export function invoiceIsPaid(invoice: Invoice, data?: FlowhubData) {
   return Math.abs(outstanding) <= OUTSTANDING_PAID_WITHIN_RUPEES;
 }
 
+function sameTaskNames(
+  left: string[] | null | undefined,
+  right: string[] | null | undefined
+): boolean {
+  const key = (names: string[] | null | undefined) =>
+    JSON.stringify(
+      [...(names ?? [])].map((name) => name.trim().toLowerCase()).sort()
+    );
+  return key(left) === key(right);
+}
+
+function completedTaskPatchIsSame(
+  current: Task,
+  patch: Partial<
+    Pick<
+      Task,
+      | "title"
+      | "department"
+      | "assignees"
+      | "responsible"
+      | "status"
+      | "dueDate"
+      | "notes"
+      | "notRequiredReason"
+    >
+  >
+): boolean {
+  if (patch.title !== undefined && patch.title !== current.title) return false;
+  if (
+    patch.department !== undefined &&
+    (patch.department || "").trim() !== (current.department || "").trim()
+  ) {
+    return false;
+  }
+  if (
+    patch.assignees !== undefined &&
+    !sameTaskNames(patch.assignees, current.assignees)
+  ) {
+    return false;
+  }
+  if (
+    patch.responsible !== undefined &&
+    (patch.responsible || null) !== (current.responsible || null)
+  ) {
+    return false;
+  }
+  if (patch.status !== undefined && patch.status !== current.status) return false;
+  if (
+    patch.dueDate !== undefined &&
+    (patch.dueDate || null) !== (current.dueDate || null)
+  ) {
+    return false;
+  }
+  if (
+    patch.notes !== undefined &&
+    patch.notes.trim() !== (current.notes || "")
+  ) {
+    return false;
+  }
+  if (
+    patch.notRequiredReason !== undefined &&
+    ((patch.notRequiredReason || "").trim() || null) !==
+      (current.notRequiredReason || null)
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export function assignTask(
   id: string,
   assignment: {
@@ -4842,6 +4912,23 @@ export function assignTask(
   const current = data.tasks.find((t) => t.id === id);
   if (!current) return { ok: false, error: "Task not found." };
   if (!opts?.actor) return { ok: false, error: TASK_SAVE_DENIED };
+  const requestedDepartment = (assignment.department || "").trim() || null;
+  if (current.status === "completed") {
+    const nextDue =
+      assignment.dueDate !== undefined ? assignment.dueDate || null : current.dueDate;
+    const requestedNames = assignment.assignees ?? current.assignees;
+    const samePeople = sameTaskNames(requestedNames, current.assignees);
+    const sameDepartment =
+      (requestedDepartment || "") === (current.department || "").trim();
+    const sameDue = (nextDue || null) === (current.dueDate || null);
+    const sameResponsible =
+      assignment.responsible === undefined ||
+      (assignment.responsible || null) === (current.responsible || null);
+    if (sameDepartment && samePeople && sameDue && sameResponsible) {
+      return { ok: true, task: current };
+    }
+    return { ok: false, error: TASK_COMPLETED_LOCKED };
+  }
   const parent = savedParent(data.tasks, current.parentId);
   const mayUpdate = canUpdateTask(opts.actor, current);
   const mayChangeDepartment =
@@ -4849,7 +4936,6 @@ export function assignTask(
   if (!mayUpdate && !mayChangeDepartment) {
     return { ok: false, error: TASK_SAVE_DENIED };
   }
-  const requestedDepartment = (assignment.department || "").trim() || null;
   const decision = resolveTaskDepartment({
     parentId: current.parentId,
     parent,
@@ -4999,11 +5085,24 @@ function savedParent(
   return tasks.find((row) => row.id === id) ?? null;
 }
 
+/** Still-open subtasks of a parent that this save marks completed. */
+function completeOpenSubtasks(data: FlowhubData, parentId: string): FlowhubData {
+  let changed = false;
+  const tasks = data.tasks.map((task) => {
+    if (task.parentId !== parentId || !taskIsOpen(task)) return task;
+    changed = true;
+    return applyStatusFields(task, "completed");
+  });
+  if (!changed) return data;
+  return { ...data, tasks };
+}
+
 /**
  * A subtask marked completed finishes now, including for a normal user.
  * It does not wait and it does not raise a verify notice.
  * A parent still waits when a user marks it completed.
  * Manager, Director, and Master finish a parent now with no verify notice.
+ * That finish also completes every still-open subtask in the same save.
  */
 function applyCompletion(
   data: FlowhubData,
@@ -5016,15 +5115,20 @@ function applyCompletion(
   sideEffects: boolean;
   alreadyWaiting: boolean;
 } {
+  if (task.status === "completed") {
+    return { data, task, sideEffects: false, alreadyWaiting: false };
+  }
   if (taskHasParent(task) || completesImmediately(actor?.clearance)) {
     const next = applyStatusFields(task, "completed", extra);
+    let nextData: FlowhubData = {
+      ...data,
+      tasks: data.tasks.map((t) => (t.id === task.id ? next : t)),
+    };
+    if (!taskHasParent(task)) nextData = completeOpenSubtasks(nextData, task.id);
     return {
-      data: {
-        ...data,
-        tasks: data.tasks.map((t) => (t.id === task.id ? next : t)),
-      },
+      data: nextData,
       task: next,
-      sideEffects: task.status !== "completed",
+      sideEffects: true,
       alreadyWaiting: false,
     };
   }
@@ -5065,6 +5169,18 @@ export function updateTaskStatus(
   const data = read();
   const current = data.tasks.find((t) => t.id === id);
   if (!current) return null;
+  if (current.status === "completed") {
+    const notesSame =
+      opts?.notes === undefined || opts.notes.trim() === (current.notes || "");
+    const reasonSame =
+      opts?.notRequiredReason === undefined ||
+      ((opts.notRequiredReason || "").trim() || null) ===
+        (current.notRequiredReason || null);
+    if (status === "completed" && notesSame && reasonSame) {
+      return { status: "completed", sideEffects: false, alreadyWaiting: false };
+    }
+    return null;
+  }
   if (!opts?.actor || !canUpdateTask(opts.actor, current)) return null;
 
   if (status === "completed" || status === "awaiting_verification") {
@@ -5134,6 +5250,10 @@ export function updateTask(
   const data = read();
   const current = data.tasks.find((t) => t.id === id);
   if (!current || !opts?.actor) return null;
+  if (current.status === "completed") {
+    if (completedTaskPatchIsSame(current, patch)) return current;
+    return null;
+  }
   const parent = savedParent(data.tasks, current.parentId);
   const mayUpdate = canUpdateTask(opts.actor, current);
   const mayChangeDepartment =
@@ -5294,6 +5414,13 @@ export function updateTask(
       }),
     ]);
   }
+  if (
+    !taskHasParent(current) &&
+    current.status !== "completed" &&
+    next.status === "completed"
+  ) {
+    nextData = completeOpenSubtasks(nextData, current.id);
+  }
   write(
     applyTaskSaveLog(
       nextData,
@@ -5418,7 +5545,11 @@ export function completeTaskWithSubtasks(
     (t) => t.parentId === parentId && taskIsOpen(t)
   );
   for (const sub of openSubs) {
-    if (!canUpdateTask(opts.actor, sub)) {
+    const closure = subtaskClosures.find((c) => c.id === sub.id);
+    if (
+      closure?.status === "not_required" &&
+      !canUpdateTask(opts.actor, sub)
+    ) {
       return { ok: false, error: subtaskUpdateDenied(sub.title) };
     }
   }
@@ -5495,17 +5626,12 @@ export function confirmTaskVerification(
       error: "Only that department’s manager, or Master, can confirm this.",
     };
   }
-  const openSubs = data.tasks.filter(
-    (t) => t.parentId === id && taskIsOpen(t)
-  );
-  if (openSubs.length) {
-    return { ok: false, error: "Close open subtasks before confirming." };
-  }
   const next = applyStatusFields(current, "completed");
-  const nextData: FlowhubData = {
+  let nextData: FlowhubData = {
     ...data,
     tasks: data.tasks.map((t) => (t.id === id ? next : t)),
   };
+  nextData = completeOpenSubtasks(nextData, id);
   write(applyTaskSaveLog(nextData, data.tasks, nextData.tasks, [], actor.name));
   return { ok: true };
 }

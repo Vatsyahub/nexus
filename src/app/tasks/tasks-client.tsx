@@ -76,6 +76,7 @@ import {
   namedOnTask,
   peopleNamedInDepartment,
   taskDepartmentControl,
+  TASK_COMPLETED_LOCKED,
   TASK_READ_ONLY,
   TASK_SAVE_DENIED,
   type TaskDepartmentControl,
@@ -167,6 +168,12 @@ function chosenDepartment(
   if (control.allowEmpty) return null;
   const kept = (saved || "").trim();
   return kept || null;
+}
+
+function sameNames(left: string[], right: string[]): boolean {
+  const key = (names: string[]) =>
+    JSON.stringify(names.map((name) => name.trim().toLowerCase()).sort());
+  return key(left) === key(right);
 }
 
 function keepingNamedPeople(
@@ -1253,48 +1260,55 @@ export function TaskEditor({
     let wrote = false;
     let statusResult: { status: TaskStatus; sideEffects: boolean } | null =
       null;
-    let subtaskClosed = false;
 
     try {
     if (editing && canUpdate) {
       const { nextDepartment, nextAssignees } = parentAssignees();
-      const saved = assignTask(
-        task.id,
-        {
-          department: nextDepartment,
-          assignees: nextAssignees,
-          dueDate: deadlineLocked ? task.dueDate : dueDate || null,
-        },
-        { actor, people, deadlineReason }
-      );
-      if (!saved.ok) {
-        errors.push(saved.error);
+      const nextDue = deadlineLocked ? task.dueDate : dueDate || null;
+      const nextTitle = title.trim() || task.title;
+      const parentChanged =
+        nextTitle !== task.title ||
+        (nextDepartment || "") !== (task.department || "").trim() ||
+        !sameNames(nextAssignees, task.assignees) ||
+        (nextDue || null) !== (task.dueDate || null) ||
+        status !== task.status ||
+        notes.trim() !== (task.notes || "");
+      if (task.status === "completed") {
+        if (parentChanged) errors.push(TASK_COMPLETED_LOCKED);
       } else {
-        wrote = true;
-        setDeadlineReason("");
+        const saved = assignTask(
+          task.id,
+          {
+            department: nextDepartment,
+            assignees: nextAssignees,
+            dueDate: nextDue,
+          },
+          { actor, people, deadlineReason }
+        );
+        if (!saved.ok) {
+          errors.push(saved.error);
+        } else {
+          wrote = true;
+          setDeadlineReason("");
+        }
+        const updated = updateTask(
+          task.id,
+          {
+            title: nextTitle,
+          },
+          { actor, people }
+        );
+        if (!updated) errors.push(TASK_SAVE_DENIED);
+        else wrote = true;
       }
-      const updated = updateTask(
-        task.id,
-        {
-          title: title.trim() || task.title,
-        },
-        { actor, people }
-      );
-      if (!updated) errors.push(TASK_SAVE_DENIED);
-      else wrote = true;
     }
 
     if (canSaveOpenSub && subtaskSaveRef.current) {
       const result = subtaskSaveRef.current.save();
       if (result.wrote) wrote = true;
       if (!result.ok) errors.push(result.error);
-      else {
-        subtaskClosed =
-          result.status === "completed" || result.status === "not_required";
-      }
     }
 
-    let addedOpen = false;
     if (addingSub && canUpdate && subTitle.trim()) {
       if (!task.contractId) {
         errors.push(TASK_SAVE_DENIED);
@@ -1313,7 +1327,6 @@ export function TaskEditor({
           errors.push(TASK_SAVE_DENIED);
         } else {
           wrote = true;
-          addedOpen = taskIsOpen(created);
           setSubTitle("");
           setSubDue("");
           setSubDept("none");
@@ -1323,19 +1336,12 @@ export function TaskEditor({
       }
     }
 
-    if (editing && canUpdate) {
-      const stillOpen = openSubs.some(
-        (row) => !(row.id === expandedSubId && subtaskClosed)
-      );
-      if (status === "completed" && (stillOpen || addedOpen)) {
-        setClosing(true);
-      } else {
-        const result = updateTaskStatus(task.id, status, { notes, actor });
-        if (!result) errors.push("Task not found.");
-        else {
-          wrote = true;
-          statusResult = result;
-        }
+    if (editing && canUpdate && task.status !== "completed") {
+      const result = updateTaskStatus(task.id, status, { notes, actor });
+      if (!result) errors.push("Task not found.");
+      else {
+        wrote = true;
+        statusResult = result;
       }
     }
 
@@ -1380,11 +1386,6 @@ export function TaskEditor({
   }
 
   async function confirmVerified() {
-    if (openSubs.length > 0) {
-      setClosing(true);
-      setErr(null);
-      return;
-    }
     const result = confirmTaskVerification(task.id, actor);
     if (!result.ok) {
       setErr(result.error);
@@ -2131,6 +2132,43 @@ function SubtaskEditor({
 
   useImperativeHandle(ref, () => ({
     save() {
+      if (task.status === "completed") {
+        if (!canUpdate && departmentControl.kind !== "choose") {
+          return { ok: true, status: task.status, wrote: false };
+        }
+        const nextDepartment = chosenDepartment(
+          departmentControl,
+          department,
+          task.department
+        );
+        const nextDue = deadlineLocked ? task.dueDate : dueDate || null;
+        const pool = peopleForDepartment(people, nextDepartment || "none");
+        const nextAssignees = !canUpdate
+          ? task.assignees
+          : !canName || !departmentIsSet(nextDepartment)
+            ? task.assignees
+            : assignees.filter((name) => {
+                const key = name.trim().toLowerCase();
+                const inDepartment = pool.some(
+                  (person) => person.name.trim().toLowerCase() === key
+                );
+                const alreadyNamed =
+                  keepingSavedDepartment &&
+                  task.assignees.some(
+                    (item) => item.trim().toLowerCase() === key
+                  );
+                return inDepartment || alreadyNamed;
+              });
+        const changed =
+          (nextDepartment || "") !== (task.department || "").trim() ||
+          !sameNames(nextAssignees, task.assignees) ||
+          (nextDue || null) !== (task.dueDate || null) ||
+          status !== task.status ||
+          notes.trim() !== (task.notes || "") ||
+          (reason.trim() || null) !== (task.notRequiredReason || null);
+        if (!changed) return { ok: true, status: task.status, wrote: false };
+        return { ok: false, error: TASK_COMPLETED_LOCKED, wrote: false };
+      }
       if (!canUpdate) {
         if (departmentControl.kind !== "choose") {
           return { ok: false, error: TASK_SAVE_DENIED, wrote: false };
