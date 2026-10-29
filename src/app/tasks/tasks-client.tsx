@@ -84,6 +84,17 @@ import {
   type TaskListRow,
 } from "@/lib/task-list";
 import { samePerson } from "@/lib/task-responsible";
+import {
+  addSubtaskControl,
+  closeTaskUpdates,
+  initialTaskUpdatesBox,
+  openTaskUpdates,
+  saveUpdatesControl,
+  settleTaskUpdatesSave,
+  taskUpdatesSaveCloses,
+  updatesBoxShowsAddSubtask,
+  type TaskUpdatesBox,
+} from "@/lib/task-updates-box";
 import { HubDataScroll, HubPage } from "@/components/hub-scroll";
 import { cn } from "@/lib/utils";
 
@@ -1108,6 +1119,7 @@ export function TaskEditor({
   expandedSubId,
   setExpandedSubId,
   onClose,
+  startEditing = false,
 }: {
   task: Task;
   subtasks: Task[];
@@ -1120,6 +1132,8 @@ export function TaskEditor({
   expandedSubId: string | null;
   setExpandedSubId: (id: string | null) => void;
   onClose: () => void;
+  /** Open the updates box on the first render. The task page leaves this unset. */
+  startEditing?: boolean;
 }) {
   const [title, setTitle] = useState(task.title);
   const [department, setDepartment] = useState(task.department ?? "none");
@@ -1138,8 +1152,12 @@ export function TaskEditor({
   const [subDept, setSubDept] = useState("none");
   const [subDue, setSubDue] = useState("");
   const [subAssignees, setSubAssignees] = useState<string[]>([]);
-  const [addingSub, setAddingSub] = useState(false);
-  const [editing, setEditing] = useState(true);
+  const [addingSub, setAddingSub] = useState(
+    initialTaskUpdatesBox().addingSubtask
+  );
+  const [editing, setEditing] = useState(
+    startEditing || initialTaskUpdatesBox().editing
+  );
   const [err, setErr] = useState<string | null>(null);
   const [closing, setClosing] = useState(false);
   const [closures, setClosures] = useState<
@@ -1181,8 +1199,39 @@ export function TaskEditor({
   const canSaveOpenSub = Boolean(
     openSubtask && canUpdateTask(actor, openSubtask)
   );
-  const showSaveUpdates =
-    (editing && canUpdate) || canSaveOpenSub || (addingSub && canUpdate);
+
+  function currentBox(): TaskUpdatesBox {
+    return {
+      editing,
+      addingSubtask: addingSub,
+      subtaskEditorId: expandedSubId,
+    };
+  }
+
+  function applyBox(next: TaskUpdatesBox) {
+    setEditing(next.editing);
+    setAddingSub(next.addingSubtask);
+    setExpandedSubId(next.subtaskEditorId);
+    if (!next.addingSubtask) {
+      setSubTitle("");
+      setSubDue("");
+      setSubDept("none");
+      setSubAssignees([]);
+    }
+    if (!next.editing) setClosing(false);
+  }
+
+  function resetDraftFromTask() {
+    setTitle(task.title);
+    setDepartment(task.department ?? "none");
+    setAssignees([...task.assignees]);
+    setDueDate(task.dueDate ?? "");
+    setDeadlineReason("");
+    setPriority(task.priority);
+    setStatus(task.status === "not_required" ? "completed" : task.status);
+    setNotes(task.notes ?? "");
+    setClosures({});
+  }
 
   function runAfterCompleted() {
     if (!task.contractId) return;
@@ -1325,12 +1374,31 @@ export function TaskEditor({
       }
     }
 
-    setErr(errors.length ? errors.join(" ") : null);
+    if (errors.length > 0) {
+      const settled = settleTaskUpdatesSave(currentBox(), {
+        ok: false,
+        error: errors.join(" "),
+      });
+      setEditing(settled.box.editing);
+      setErr(settled.error);
+    } else {
+      setErr(null);
+    }
     if (!wrote) return;
     const persisted = await confirmWorkspaceSave();
     if (!persisted || !statusResult) return;
     setStatus(statusResult.status === "not_required" ? "completed" : statusResult.status);
-    if (errors.length === 0) setErr(null);
+    if (
+      taskUpdatesSaveCloses({
+        errors,
+        persisted,
+        statusSaved: true,
+      })
+    ) {
+      const settled = settleTaskUpdatesSave(currentBox(), { ok: true });
+      setErr(settled.error);
+      applyBox(settled.box);
+    }
     if (statusResult.sideEffects) runAfterCompleted();
   }
 
@@ -1384,7 +1452,9 @@ export function TaskEditor({
     setErr(null);
     const saved = await confirmWorkspaceSave();
     if (!saved) return;
-    setClosing(false);
+    const settled = settleTaskUpdatesSave(currentBox(), { ok: true });
+    setErr(settled.error);
+    applyBox(settled.box);
     applyStatusMessage(result);
   }
 
@@ -1455,6 +1525,148 @@ export function TaskEditor({
       parts.length
         ? `Added: ${parts.join("; ")}.`
         : "Follow-up tasks already on the list."
+    );
+  }
+
+  function renderSubtasks(showAdd: boolean) {
+    return (
+      <div className="space-y-2 border-t border-[var(--fh-line)] pt-2">
+        <ul className="space-y-1">
+          {subtasks.length === 0 ? (
+            <li className="text-sm text-[var(--fh-muted)]">No subtasks yet.</li>
+          ) : (
+            subtasks.map((s) => (
+              <li
+                key={s.id}
+                data-task-access={canUpdateTask(actor, s) ? "edit" : "read"}
+                className="border border-[var(--fh-line)] bg-[var(--fh-bg)]/30 px-2 py-1.5 text-sm"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                  <p className="min-w-0">
+                    <span className="font-medium text-[var(--fh-steel)]">
+                      {s.title}
+                    </span>
+                    <span className="text-xs text-[var(--fh-muted)]">
+                      {" · "}
+                      {s.department ? departmentDisplayName(s.department) : "—"}
+                      {" · "}
+                      {s.dueDate ? formatDisplayDate(s.dueDate) : "No deadline"}
+                    </span>
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <StatusPill status={s.status} />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        setExpandedSubId(expandedSubId === s.id ? null : s.id)
+                      }
+                    >
+                      {expandedSubId === s.id
+                        ? "Close"
+                        : canUpdateTask(actor, s)
+                          ? "Edit"
+                          : "View"}
+                    </Button>
+                    {canDeleteTasks && (
+                      <DeleteIconButton
+                        label={`Delete ${s.title}`}
+                        onClick={() => removeSubtask(s.id)}
+                      />
+                    )}
+                  </div>
+                </div>
+                {expandedSubId === s.id && (
+                  <div className="mt-2 border-t border-[var(--fh-line)] pt-2">
+                    <SubtaskEditor
+                      ref={subtaskSaveRef}
+                      task={s}
+                      people={people}
+                      departments={departments}
+                      canAssignPeople={canAssignPeople}
+                      canEditTasks={canEditTasks}
+                      actor={actor}
+                      onDone={() => setExpandedSubId(null)}
+                    />
+                  </div>
+                )}
+              </li>
+            ))
+          )}
+        </ul>
+        {showAdd && updatesBoxShowsAddSubtask(editing) && (
+        <div className="space-y-2 border-t border-[var(--fh-line)] pt-2">
+          <div role="tablist" aria-label="Add subtask">
+            <button
+              type="button"
+              role="tab"
+              data-add-subtask=""
+              aria-selected={addingSub}
+              aria-expanded={addingSub}
+              onClick={() => setAddingSub((open) => !open)}
+              className={cn(
+                addSubtaskControl.className,
+                "transition-colors",
+                addingSub
+                  ? "bg-[var(--fh-steel)] text-white"
+                  : "bg-white text-[var(--fh-steel)] ring-1 ring-[var(--fh-line)] hover:bg-[var(--fh-bg)]"
+              )}
+            >
+              {addSubtaskControl.label}
+            </button>
+          </div>
+          {addingSub && (
+          <div role="tabpanel" className="space-y-2">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="space-y-1 sm:col-span-2">
+              <Label className="text-xs">Name</Label>
+              <Input
+                className="h-9 bg-white"
+                value={subTitle}
+                onChange={(e) => setSubTitle(e.target.value)}
+                placeholder="Subtask name"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Department</Label>
+              <DepartmentField
+                control={newSubControl}
+                value={subDept}
+                onChange={onSubDepartmentChange}
+                emptyLabel="Later…"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Deadline</Label>
+              <Input
+                type="date"
+                className="h-9 bg-white"
+                value={subDue}
+                onChange={(e) => setSubDue(e.target.value)}
+              />
+            </div>
+          </div>
+          {canAssignPeople && (
+            <div className="space-y-1">
+              <Label className="text-xs">People</Label>
+              {subDept === "none" ? (
+                <p className="text-xs text-[var(--fh-muted)]">
+                  Select a department to choose people.
+                </p>
+              ) : (
+                <PeoplePicker
+                  people={peopleForDepartment(people, subDept)}
+                  assignees={subAssignees}
+                  onChange={setSubAssignees}
+                />
+              )}
+            </div>
+          )}
+          </div>
+          )}
+        </div>
+        )}
+      </div>
     );
   }
 
@@ -1610,7 +1822,16 @@ export function TaskEditor({
               size="sm"
               variant="outline"
               aria-pressed={editing}
-              onClick={() => setEditing((open) => !open)}
+              onClick={() => {
+                if (!editing) {
+                  setEditing(openTaskUpdates(currentBox()).editing);
+                  return;
+                }
+                resetDraftFromTask();
+                const settled = closeTaskUpdates(currentBox());
+                applyBox(settled);
+                setErr(null);
+              }}
             >
               {editing ? "Close" : "Add updates"}
             </Button>
@@ -1647,7 +1868,10 @@ export function TaskEditor({
       )}
 
       {editing && canUpdate && (
-      <div className="space-y-3 border border-[var(--fh-line)] bg-white p-2">
+      <div
+        data-task-updates=""
+        className="space-y-3 border border-[var(--fh-line)] bg-white p-2"
+      >
       <div className="space-y-2">
         <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 lg:grid-cols-12">
           <div className="col-span-2 min-w-0 space-y-1 lg:col-span-12">
@@ -1868,155 +2092,39 @@ export function TaskEditor({
           </div>
         )}
       </div>
+      {renderSubtasks(true)}
+      <div className={saveUpdatesControl.rowClassName}>
+        <Button
+          type="button"
+          size="lg"
+          {...entrySaveProps}
+          data-save-updates=""
+          className={cn("bg-[var(--fh-steel)]", saveUpdatesControl.className)}
+          onClick={() => void saveUpdates()}
+        >
+          {saveUpdatesControl.label}
+        </Button>
+      </div>
       </div>
       )}
 
-      <div className="space-y-2 border-t border-[var(--fh-line)] pt-2">
-        <ul className="space-y-1">
-          {subtasks.length === 0 ? (
-            <li className="text-sm text-[var(--fh-muted)]">No subtasks yet.</li>
-          ) : (
-            subtasks.map((s) => (
-              <li
-                key={s.id}
-                data-task-access={canUpdateTask(actor, s) ? "edit" : "read"}
-                className="border border-[var(--fh-line)] bg-[var(--fh-bg)]/30 px-2 py-1.5 text-sm"
+      {!canUpdate && (
+        <>
+          {renderSubtasks(false)}
+          {canSaveOpenSub && (
+            <div className="border-t border-[var(--fh-line)] pt-2">
+              <Button
+                type="button"
+                size="sm"
+                {...entrySaveProps}
+                className="bg-[var(--fh-steel)]"
+                onClick={() => void saveUpdates()}
               >
-                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-                  <p className="min-w-0">
-                    <span className="font-medium text-[var(--fh-steel)]">
-                      {s.title}
-                    </span>
-                    <span className="text-xs text-[var(--fh-muted)]">
-                      {" · "}
-                      {s.department ? departmentDisplayName(s.department) : "—"}
-                      {" · "}
-                      {s.dueDate ? formatDisplayDate(s.dueDate) : "No deadline"}
-                    </span>
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <StatusPill status={s.status} />
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        setExpandedSubId(expandedSubId === s.id ? null : s.id)
-                      }
-                    >
-                      {expandedSubId === s.id
-                        ? "Close"
-                        : canUpdateTask(actor, s)
-                          ? "Edit"
-                          : "View"}
-                    </Button>
-                    {canDeleteTasks && (
-                      <DeleteIconButton
-                        label={`Delete ${s.title}`}
-                        onClick={() => removeSubtask(s.id)}
-                      />
-                    )}
-                  </div>
-                </div>
-                {expandedSubId === s.id && (
-                  <div className="mt-2 border-t border-[var(--fh-line)] pt-2">
-                    <SubtaskEditor
-                      ref={subtaskSaveRef}
-                      task={s}
-                      people={people}
-                      departments={departments}
-                      canAssignPeople={canAssignPeople}
-                      canEditTasks={canEditTasks}
-                      actor={actor}
-                      onDone={() => setExpandedSubId(null)}
-                    />
-                  </div>
-                )}
-              </li>
-            ))
-          )}
-        </ul>
-        {canUpdate && (
-        <div className="space-y-2 border-t border-[var(--fh-line)] pt-2">
-          <div role="tablist" aria-label="Add subtask">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={addingSub}
-              aria-expanded={addingSub}
-              onClick={() => setAddingSub((open) => !open)}
-              className={cn(
-                "rounded-md px-3 py-1.5 text-sm transition-colors",
-                addingSub
-                  ? "bg-[var(--fh-steel)] text-white"
-                  : "bg-white text-[var(--fh-steel)] ring-1 ring-[var(--fh-line)] hover:bg-[var(--fh-bg)]"
-              )}
-            >
-              Add subtask
-            </button>
-          </div>
-          {addingSub && (
-          <div role="tabpanel" className="space-y-2">
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="space-y-1 sm:col-span-2">
-              <Label className="text-xs">Name</Label>
-              <Input
-                className="h-9 bg-white"
-                value={subTitle}
-                onChange={(e) => setSubTitle(e.target.value)}
-                placeholder="Subtask name"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Department</Label>
-              <DepartmentField
-                control={newSubControl}
-                value={subDept}
-                onChange={onSubDepartmentChange}
-                emptyLabel="Later…"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Deadline</Label>
-              <Input
-                type="date"
-                className="h-9 bg-white"
-                value={subDue}
-                onChange={(e) => setSubDue(e.target.value)}
-              />
-            </div>
-          </div>
-          {canAssignPeople && (
-            <div className="space-y-1">
-              <Label className="text-xs">People</Label>
-              {subDept === "none" ? (
-                <p className="text-xs text-[var(--fh-muted)]">
-                  Select a department to choose people.
-                </p>
-              ) : (
-                <PeoplePicker
-                  people={peopleForDepartment(people, subDept)}
-                  assignees={subAssignees}
-                  onChange={setSubAssignees}
-                />
-              )}
+                Save updates
+              </Button>
             </div>
           )}
-          </div>
-          )}
-        </div>
-        )}
-      </div>
-      {showSaveUpdates && (
-        <div className="border-t border-[var(--fh-line)] pt-2">
-          <Button
-            size="sm"
-            {...entrySaveProps}
-            className="bg-[var(--fh-steel)]"
-            onClick={() => void saveUpdates()}
-          >
-            Save updates
-          </Button>
-        </div>
+        </>
       )}
     </div>
   );
