@@ -20,8 +20,8 @@ import {
   isBuiltinBillingTerm,
   renameCustomBillingTerm,
 } from "@/lib/billing-terms";
+import { contractGstSummary } from "@/lib/contract-gst";
 import {
-  GST_RATE,
   canAmendBoq,
   canMarkRetentionRecovered,
   guaranteeAmount,
@@ -718,11 +718,7 @@ export default function ContractDetailPage() {
         />
         <Info
           label="GST"
-          value={
-            c.gstApplicable
-              ? `18% · w/ GST ${formatMoney(c.orderValue * (1 + GST_RATE))}`
-              : "Not applicable"
-          }
+          value={contractGstSummary(c, formatMoney)}
         />
         <Info label="Payment due days" value={`${c.paymentDueDays} days`} />
         <div

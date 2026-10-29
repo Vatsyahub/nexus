@@ -15,7 +15,8 @@ import {
   billingTermChoices,
   recalcTouchedInvoiceLine,
 } from "@/lib/invoice-line-edit";
-import { GST_RATE, type InvoiceLine } from "@/lib/types";
+import { type InvoiceLine } from "@/lib/types";
+import { contractGstAmount } from "@/lib/contract-gst";
 import { entryRootProps, entrySaveProps } from "@/components/entry-keys";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -68,7 +69,7 @@ export default function ConvertPiPage() {
   }, [pi]);
 
   const net = lines.reduce((s, l) => s + l.lineNet, 0);
-  const gst = contract?.gstApplicable ? net * GST_RATE : 0;
+  const gst = contract ? contractGstAmount(net, contract) : 0;
   const extraTotal = charges.reduce((s, c) => s + (Number(c.amount) || 0), 0);
 
   function recalcLine(line: InvoiceLine, patch: Partial<InvoiceLine>): InvoiceLine {

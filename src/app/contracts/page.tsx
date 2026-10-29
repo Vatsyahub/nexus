@@ -9,7 +9,7 @@ import {
   useFlowhubData,
 } from "@/lib/store";
 import { contractDisplayStatus, todayIso } from "@/lib/nexus-core";
-import { GST_RATE } from "@/lib/types";
+import { contractGstRate, contractOrderWithGst } from "@/lib/contract-gst";
 import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ListSearchBar } from "@/components/list-search";
@@ -108,9 +108,8 @@ function ContractsPageInner() {
               </TableRow>
             ) : (
               rows.map((c) => {
-                const withGst = c.gstApplicable
-                  ? c.orderValue * (1 + GST_RATE)
-                  : c.orderValue;
+                const gstRate = contractGstRate(c);
+                const withGst = contractOrderWithGst(c.orderValue, c);
                 const billedNet = data.invoices
                   .filter((i) => i.contractId === c.id && i.type === "TI")
                   .reduce((s, i) => s + (Number(i.netAmount) || 0), 0);
@@ -141,7 +140,7 @@ function ContractsPageInner() {
                     </TableCell>
                     <TableCell className="text-right text-sm tabular-nums">
                       {formatMoney(c.orderValue)}
-                      {c.gstApplicable && (
+                      {gstRate > 0 && (
                         <p className="text-xs text-[var(--fh-muted)]">
                           w/ GST {formatMoney(withGst)}
                         </p>

@@ -1245,3 +1245,124 @@ test("operations view can read dispatch records and view or block cannot change 
   assert.equal(editSave.deliveryChallans[0]?.dcNo, "DC-2");
   assert.equal(editSave.installationProgress[0]?.installedQty, 9);
 });
+
+test("Master can save a GST percent when no tax invoice exists", () => {
+  const current = file({
+    contracts: [contract({ gstApplicable: true, city: "Delhi" })],
+  });
+  const merged = mergeWorkspaceSave(
+    current,
+    file({
+      contracts: [
+        contract({ gstApplicable: true, gstPercent: 12, city: "Delhi" }),
+      ],
+    }),
+    access({ contracts: "edit" }),
+    "master"
+  );
+  assert.equal(merged.contracts[0]?.gstPercent, 12);
+  assert.equal(merged.contracts[0]?.gstApplicable, true);
+});
+
+test("a tax invoice keeps the stored GST percent and a proforma does not", () => {
+  const ti = invoice({ id: "ti-1", type: "TI", gstAmount: 18, netAmount: 100 });
+  const current = file({
+    contracts: [contract({ gstApplicable: true, city: "Delhi" })],
+    invoices: [ti],
+  });
+  const refused = mergeWorkspaceSave(
+    current,
+    file({
+      contracts: [
+        contract({ gstApplicable: true, gstPercent: 5, city: "Pune" }),
+      ],
+      invoices: [ti],
+    }),
+    access({ contracts: "edit" }),
+    "master"
+  );
+  assert.equal(refused.contracts[0]?.city, "Pune");
+  assert.equal(refused.contracts[0]?.gstApplicable, true);
+  assert.equal(refused.contracts[0]?.gstPercent, undefined);
+  assert.equal(refused.invoices[0]?.gstAmount, 18);
+
+  const pi = invoice({ id: "pi-1", type: "PI", gstAmount: 18, netAmount: 100 });
+  const proformaOnly = file({
+    contracts: [contract({ gstApplicable: true })],
+    invoices: [pi],
+  });
+  const changed = mergeWorkspaceSave(
+    proformaOnly,
+    file({
+      contracts: [contract({ gstApplicable: true, gstPercent: 5 })],
+      invoices: [pi],
+    }),
+    access({ contracts: "edit" }),
+    "master"
+  );
+  assert.equal(changed.contracts[0]?.gstPercent, 5);
+  assert.equal(changed.invoices[0]?.type, "PI");
+  assert.equal(changed.invoices[0]?.gstAmount, 18);
+});
+
+test("saving GST 0 is kept when no tax invoice exists and refused when one does", () => {
+  const open = mergeWorkspaceSave(
+    file({ contracts: [contract({ gstApplicable: true })] }),
+    file({
+      contracts: [contract({ gstApplicable: false, gstPercent: 0 })],
+    }),
+    access({ contracts: "edit" }),
+    "master"
+  );
+  assert.equal(open.contracts[0]?.gstPercent, 0);
+  assert.equal(open.contracts[0]?.gstApplicable, false);
+
+  const ti = invoice({ gstAmount: 18 });
+  const locked = mergeWorkspaceSave(
+    file({
+      contracts: [contract({ gstApplicable: true })],
+      invoices: [ti],
+    }),
+    file({
+      contracts: [contract({ gstApplicable: false, gstPercent: 0 })],
+      invoices: [ti],
+    }),
+    access({ contracts: "edit" }),
+    "master"
+  );
+  assert.equal(locked.contracts[0]?.gstApplicable, true);
+  assert.equal(locked.contracts[0]?.gstPercent, undefined);
+  assert.equal(locked.invoices[0]?.gstAmount, 18);
+});
+
+test("a role other than Master cannot change GST", () => {
+  const stored = contract({ gstApplicable: true, gstPercent: 12, city: "Delhi" });
+  const current = file({ contracts: [stored] });
+  const incoming = file({
+    contracts: [
+      contract({ gstApplicable: true, gstPercent: 5, city: "Pune" }),
+    ],
+  });
+  for (const role of ["director", "manager", "user"] as const) {
+    const merged = mergeWorkspaceSave(
+      current,
+      incoming,
+      access({ contracts: "edit" }),
+      role
+    );
+    assert.equal(merged.contracts[0]?.gstPercent, 12, role);
+    assert.equal(merged.contracts[0]?.gstApplicable, true, role);
+    assert.equal(merged.contracts[0]?.city, "Pune", role);
+  }
+
+  const created = mergeWorkspaceSave(
+    file(),
+    file({
+      contracts: [contract({ id: "new-c", gstApplicable: true, gstPercent: 5 })],
+    }),
+    access({ contracts: "edit" }),
+    "manager"
+  );
+  assert.equal(created.contracts[0]?.gstApplicable, true);
+  assert.equal(created.contracts[0]?.gstPercent, undefined);
+});

@@ -5,12 +5,12 @@
 
 import {
   EMPTY_NEXUS_COSTS,
-  GST_RATE,
   type Contract,
   type FlowhubData,
   type NexusCosts,
   type Payment,
 } from "@/lib/types";
+import { contractGstRate, contractOrderWithGst } from "@/lib/contract-gst";
 
 export function todayIso(d = new Date()): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -602,27 +602,29 @@ export function yetToBillAmount(
 }
 
 /**
- * Cash still to come in. With GST, start from the work-order value plus 18%.
+ * Cash still to come in. With GST, start from the work-order value plus
+ * the contract's GST percent (18% until Master saves another).
  * Without GST, start from the work-order value alone.
  * Retention and TDS stay percents of that net value.
  * Then take off every payment's net, its GST when the contract has GST, and
- * its other deductions.
+ * its other deductions. Stored payment amounts are not rewritten.
  */
 export function yetToCollectAmount(
   contract: Pick<
     Contract,
     "orderValue" | "retentionPercent" | "tdsPercent" | "gstApplicable"
-  >,
+  > & { gstPercent?: number | null },
   payments: readonly Pick<Payment, "netAmount" | "gstAmount" | "otherDeductions">[]
 ): number {
   const workOrder = Number(contract.orderValue) || 0;
-  const start = contract.gstApplicable ? workOrder * (1 + GST_RATE) : workOrder;
+  const rate = contractGstRate(contract);
+  const start = contractOrderWithGst(workOrder, contract);
   const retention = (workOrder * (Number(contract.retentionPercent) || 0)) / 100;
   const tds = (workOrder * (Number(contract.tdsPercent) || 0)) / 100;
   let taken = retention + tds;
   for (const payment of payments) {
     taken += Number(payment.netAmount) || 0;
-    if (contract.gstApplicable) taken += Number(payment.gstAmount) || 0;
+    if (rate > 0) taken += Number(payment.gstAmount) || 0;
     taken += Number(payment.otherDeductions) || 0;
   }
   return start - taken;

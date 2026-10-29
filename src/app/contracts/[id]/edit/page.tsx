@@ -8,6 +8,12 @@ import { updateContract, useFlowhubData } from "@/lib/store";
 import { confirmWorkspaceSave } from "@/lib/save-notice";
 import { DLP_MONTHS_RANGE_MESSAGE, acceptedDlpMonths } from "@/lib/dlp-months";
 import {
+  GST_PERCENT_RANGE_MESSAGE,
+  acceptedGstPercent,
+  gstFieldsForSave,
+  gstSaveRefusal,
+} from "@/lib/contract-gst";
+import {
   draftFromContract,
   keepOpenContractEdit,
   type ContractEditDraft,
@@ -87,6 +93,17 @@ export default function EditContractPage() {
       setError(DLP_MONTHS_RANGE_MESSAGE);
       return;
     }
+    const gstPercent = acceptedGstPercent(draft.gstPercent);
+    if (gstPercent == null) {
+      setError(GST_PERCENT_RANGE_MESSAGE);
+      return;
+    }
+    const gstRefusal = gstSaveRefusal(saved, data.invoices, id, gstPercent);
+    if (gstRefusal) {
+      setError(gstRefusal);
+      return;
+    }
+    const gstPatch = gstFieldsForSave(saved, gstPercent);
     updateContract(id, {
       projectName: draft.projectName.trim(),
       projectNo: draft.projectNo.trim(),
@@ -102,9 +119,10 @@ export default function EditContractPage() {
       tdsPercent: Number(draft.tdsPercent) || 0,
       dlpMonths: dlp,
       contractorAssigned: draft.contractorAssigned.trim(),
+      ...(gstPatch ?? {}),
     });
-    const saved = await confirmWorkspaceSave();
-    if (!saved) return;
+    const confirmed = await confirmWorkspaceSave();
+    if (!confirmed) return;
     router.push(`/contracts/${id}`);
   }
 
@@ -153,6 +171,14 @@ export default function EditContractPage() {
             onChange={change("retentionPercent")}
             type="number"
           />
+          <Field
+            label="GST %"
+            value={draft.gstPercent}
+            onChange={change("gstPercent")}
+            type="number"
+            min="0"
+            step="any"
+          />
           <Field label="TDS % of net" value={draft.tdsPercent} onChange={change("tdsPercent")} type="number" />
           <Field label="DLP months" value={draft.dlpMonths} onChange={change("dlpMonths")} type="number" />
           <Field
@@ -180,16 +206,26 @@ function Field({
   value,
   onChange,
   type = "text",
+  min,
+  step,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   type?: string;
+  min?: string;
+  step?: string;
 }) {
   return (
     <div className="space-y-2">
       <Label>{label}</Label>
-      <Input type={type} value={value} onChange={(e) => onChange(e.target.value)} />
+      <Input
+        type={type}
+        min={min}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
     </div>
   );
 }
