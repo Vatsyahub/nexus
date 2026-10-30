@@ -34,17 +34,17 @@ export default function ReportsHomePage() {
         <ReportsLoading />
       ) : (
         <HubDataScroll>
-          <div className="w-max max-w-full">
+          <div className="w-full">
             {/* One box plus the usual gap, so row 1 starts where Sales sat. */}
             <div
               aria-hidden
-              className="invisible mb-2 rounded-lg border border-transparent px-4 py-3"
+              className="invisible mb-2 w-max rounded-lg border border-transparent px-4 py-3"
             >
               <p className="font-[family-name:var(--font-display)] text-base">
                 &nbsp;
               </p>
             </div>
-            <section className="grid w-max max-w-full grid-cols-[repeat(3,max-content)] gap-x-2 gap-y-4">
+            <section className="grid w-full grid-cols-[repeat(3,max-content)] justify-between gap-y-4">
               {cards.map((r) => (
                 <Link
                   key={r.href}
