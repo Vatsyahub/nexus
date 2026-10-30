@@ -115,19 +115,132 @@ function htmlOf(props: EditorProps) {
   return renderToStaticMarkup(React.createElement(TaskEditor, props));
 }
 
+function openSubtasksHtml(html: string) {
+  const marker = 'data-open-subtasks=""';
+  const start = html.indexOf(marker);
+  if (start < 0) return "";
+  const end = html.indexOf("</ul>", start);
+  return html.slice(start, end === -1 ? html.length : end);
+}
+
 test("opening a task shows the summary and Add updates with the box closed", () => {
   const html = htmlOf(editorProps());
+  const openList = openSubtasksHtml(html);
   assert.match(html, /data-task-summary/);
   assert.match(html, /Add updates/);
   assert.equal(html.includes("data-task-updates"), false);
   assert.equal(html.includes("Save updates"), false);
   assert.equal(html.includes("Add subtask"), false);
-  assert.equal(html.includes("Lay cable"), false);
+  assert.match(openList, /Lay cable/);
+  assert.match(openList, /Contracts/);
+  assert.equal((html.match(/Lay cable/g) ?? []).length, 1);
   assert.equal(html.includes("Update note"), false);
   assert.equal((html.match(/Task name/g) ?? []).length, 1);
   assert.match(html, /Pending/);
   assert.equal(html.includes("Priority"), false);
   assert.match(html, /Check site/);
+});
+
+test("the summary lists open subtasks in task order and hides finished ones", () => {
+  const parent = task();
+  const subtasks = [
+    task({
+      id: "open-1",
+      title: "Mark drawings",
+      parentId: parent.id,
+      department: "Contracts Department",
+      status: "pending",
+    }),
+    task({
+      id: "done",
+      title: "Sent to client",
+      parentId: parent.id,
+      department: "Accounts Department",
+      status: "completed",
+    }),
+    task({
+      id: "open-2",
+      title: "Site measure",
+      parentId: parent.id,
+      department: "Installation Department",
+      status: "in_progress",
+    }),
+    task({
+      id: "skip",
+      title: "Skip paint",
+      parentId: parent.id,
+      department: "Drawings Department",
+      status: "not_required",
+      notRequiredReason: "Out of scope",
+    }),
+    task({
+      id: "wait",
+      title: "Waiting review",
+      parentId: parent.id,
+      department: "Accounts Department",
+      status: "awaiting_verification",
+    }),
+    task({
+      id: "held",
+      title: "Hold crane",
+      parentId: parent.id,
+      department: "Drawings Department",
+      status: "on_hold",
+    }),
+    task({
+      id: "bare",
+      title: "No department yet",
+      parentId: parent.id,
+      department: null,
+      status: "pending",
+    }),
+  ];
+  const html = htmlOf(editorProps({ task: parent, subtasks }));
+  const openList = openSubtasksHtml(html);
+  const lines = [
+    "Mark drawings",
+    "Contracts",
+    "Site measure",
+    "Installation",
+    "Waiting review",
+    "Accounts",
+    "Hold crane",
+    "Drawings",
+    "No department yet",
+    "—",
+  ];
+  let cursor = 0;
+  for (const line of lines) {
+    const at = openList.indexOf(line, cursor);
+    assert.ok(at >= cursor, line);
+    cursor = at + line.length;
+  }
+  assert.equal(html.includes("Sent to client"), false);
+  assert.equal(html.includes("Skip paint"), false);
+  assert.equal(html.includes(">0<"), false);
+  assert.match(html, /Add updates/);
+  assert.equal(html.includes("Add subtask"), false);
+
+  const editing = htmlOf(
+    editorProps({ task: parent, subtasks, startEditing: true })
+  );
+  assert.match(editing, /Sent to client/);
+  assert.match(editing, /Skip paint/);
+  assert.match(editing, /Add subtask/);
+  assert.match(openSubtasksHtml(editing), /Mark drawings/);
+
+  const noneOpen = htmlOf(
+    editorProps({
+      task: parent,
+      subtasks: subtasks.filter(
+        (row) => row.status === "completed" || row.status === "not_required"
+      ),
+    })
+  );
+  assert.equal(openSubtasksHtml(noneOpen), "");
+  assert.equal(noneOpen.includes(">Subtasks<"), false);
+  assert.equal(noneOpen.includes(">0<"), false);
+  assert.match(noneOpen, /Add updates/);
 });
 
 test("Add updates shows the fields, subtasks, and a larger centred Save updates", () => {

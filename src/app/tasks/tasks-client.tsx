@@ -1778,9 +1778,28 @@ export function TaskEditor({
               </div>
             </div>
           </SummaryField>
-          <SummaryField label="Subtasks">
-            {subtasks.length}
-          </SummaryField>
+          {openSubs.length > 0 && (
+            <SummaryField label="Subtasks" className="col-span-full">
+              <ul data-open-subtasks="" className="space-y-0.5">
+                {openSubs.map((subtask) => {
+                  const department = subtask.department
+                    ? departmentDisplayName(subtask.department)
+                    : "";
+                  return (
+                    <li key={subtask.id}>
+                      <span className="font-medium text-[var(--fh-steel)]">
+                        {subtask.title}
+                      </span>
+                      <span className="text-[var(--fh-muted)]">
+                        {" · "}
+                        {department || "—"}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </SummaryField>
+          )}
         </dl>
         <div className="flex shrink-0 gap-2">
           {canUpdate && (
