@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatDisplayDate } from "@/lib/dates";
 import {
-  formatQty,
+  formatQtyWithUnit,
   type DispatchListRow,
 } from "@/lib/execution-reports";
 
@@ -67,7 +67,7 @@ export function DcRecordTable({
                         <span className="break-words">{item.itemName}</span>
                         <span className="tabular-nums text-[var(--fh-muted)]">
                           {" "}
-                          · {formatQty(item.qty)}
+                          · {formatQtyWithUnit(item.qty, item.unit)}
                         </span>
                       </p>
                     ))

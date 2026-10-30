@@ -9,7 +9,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { confirmAction } from "@/components/confirm-panel";
 import { DeleteIconButton } from "@/components/icon-actions";
 import { formatDisplayDate } from "@/lib/dates";
-import { formatQty } from "@/lib/execution-reports";
+import { formatQtyWithUnit } from "@/lib/execution-reports";
 import {
   deleteDeliveryChallan,
   flushWorkspace,
@@ -53,6 +53,7 @@ export function DcDetailClient({ canEdit }: { canEdit: boolean }) {
     return {
       boqItemId: line.boqItemId,
       name: item?.name ?? "—",
+      unit: item?.unit ?? "",
       qty: line.qty,
     };
   });
@@ -142,7 +143,7 @@ export function DcDetailClient({ canEdit }: { canEdit: boolean }) {
               <tr key={line.boqItemId}>
                 <td className="py-2">{line.name}</td>
                 <td className="py-2 text-right tabular-nums">
-                  {formatQty(line.qty)}
+                  {formatQtyWithUnit(line.qty, line.unit)}
                 </td>
               </tr>
             ))}

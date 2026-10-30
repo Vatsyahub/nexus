@@ -35,7 +35,7 @@ export default function ReportsHomePage() {
       ) : (
         <HubDataScroll>
           <div className="w-max max-w-full">
-            {/* One box plus the usual gap, so row 1 starts where Sales sat. */}
+            {/* Old box height plus the usual 8px gap, so row 1 stays put. */}
             <div
               aria-hidden
               className="invisible mb-2 rounded-lg border border-transparent px-4 py-3"
@@ -44,12 +44,13 @@ export default function ReportsHomePage() {
                 &nbsp;
               </p>
             </div>
+            {/* 1.5× the old text-base box. Gaps stay 40px across and 16px before row 2. */}
             <section className="grid w-max max-w-full grid-cols-[repeat(3,max-content)] gap-x-10 gap-y-4">
               {cards.map((r) => (
                 <Link
                   key={r.href}
                   href={r.href}
-                  className="inline-grid whitespace-nowrap rounded-lg border border-[var(--fh-line)] bg-white px-4 py-3 transition hover:border-[var(--fh-steel)]/40"
+                  className="inline-grid whitespace-nowrap rounded-lg border border-[var(--fh-line)] bg-white px-6 py-[1.125rem] transition hover:border-[var(--fh-steel)]/40"
                 >
                   {labels.map((label) => (
                     <span
@@ -57,8 +58,8 @@ export default function ReportsHomePage() {
                       aria-hidden={label !== r.label}
                       className={
                         label === r.label
-                          ? "col-start-1 row-start-1 font-[family-name:var(--font-display)] text-base text-[var(--fh-steel)]"
-                          : "invisible col-start-1 row-start-1 font-[family-name:var(--font-display)] text-base"
+                          ? "col-start-1 row-start-1 font-[family-name:var(--font-display)] text-[1.5rem] leading-[2.25rem] text-[var(--fh-steel)]"
+                          : "invisible col-start-1 row-start-1 font-[family-name:var(--font-display)] text-[1.5rem] leading-[2.25rem]"
                       }
                     >
                       {label}
