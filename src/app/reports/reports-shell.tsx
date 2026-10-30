@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 const LIVE_REPORTS = [
   {
     href: "/reports/outstanding",
-    label: "Invoices and Outstandings",
+    label: "Receivables",
   },
   {
     href: "/reports/sales",

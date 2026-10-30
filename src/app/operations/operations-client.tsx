@@ -79,6 +79,17 @@ export function OperationsClient({
             Update installations
           </Link>
         )}
+        {canAdd && tab === "expenses" && (
+          <Link
+            href="/expenses/new"
+            className={cn(
+              buttonVariants(),
+              "bg-[var(--fh-accent)] text-[var(--fh-ink)] hover:bg-[#f0b01a]"
+            )}
+          >
+            Add expense
+          </Link>
+        )}
       </header>
 
       <div

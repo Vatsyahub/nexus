@@ -52,7 +52,7 @@ export const DOORS: {
   { id: "nexus_core", label: "Nexus Core", group: "Hub" },
   {
     id: "reports_outstanding",
-    label: "Invoices and Outstandings",
+    label: "Receivables",
     group: "Reports",
   },
   { id: "reports_sales", label: "Sales", group: "Reports" },
