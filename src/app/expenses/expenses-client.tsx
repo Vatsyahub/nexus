@@ -331,14 +331,12 @@ function ExpensesClientInner({
 
   const body = (
     <>
-      {(!embedded || canAdd) && (
+      {!embedded && (
       <header className="flex shrink-0 flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          {!embedded && (
-            <h1 className="font-[family-name:var(--font-display)] text-4xl font-semibold text-[var(--fh-steel)]">
-              Expenses
-            </h1>
-          )}
+          <h1 className="font-[family-name:var(--font-display)] text-4xl font-semibold text-[var(--fh-steel)]">
+            Expenses
+          </h1>
         </div>
         {canAdd && (
           <Link
@@ -403,9 +401,13 @@ function ExpensesClientInner({
         )}
       </div>
 
-      <HubDataScroll className="space-y-4 overflow-x-auto">
+      <ListWindowNote
+        capped={listedWindow.capped}
+        order={LIST_WINDOW_ORDER.expenses}
+      />
+
       {editing && (
-        <section className="space-y-4 rounded-xl border border-[var(--fh-line)] bg-white p-5">
+        <section className="shrink-0 space-y-4 rounded-xl border border-[var(--fh-line)] bg-white p-5">
           <h2 className="font-[family-name:var(--font-display)] text-xl text-[var(--fh-steel)]">
             Edit expense
           </h2>
@@ -506,18 +508,13 @@ function ExpensesClientInner({
       )}
 
       {msg && !editing && (
-        <p className="text-sm text-[var(--fh-steel)]">{msg}</p>
+        <p className="shrink-0 text-sm text-[var(--fh-steel)]">{msg}</p>
       )}
       {err && !editing && (
-        <p className="text-sm text-[var(--destructive)]">{err}</p>
+        <p className="shrink-0 text-sm text-[var(--destructive)]">{err}</p>
       )}
 
-      <section className="rounded-xl border border-[var(--fh-line)] bg-white">
-        <ListWindowNote
-          capped={listedWindow.capped}
-          order={LIST_WINDOW_ORDER.expenses}
-          className="px-3 pt-3"
-        />
+      <HubDataScroll className="overflow-x-auto rounded-lg border border-[var(--fh-line)] bg-white">
         <table className="list-sticky-head w-full min-w-[720px] text-left text-sm">
           <thead className="border-b border-[var(--fh-line)] bg-[var(--fh-bg)] text-xs uppercase tracking-wide text-[var(--fh-muted)]">
             <tr>
@@ -535,7 +532,7 @@ function ExpensesClientInner({
               <tr>
                 <td
                   colSpan={7}
-                  className="px-3 py-8 text-center text-[var(--fh-muted)]"
+                  className="px-3 py-6 text-center text-[var(--fh-muted)]"
                 >
                   {showDeleted
                     ? "No deleted expenses."
@@ -619,7 +616,6 @@ function ExpensesClientInner({
             )}
           </tbody>
         </table>
-      </section>
       </HubDataScroll>
 
       <p className="shrink-0 text-xs text-[var(--fh-muted)]">
@@ -636,7 +632,7 @@ function ExpensesClientInner({
 
   if (embedded) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
         {body}
       </div>
     );

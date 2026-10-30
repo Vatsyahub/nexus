@@ -217,7 +217,7 @@ function InvoicesAndOutstandingsInner() {
 
   return (
     <HubPage>
-      <ReportsHeader title="Invoices and Outstandings" />
+      <ReportsHeader title="Receivables" />
 
       {!ready ? (
         <ReportsLoading />
@@ -500,7 +500,7 @@ function InvoicesTable({
       </ReportsTableScroll>
       <ReportExportIcons
         filename={`invoices-${title}`}
-        title={`Invoices and Outstandings — ${title}`}
+        title={`Receivables — ${title}`}
         filters={filters}
         headers={[...INVOICE_LIST_EXPORT_HEADERS]}
         rows={
@@ -611,7 +611,7 @@ function ProformasTable({
       </ReportsTableScroll>
       <ReportExportIcons
         filename="open-proformas"
-        title="Invoices and Outstandings — Open proformas"
+        title="Receivables — Open proformas"
         filters={filters}
         headers={[...OPEN_PROFORMA_EXPORT_HEADERS]}
         rows={

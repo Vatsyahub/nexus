@@ -32,12 +32,12 @@ export default function ReportsHomePage() {
         <ReportsLoading />
       ) : (
         <HubDataScroll>
-        <section className="flex flex-col gap-2">
+        <section className="grid w-max max-w-full grid-cols-1 gap-2">
           {cards.map((r) => (
             <Link
               key={r.href}
               href={r.href}
-              className="flex items-center rounded-lg border border-[var(--fh-line)] bg-white px-4 py-3 transition hover:border-[var(--fh-steel)]/40"
+              className="whitespace-nowrap rounded-lg border border-[var(--fh-line)] bg-white px-4 py-3 transition hover:border-[var(--fh-steel)]/40"
             >
               <p className="font-[family-name:var(--font-display)] text-base text-[var(--fh-steel)]">
                 {r.label}
