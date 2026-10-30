@@ -10,7 +10,7 @@ import {
   Wallet,
   ListTodo,
   CalendarDays,
-  Receipt,
+  Package,
   Users,
   Settings,
   BarChart3,
@@ -80,9 +80,9 @@ const nav: {
     clearance: "everyone",
   },
   {
-    href: "/expenses",
-    label: "Expenses",
-    icon: Receipt,
+    href: "/operations",
+    label: "Operations",
+    icon: Package,
     live: true,
     clearance: "everyone",
   },
@@ -136,7 +136,10 @@ function NavLinks({
         const active =
           item.href === "/"
             ? pathname === "/"
-            : pathname.startsWith(item.href);
+            : item.href === "/operations"
+              ? pathname.startsWith("/operations") ||
+                pathname.startsWith("/expenses")
+              : pathname.startsWith(item.href);
         const Icon = item.icon;
         return (
           <Link

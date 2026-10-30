@@ -182,12 +182,16 @@ export function workspaceForAccount(
     doorLevel(access, "nexus_core") === "block"
       ? EMPTY_NEXUS_COSTS
       : normalizeNexusCosts(data.nexusCosts);
-  const operationsOpen = doorLevel(access, "reports_operations") !== "block";
+  const dispatchVisible =
+    doorLevel(access, "expenses") !== "block" ||
+    doorLevel(access, "reports_operations") !== "block";
 
   return {
     ...data,
-    deliveryChallans: operationsOpen ? data.deliveryChallans ?? [] : [],
-    installationProgress: operationsOpen ? data.installationProgress ?? [] : [],
+    deliveryChallans: dispatchVisible ? data.deliveryChallans ?? [] : [],
+    installationProgress: dispatchVisible
+      ? data.installationProgress ?? []
+      : [],
     contracts,
     invoices: receives(access, "billing", BILLING_REPORTS) ? data.invoices : [],
     payments: receives(access, "payments", PAYMENT_REPORTS) ? data.payments : [],
@@ -348,7 +352,7 @@ export function mergeWorkspaceSave(
     ? normalizeNexusCosts(incoming.nexusCosts)
     : normalizeNexusCosts(current.nexusCosts);
   let itemCatalog = contractsEdit ? incoming.itemCatalog : current.itemCatalog;
-  const operationsEdit = edits(access, "reports_operations");
+  const operationsEdit = edits(access, "expenses");
   let deliveryChallans = operationsEdit
     ? incoming.deliveryChallans
     : current.deliveryChallans;

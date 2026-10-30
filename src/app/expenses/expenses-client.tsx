@@ -65,6 +65,8 @@ export function ExpensesClient(props: {
   canDelete: boolean;
   canViewHistory: boolean;
   actorName: string;
+  /** Inside Operations. Same list, without a second page title. */
+  embedded?: boolean;
 }) {
   return (
     <Suspense fallback={null}>
@@ -79,12 +81,14 @@ function ExpensesClientInner({
   canDelete,
   canViewHistory,
   actorName,
+  embedded = false,
 }: {
   canAdd?: boolean;
   canEdit: boolean;
   canDelete: boolean;
   canViewHistory: boolean;
   actorName: string;
+  embedded?: boolean;
 }) {
   const data = useFlowhubData();
   const { get, commit } = useViewQuery();
@@ -325,13 +329,16 @@ function ExpensesClientInner({
     setHistoryFor(null);
   }
 
-  return (
-    <HubPage>
+  const body = (
+    <>
+      {(!embedded || canAdd) && (
       <header className="flex shrink-0 flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="font-[family-name:var(--font-display)] text-4xl font-semibold text-[var(--fh-steel)]">
-            Expenses
-          </h1>
+          {!embedded && (
+            <h1 className="font-[family-name:var(--font-display)] text-4xl font-semibold text-[var(--fh-steel)]">
+              Expenses
+            </h1>
+          )}
         </div>
         {canAdd && (
           <Link
@@ -345,6 +352,7 @@ function ExpensesClientInner({
           </Link>
         )}
       </header>
+      )}
 
       <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
         <div className="min-w-[16rem] flex-1">
@@ -623,6 +631,15 @@ function ExpensesClientInner({
           Open contracts
         </Link>
       </p>
-    </HubPage>
+    </>
   );
+
+  if (embedded) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+        {body}
+      </div>
+    );
+  }
+  return <HubPage>{body}</HubPage>;
 }

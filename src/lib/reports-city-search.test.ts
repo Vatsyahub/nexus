@@ -11,12 +11,13 @@ import type {
 import {
   DC_RECORDS_EXPORT_HEADERS,
   EXECUTION_SUMMARY_EXPORT_HEADERS,
+  buildDispatchListRows,
   buildExecutionSummaryRows,
   buildSupplyDetailRows,
+  dispatchListExportRow,
   executionSummaryExportRow,
   filterExecutionSummaryRows,
   filterSupplyDetailRows,
-  supplyDetailExportRow,
 } from "@/lib/execution-reports";
 import {
   BANK_GUARANTEE_EXPORT_HEADERS,
@@ -416,12 +417,49 @@ test("DC records match contract city inside the date range and export without ci
     "Project no.",
     "DC no.",
     "DC date",
-    "Item",
-    "Qty supplied",
+    "Items",
   ]);
+  const shownIds = new Set(byCity.map((row) => row.dcId));
+  const grouped = buildDispatchListRows(
+    workspace({
+      contracts: [nagpur, surat],
+      deliveryChallans: [
+        challan({
+          id: "dc-jan",
+          contractId: nagpur.id,
+          dcNo: "DC-1",
+          date: "2026-01-10",
+        }),
+        challan({
+          id: "dc-mar",
+          contractId: nagpur.id,
+          dcNo: "DC-2",
+          date: "2026-03-10",
+        }),
+        challan({
+          id: "dc-sur",
+          contractId: surat.id,
+          dcNo: "DC-3",
+          date: "2026-01-10",
+        }),
+        challan({
+          id: "dc-orphan",
+          contractId: "missing",
+          dcNo: "DC-X",
+          date: "2026-01-10",
+        }),
+        challan({
+          id: "dc-orphan-named",
+          contractId: "missing",
+          dcNo: "DC-NAGPUR",
+          date: "2026-01-10",
+        }),
+      ],
+    })
+  ).filter((row) => shownIds.has(row.dcId));
   assertNoCityColumn(
     DC_RECORDS_EXPORT_HEADERS,
-    byCity.map(supplyDetailExportRow),
+    grouped.map(dispatchListExportRow),
     NAGPUR
   );
 });

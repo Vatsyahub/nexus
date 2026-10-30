@@ -20,7 +20,7 @@ export default async function NewExpensePage() {
     clearanceFromDb(dbUser?.clearance ?? role),
     dbUser?.department
   );
-  if (parsed.map.expenses !== "edit") redirect("/expenses");
+  if (parsed.map.expenses !== "edit") redirect("/operations?tab=expenses");
 
   const actorName =
     dbUser?.name?.trim() ||

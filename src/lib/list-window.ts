@@ -20,6 +20,8 @@ export const LIST_WINDOW_ORDER = {
   salesInvoices: "latest",
   collections: "latest",
   accountExpenses: "latest",
+  dispatch: "latest",
+  installations: "latest",
   dcRecords: "latest",
 } as const;
 
@@ -79,7 +81,7 @@ export function listDateOnOrBeforeToday(date: string, today: string): boolean {
  * Unfiltered: dates on or before today, then the latest or oldest `limit`.
  * Fewer than `limit` qualifying rows are all returned.
  * Filtered: every row, in the order given (the screen's existing sort).
- * A cut is by row, so the last challan on DC records may be split.
+ * A cut is by row. Lists that must keep a challan's lines together pass one row per challan.
  */
 export function windowList<T>(
   rows: readonly T[],

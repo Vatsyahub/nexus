@@ -12,8 +12,6 @@ import {
   reportPanelClass,
 } from "../reports-shell";
 import { SegmentButton } from "./execution-ui";
-import { DispatchTab } from "./dispatch-tab";
-import { InstallationsTab } from "./installations-tab";
 import {
   DcRecordsTab,
   ItemListTab,
@@ -21,39 +19,27 @@ import {
   SummaryTab,
 } from "./report-tabs";
 
-type Tab =
-  | "dispatch"
-  | "installations"
-  | "schedules"
-  | "summary"
-  | "supply"
-  | "items";
+type Tab = "summary" | "schedules" | "supply" | "items";
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: "dispatch", label: "Dispatch" },
-  { id: "installations", label: "Installations" },
-  { id: "schedules", label: "Schedules" },
   { id: "summary", label: "Summary" },
+  { id: "schedules", label: "Schedules" },
   { id: "supply", label: "DC records" },
   { id: "items", label: "Item list" },
 ];
 
 function parseTab(raw: string | null): Tab {
   // Legacy ?tab=other&sub=supply → DC records
-  if (raw === "other") {
-    return "supply";
-  }
-  return TABS.some((t) => t.id === raw) ? (raw as Tab) : "dispatch";
+  if (raw === "other") return "supply";
+  // Dispatch and installations now live under Operations.
+  if (raw === "dispatch" || raw === "installations") return "summary";
+  return TABS.some((t) => t.id === raw) ? (raw as Tab) : "summary";
 }
 
 export default function ExecutionReportClient({
-  canEdit,
   canRenameItem,
-  actorName,
 }: {
-  canEdit: boolean;
   canRenameItem: boolean;
-  actorName: string;
 }) {
   const data = useFlowhubData();
   const ready = useWorkspaceReady();
@@ -63,12 +49,7 @@ export default function ExecutionReportClient({
   const rawTab = get("tab");
   const sub = get("sub");
   const tab: Tab =
-    rawTab === "other" && sub === "supply"
-      ? "supply"
-      : rawTab === "other"
-        ? "dispatch"
-        : parseTab(rawTab);
-  const contractId = get("contract");
+    rawTab === "other" && sub === "supply" ? "supply" : parseTab(rawTab);
 
   useEffect(() => {
     const raw = searchParams.get("tab");
@@ -78,12 +59,20 @@ export default function ExecutionReportClient({
       const dest =
         legacySub === "tasks" ? "/reports/other?tab=tasks" : "/reports/other";
       router.replace(dest);
+      return;
+    }
+    if (raw === "dispatch" || raw === "installations") {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("tab");
+      params.delete("sub");
+      const qs = params.toString();
+      router.replace(qs ? `/reports/execution?${qs}` : "/reports/execution");
     }
   }, [searchParams, router]);
 
   function selectTab(next: Tab) {
     commit({
-      tab: next === "dispatch" ? null : next,
+      tab: next === "summary" ? null : next,
       sub: null,
       q: null,
       from: null,
@@ -91,13 +80,9 @@ export default function ExecutionReportClient({
     });
   }
 
-  function selectContract(id: string) {
-    commit({ contract: id || null });
-  }
-
   return (
     <HubPage>
-      <ReportsHeader title="Operations" />
+      <ReportsHeader title="Site Records" />
 
       {!ready ? (
         <ReportsLoading />
@@ -107,7 +92,7 @@ export default function ExecutionReportClient({
         <section className={reportPanelClass}>
           <div
             role="tablist"
-            aria-label="Operations report"
+            aria-label="Site Records"
             className="flex flex-wrap gap-1 rounded-lg border border-[var(--fh-line)] bg-[var(--fh-bg)] p-1"
           >
             {TABS.map((t) => (
@@ -120,35 +105,9 @@ export default function ExecutionReportClient({
             ))}
           </div>
 
-          {!canEdit && (tab === "dispatch" || tab === "installations") && (
-            <p className="mt-3 text-sm text-[var(--fh-muted)]">
-              View only — this login cannot change dispatch or installations.
-            </p>
-          )}
-
-          {tab === "dispatch" && (
-            <DispatchTab
-              data={data}
-              canEdit={canEdit}
-              actorName={actorName}
-              contractId={contractId}
-              onContractChange={selectContract}
-            />
-          )}
-          {tab === "installations" && (
-            <InstallationsTab
-              data={data}
-              canEdit={canEdit}
-              actorName={actorName}
-              contractId={contractId}
-              onContractChange={selectContract}
-            />
-          )}
-          {tab === "schedules" && <SchedulesTab data={data} />}
           {tab === "summary" && <SummaryTab data={data} />}
-          {tab === "supply" && (
-            <DcRecordsTab data={data} canEdit={canEdit} />
-          )}
+          {tab === "schedules" && <SchedulesTab data={data} />}
+          {tab === "supply" && <DcRecordsTab data={data} />}
           {tab === "items" && (
             <ItemListTab data={data} canRename={canRenameItem} />
           )}

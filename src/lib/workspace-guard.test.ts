@@ -1180,7 +1180,7 @@ test("merge ignores anything but the account doors", () => {
   assert.equal(merged.payments.length, 0);
 });
 
-test("operations view can read dispatch records and view or block cannot change them", () => {
+test("expenses door reads and writes dispatch records; Site Records can read", () => {
   const challan = {
     id: "dc1",
     contractId: "c1",
@@ -1208,14 +1208,21 @@ test("operations view can read dispatch records and view or block cannot change 
   });
   const viewed = workspaceForAccount(
     current,
-    access({ reports_operations: "view" }),
+    access({ expenses: "view", reports_operations: "block" }),
     "user"
   );
   assert.equal(viewed.deliveryChallans[0]?.dcNo, "DC-1");
   assert.equal(viewed.installationProgress[0]?.installedQty, 2);
+  const fromReport = workspaceForAccount(
+    current,
+    access({ expenses: "block", reports_operations: "view" }),
+    "user"
+  );
+  assert.equal(fromReport.deliveryChallans[0]?.dcNo, "DC-1");
+  assert.equal(fromReport.installationProgress[0]?.installedQty, 2);
   const hidden = workspaceForAccount(
     current,
-    access({ reports_operations: "block" }),
+    access({ expenses: "block", reports_operations: "block" }),
     "user"
   );
   assert.equal(hidden.deliveryChallans.length, 0);
@@ -1223,7 +1230,7 @@ test("operations view can read dispatch records and view or block cannot change 
   const viewSave = mergeWorkspaceSave(
     current,
     incoming,
-    access({ reports_operations: "view" }),
+    access({ expenses: "view", reports_operations: "edit" }),
     "user"
   );
   assert.equal(viewSave.deliveryChallans[0]?.dcNo, "DC-1");
@@ -1231,19 +1238,27 @@ test("operations view can read dispatch records and view or block cannot change 
   const blockSave = mergeWorkspaceSave(
     current,
     incoming,
-    access({ reports_operations: "block" }),
-    "user"
+    access({ expenses: "block", reports_operations: "edit" }),
+    "master"
   );
   assert.equal(blockSave.deliveryChallans[0]?.dcNo, "DC-1");
   assert.equal(blockSave.installationProgress[0]?.installedQty, 2);
   const editSave = mergeWorkspaceSave(
     current,
     incoming,
-    access({ reports_operations: "edit" }),
+    access({ expenses: "edit", reports_operations: "block" }),
     "user"
   );
   assert.equal(editSave.deliveryChallans[0]?.dcNo, "DC-2");
   assert.equal(editSave.installationProgress[0]?.installedQty, 9);
+  const masterEdit = mergeWorkspaceSave(
+    current,
+    incoming,
+    access({ expenses: "edit", reports_operations: "view" }),
+    "master"
+  );
+  assert.equal(masterEdit.deliveryChallans[0]?.dcNo, "DC-2");
+  assert.equal(masterEdit.installationProgress[0]?.installedQty, 9);
 });
 
 test("Master can save a GST percent when no tax invoice exists", () => {

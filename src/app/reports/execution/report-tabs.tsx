@@ -2,7 +2,6 @@
 
 import { useMemo, useState, type FormEvent } from "react";
 import { useListFilters } from "@/lib/use-view-query";
-import { Trash2 } from "lucide-react";
 import type { FlowhubData } from "@/lib/types";
 import { SCHEDULE_KIND_LABELS } from "@/lib/types";
 import { formatMoney } from "@/lib/format-money";
@@ -12,17 +11,18 @@ import {
   SCHEDULE_FULFILMENT_LABELS,
   WORKORDER_STATUS_LABELS,
   EXECUTION_SUMMARY_EXPORT_HEADERS,
+  buildDispatchListRows,
   buildExecutionSummaryRows,
   buildItemListRows,
   buildProjectTaskRows,
   buildScheduleFulfilmentRows,
   buildSupplyDetailRows,
   buildWorkorderRows,
+  dispatchListExportRow,
   executionSummaryExportRow,
   filterExecutionSummaryRows,
   filterSupplyDetailRows,
   formatQty,
-  supplyDetailExportRow,
   itemListCities,
   itemListExportRow,
   itemListHeaders,
@@ -40,11 +40,11 @@ import {
 } from "@/lib/list-search";
 import { ListWindowNote } from "@/components/list-window-note";
 import { LIST_WINDOW_ORDER, listIsFiltered, windowList } from "@/lib/list-window";
-import { confirmAction } from "@/components/confirm-panel";
+import { DcRecordTable } from "@/components/dc-record-table";
 import { EditIconButton } from "@/components/icon-actions";
 import { currentItemUnits } from "@/lib/item-rename";
 import { confirmWorkspaceSave } from "@/lib/save-notice";
-import { deleteDeliveryChallan, flushWorkspace, renameItem } from "@/lib/store";
+import { renameItem } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ListSearchWithDateRange } from "@/components/list-date-range";
@@ -63,12 +63,7 @@ import {
   reportTd,
   reportTh,
 } from "../reports-shell";
-import {
-  FormMessage,
-  SegmentButton,
-  StatusPill,
-  qtyCell,
-} from "./execution-ui";
+import { SegmentButton, StatusPill, qtyCell } from "./execution-ui";
 
 const theadClass =
   "border-b border-[var(--fh-line)] bg-[var(--fh-bg)] uppercase tracking-wide text-[var(--fh-muted)]";
@@ -236,7 +231,7 @@ export function SchedulesTab({ data }: { data: FlowhubData }) {
       </ReportsTableScroll>
       <ReportExportIcons
         filename="execution-schedules"
-        title="Operations — Schedules"
+        title="Site Records — Schedules"
         filters={reportFilterSummary({
           tab: "Schedules",
           search: q,
@@ -383,7 +378,7 @@ export function SummaryTab({ data }: { data: FlowhubData }) {
       </ReportsTableScroll>
       <ReportExportIcons
         filename="execution-summary"
-        title="Operations — Execution summary"
+        title="Site Records — Summary"
         filters={reportFilterSummary({ tab: "Summary", search: q })}
         singleLineHeaders
         headers={[...EXECUTION_SUMMARY_EXPORT_HEADERS]}
@@ -648,7 +643,7 @@ export function ItemListTab({
       </ReportsTableScroll>
       <ReportExportIcons
         filename="execution-item-list"
-        title="Operations — Item list"
+        title="Site Records — Item list"
         filters={reportFilterSummary({ tab: "Item list", search: q })}
         singleLineHeaders
         headers={headers}
@@ -702,20 +697,14 @@ export function OtherReportsPanels({
   );
 }
 
-/** Saved delivery challans — one row per DC line. DCs are added on Dispatch. */
-export function DcRecordsTab({
-  data,
-  canEdit,
-}: {
-  data: FlowhubData;
-  canEdit: boolean;
-}) {
+/** Saved delivery challans — one row per DC, same shape as Operations → Dispatch. */
+export function DcRecordsTab({ data }: { data: FlowhubData }) {
   return (
     <div className="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden">
       <h3 className="shrink-0 font-[family-name:var(--font-display)] text-lg text-[var(--fh-steel)]">
         DC records
       </h3>
-      <DcRecordsTable data={data} canEdit={canEdit} />
+      <DcRecordsTable data={data} />
     </div>
   );
 }
@@ -971,15 +960,7 @@ function TasksTable({ data }: { data: FlowhubData }) {
   );
 }
 
-type Msg = { kind: "ok" | "error"; text: string } | null;
-
-function DcRecordsTable({
-  data,
-  canEdit,
-}: {
-  data: FlowhubData;
-  canEdit: boolean;
-}) {
+function DcRecordsTable({ data }: { data: FlowhubData }) {
   const {
     q,
     from: dateFrom,
@@ -988,57 +969,25 @@ function DcRecordsTable({
     setFrom: setDateFrom,
     setTo: setDateTo,
   } = useListFilters();
-  const [msg, setMsg] = useState<Msg>(null);
-  const all = useMemo(() => buildSupplyDetailRows(data), [data]);
+  const lines = useMemo(() => buildSupplyDetailRows(data), [data]);
+  const groups = useMemo(() => buildDispatchListRows(data), [data]);
   const filtered = listIsFiltered({ search: q, from: dateFrom, to: dateTo });
-  const matched = useMemo(
-    () =>
-      filterSupplyDetailRows(all, {
-        q,
-        dateFrom,
-        dateTo,
-      }),
-    [all, q, dateFrom, dateTo]
-  );
+  const matched = useMemo(() => {
+    const hits = filterSupplyDetailRows(lines, { q, dateFrom, dateTo });
+    const ids = new Set(hits.map((row) => row.dcId));
+    return groups.filter((row) => ids.has(row.dcId));
+  }, [lines, groups, q, dateFrom, dateTo]);
   const listedWindow = useMemo(
     () =>
       windowList(matched, {
         filtered,
         order: LIST_WINDOW_ORDER.dcRecords,
         date: (row) => row.dcDate,
+        createdAt: (row) => row.createdAt,
       }),
     [matched, filtered]
   );
   const rows = listedWindow.rows;
-  /** Delete sits on the first visible line of each DC. */
-  const firstLineKeys = useMemo(() => {
-    const seen = new Set<string>();
-    const keys = new Set<string>();
-    for (const r of rows) {
-      if (seen.has(r.dcId)) continue;
-      seen.add(r.dcId);
-      keys.add(r.key);
-    }
-    return keys;
-  }, [rows]);
-
-  async function onDelete(id: string, dcNo: string) {
-    if (
-      !(await confirmAction({
-        message: `Delete DC ${dcNo}? This cannot be undone.`,
-        action: "Delete",
-      }))
-    ) {
-      return;
-    }
-    const res = deleteDeliveryChallan(id);
-    if (!res.ok) {
-      setMsg({ kind: "error", text: res.error });
-      return;
-    }
-    await flushWorkspace();
-    setMsg({ kind: "ok", text: `Deleted DC ${dcNo}.` });
-  }
 
   return (
     <>
@@ -1052,95 +1001,22 @@ function DcRecordsTable({
         onDateFromChange={setDateFrom}
         onDateToChange={setDateTo}
       />
-      {msg && (
-        <div className="mt-3">
-          <FormMessage msg={msg} />
-        </div>
-      )}
       <ListWindowNote
         capped={listedWindow.capped}
         order={LIST_WINDOW_ORDER.dcRecords}
         className="mt-3"
       />
-      <ReportsTableScroll className="mt-4">
-        <table className="list-sticky-head w-full table-fixed text-left text-sm">
-          <colgroup>
-            <col className={canEdit ? "w-[24%]" : "w-[26%]"} />
-            <col className="w-[15%]" />
-            <col className="w-[12%]" />
-            <col className={canEdit ? "w-[25%]" : "w-[27%]"} />
-            <col className="w-[10%]" />
-            {canEdit && <col className="w-[4%]" />}
-          </colgroup>
-          <thead className={theadClass}>
-            <tr>
-              <th className={reportTh}>Project</th>
-              <th className={reportTh}>DC no.</th>
-              <th className={reportTh}>DC date</th>
-              <th className={reportTh}>Item</th>
-              <th className={cn(reportTh, "text-right")}>Qty supplied</th>
-              {canEdit && (
-                <th className={reportTh}>
-                  <span className="sr-only">Actions</span>
-                </th>
-              )}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[var(--fh-line)]">
-            {rows.length === 0 ? (
-              <EmptyRow
-                colSpan={canEdit ? 6 : 5}
-                text={all.length === 0 ? "No DCs recorded yet." : "No matching DC lines."}
-              />
-            ) : (
-              rows.map((r) => (
-                <tr key={r.key}>
-                  <td className={reportTd}>
-                    <ProjectIdentity
-                      projectNo={r.projectNo}
-                      projectName={r.projectName}
-                      href={`/contracts/${r.contractId}`}
-                    />
-                  </td>
-                  <td className={cn(reportTd, "break-all font-medium")}>
-                    {r.dcNo || "—"}
-                  </td>
-                  <td className={cn(reportTd, "tabular-nums")}>
-                    {formatDisplayDate(r.dcDate)}
-                  </td>
-                  <td className={reportTd}>
-                    <span className="break-words">{r.itemName}</span>
-                    {r.rate != null ? (
-                      <span className="block text-xs text-[var(--fh-muted)]">
-                        {formatMoney(r.rate)}
-                      </span>
-                    ) : null}
-                  </td>
-                  <td className={qtyCell}>{formatQty(r.qty)}</td>
-                  {canEdit && (
-                    <td className="px-1 py-2 align-top">
-                      {firstLineKeys.has(r.key) && (
-                        <button
-                          type="button"
-                          onClick={() => void onDelete(r.dcId, r.dcNo)}
-                          className="rounded p-1 text-[var(--fh-muted)] hover:bg-[var(--fh-bg)] hover:text-[var(--destructive)]"
-                          aria-label={`Delete DC ${r.dcNo}`}
-                          title="Delete DC (all lines)"
-                        >
-                          <Trash2 className="size-4" />
-                        </button>
-                      )}
-                    </td>
-                  )}
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+      <ReportsTableScroll className="mt-4" scrollX>
+        <DcRecordTable
+          rows={rows}
+          emptyText={
+            groups.length === 0 ? "No DCs recorded yet." : "No matching DCs."
+          }
+        />
       </ReportsTableScroll>
       <ReportExportIcons
         filename="dc-records"
-        title="Operations — DC records"
+        title="Site Records — DC records"
         filters={reportFilterSummary({
           tab: "DC records",
           search: q,
@@ -1149,7 +1025,7 @@ function DcRecordsTable({
           dateLabel: "DC date",
         })}
         headers={[...DC_RECORDS_EXPORT_HEADERS]}
-        rows={rows.map(supplyDetailExportRow)}
+        rows={rows.map(dispatchListExportRow)}
       />
     </>
   );
