@@ -608,6 +608,8 @@ export function buildSupplyDetailRows(
 export type DispatchListItem = {
   boqItemId: string;
   itemName: string;
+  /** BOQ line unit, shown beside qty. Empty when that line is gone. */
+  unit: string;
   qty: number;
 };
 
@@ -640,6 +642,7 @@ export function buildDispatchListRows(data: FlowhubData): DispatchListRow[] {
           return {
             boqItemId: line.boqItemId,
             itemName: item?.name ?? boqItemName(contract, line.boqItemId),
+            unit: item?.unit?.trim() ?? "",
             qty: Number(line.qty) || 0,
           };
         }),
@@ -673,10 +676,17 @@ export function filterDispatchListRows(
   );
 }
 
+/** Qty plus the unit stored on that BOQ line, for example "64 Nos". */
+export function formatQtyWithUnit(qty: number, unit: string): string {
+  const amount = formatQty(qty);
+  const label = unit.trim();
+  return label ? `${amount} ${label}` : amount;
+}
+
 export function formatDispatchItems(items: readonly DispatchListItem[]): string {
   if (items.length === 0) return "—";
   return items
-    .map((item) => `${item.itemName} × ${formatQty(item.qty)}`)
+    .map((item) => `${item.itemName} × ${formatQtyWithUnit(item.qty, item.unit)}`)
     .join(", ");
 }
 
@@ -706,7 +716,11 @@ export type InstallationListItem = {
   progressId: string;
   boqItemId: string;
   itemName: string;
+  /** Running total before this update. Not shown on the Operations list. */
   qtyBefore: number;
+  /** Quantity recorded on this date (history delta). Shown as Current qty. */
+  delta: number;
+  /** Total installed after this update. Shown as Total installed qty. */
   qtyNow: number;
   recordedAt: string;
 };
@@ -765,6 +779,7 @@ export function buildInstallationListRows(
         boqItemId: progress.boqItemId,
         itemName: item?.name ?? boqItemName(contract, progress.boqItemId),
         qtyBefore: now - delta,
+        delta,
         qtyNow: now,
         recordedAt: entry.recordedAt ?? "",
       });

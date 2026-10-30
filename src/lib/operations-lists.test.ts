@@ -7,6 +7,8 @@ import {
   buildScheduleFulfilmentRows,
   filterDispatchListRows,
   filterInstallationListRows,
+  formatDispatchItems,
+  formatQtyWithUnit,
 } from "@/lib/execution-reports";
 import { LIST_WINDOW_LIMIT, windowList } from "@/lib/list-window";
 import {
@@ -52,6 +54,7 @@ function contractBits(
 test("dispatch list keeps the same challan, qty, and contract", () => {
   const panel = item("b1", "Panel");
   const cable = item("b2", "Cable");
+  cable.unit = "Mtr";
   const dc: DeliveryChallan = {
     id: "dc-1",
     contractId: "c1",
@@ -85,12 +88,15 @@ test("dispatch list keeps the same challan, qty, and contract", () => {
   assert.equal(rows[0]?.dcId, "dc-1");
   assert.equal(rows[0]?.contractId, "c1");
   assert.deepEqual(
-    rows[0]?.items.map((line) => [line.boqItemId, line.qty]),
+    rows[0]?.items.map((line) => [line.boqItemId, line.qty, line.unit]),
     [
-      ["b1", 7],
-      ["b2", 8],
+      ["b1", 7, "Nos"],
+      ["b2", 8, "Mtr"],
     ]
   );
+  assert.equal(formatDispatchItems(rows[0]?.items ?? []), "Panel × 7 Nos, Cable × 8 Mtr");
+  assert.equal(formatQtyWithUnit(64, "Nos"), "64 Nos");
+  assert.equal(formatQtyWithUnit(64, "  "), "64");
   assert.deepEqual(dc, before);
 
   assert.equal(filterDispatchListRows(rows, "North").length, 1);
@@ -178,11 +184,12 @@ test("installations group one project and date, and keep stored qty", () => {
       line.progressId,
       line.itemName,
       line.qtyBefore,
+      line.delta,
       line.qtyNow,
     ]),
     [
-      ["ip-panel", "Panel", 0, 4],
-      ["ip-cable", "Cable", 0, 1],
+      ["ip-panel", "Panel", 0, 4, 4],
+      ["ip-cable", "Cable", 0, 1, 1],
     ]
   );
   assert.deepEqual(
@@ -401,6 +408,7 @@ test("saving a DC, installation, expense, and schedule still hits the same ids",
     (row) => row.contractId === contract.id && row.date === "2026-04-03"
   );
   assert.equal(nextDay?.items[0]?.qtyBefore, 4);
+  assert.equal(nextDay?.items[0]?.delta, 1);
   assert.equal(nextDay?.items[0]?.qtyNow, 5);
   assert.equal(nextDay?.items[0]?.progressId, panelInstall.value.id);
 
