@@ -153,6 +153,32 @@ function contractFieldList(
   ];
 }
 
+/**
+ * Contract fields a task, invoice, payment, or schedule search may use.
+ * Project number, name, and city stay. BOQ names, guarantee numbers,
+ * contractor, order value, and contract status stay off these lists.
+ * The Contracts page still uses the full list.
+ */
+function linkedContractFieldList(
+  contract: Parameters<typeof contractFieldList>[0]
+): Array<string | number | boolean | null | undefined> {
+  return [
+    contract.projectNo,
+    contract.projectName,
+    contract.orderNos,
+    ...dateSearchForms(contract.orderDate),
+    ...dateSearchForms(contract.closureDate),
+    contract.city,
+    contract.state,
+    contract.country,
+    ...dateSearchForms(contract.handoverDate),
+    ...dateSearchForms(contract.abgDate),
+    ...dateSearchForms(contract.pbgDate),
+    ...dateSearchForms(contract.abgExpiry),
+    ...dateSearchForms(contract.pbgExpiry),
+  ];
+}
+
 /** Match project, location, order, dates, guarantees, BOQ names, status, value. */
 export function contractMatchesQuery(
   contract: Parameters<typeof contractFieldList>[0],
@@ -214,7 +240,7 @@ function invoiceMatchesToken(
       invoice.gstAmount,
       invoice.finalAmount,
     ]) ||
-    (!!contract && matchesToken(token, contractFieldList(contract)))
+    (!!contract && matchesToken(token, linkedContractFieldList(contract)))
   );
 }
 
@@ -288,7 +314,7 @@ function paymentMatchesToken(
         ...dateSearchForms(invoice.date),
         invoice.finalAmount,
       ])) ||
-    (!!contract && matchesToken(token, contractFieldList(contract)))
+    (!!contract && matchesToken(token, linkedContractFieldList(contract)))
   );
 }
 
@@ -351,7 +377,7 @@ function taskMatchesToken(
       ...dateSearchForms(task.completedAt),
       task.source,
     ]) ||
-    (!!contract && matchesToken(token, contractFieldList(contract)))
+    (!!contract && matchesToken(token, linkedContractFieldList(contract)))
   );
 }
 
@@ -432,7 +458,7 @@ function scheduleMatchesToken(
       line.doneBy,
       ...statusBits,
     ]) ||
-    (!!contract && matchesToken(token, contractFieldList(contract)))
+    (!!contract && matchesToken(token, linkedContractFieldList(contract)))
   );
 }
 
