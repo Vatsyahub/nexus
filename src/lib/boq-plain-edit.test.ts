@@ -191,7 +191,7 @@ test("a used line can change rate and qty below what is already billed, schedule
   assert.equal(dc.ok, true);
 
   assert.match(describeBoqLineUse(contract.id, invoiced.id) ?? "", /invoice/);
-  assert.match(describeBoqLineUse(contract.id, scheduled.id) ?? "", /schedule/);
+  assert.equal(describeBoqLineUse(contract.id, scheduled.id), null);
   assert.match(
     describeBoqLineUse(contract.id, delivered.id) ?? "",
     /delivery challan/
@@ -236,7 +236,13 @@ test("a used line can change rate and qty below what is already billed, schedule
     contractId: contract.id,
     boq: [
       { ...invoiced, rate: 125, quantity: 1 },
-      { ...scheduled, rate: 10, quantity: 2 },
+      {
+        ...scheduled,
+        name: "Renamed schedule item",
+        unit: "Set",
+        rate: 10,
+        quantity: 2,
+      },
       { ...delivered, rate: 15, quantity: 1 },
       spare,
     ],
@@ -247,6 +253,12 @@ test("a used line can change rate and qty below what is already billed, schedule
   assert.equal(next.boq.find((b) => b.id === invoiced.id)?.rate, 125);
   assert.equal(next.boq.find((b) => b.id === invoiced.id)?.name, "Invoiced item");
   assert.equal(next.boq.find((b) => b.id === scheduled.id)?.quantity, 2);
+  assert.equal(next.boq.find((b) => b.id === scheduled.id)?.name, "Renamed schedule item");
+  assert.equal(next.boq.find((b) => b.id === scheduled.id)?.unit, "Set");
+  const scheduleRow = getData().schedules.find(
+    (row) => row.contractId === contract.id && row.boqItemId === scheduled.id
+  );
+  assert.equal(scheduleRow?.quantity, 7);
   assert.equal(next.boq.find((b) => b.id === delivered.id)?.quantity, 1);
   assert.equal(next.boq.find((b) => b.id === delivered.id)?.unit, "Nos");
   assert.equal(next.orderValue, boqTotal(next.boq));
@@ -268,22 +280,38 @@ test("a used line can change rate and qty below what is already billed, schedule
     false
   );
 
+  const dropped = editContractBoq({
+    contractId: contract.id,
+    boq: saved(contract.id).boq.filter((b) => b.id !== scheduled.id),
+  });
+  assert.equal(dropped.ok, true);
+  assert.equal(saved(contract.id).boq.some((b) => b.id === scheduled.id), false);
+  const dangling = getData().schedules.find(
+    (row) => row.contractId === contract.id && row.boqItemId === scheduled.id
+  );
+  assert.equal(dangling?.quantity, 7);
+
+  const amendedBoq = saved(contract.id).boq.map((b) =>
+    b.id === delivered.id ? { ...b, quantity: 3 } : b
+  );
   const amend = amendContractBoq({
     contractId: contract.id,
-    boq: saved(contract.id).boq.map((b) =>
-      b.id === delivered.id ? { ...b, quantity: 3 } : b
-    ),
-    newOrderValue: boqTotal(
-      saved(contract.id).boq.map((b) =>
-        b.id === delivered.id ? { ...b, quantity: 3 } : b
-      )
-    ),
+    boq: amendedBoq,
+    newOrderValue: boqTotal(amendedBoq),
     date: "2026-10-06",
     number: "A-USED",
   });
-  assert.equal(amend.ok, false);
-  if (amend.ok) return;
-  assert.match(amend.error, /Scheduled item: delete the schedule first/);
+  assert.equal(amend.ok, true);
+  assert.equal(
+    saved(contract.id).boq.find((b) => b.id === delivered.id)?.quantity,
+    3
+  );
+  assert.equal(
+    getData().schedules.find(
+      (row) => row.contractId === contract.id && row.boqItemId === scheduled.id
+    )?.quantity,
+    7
+  );
 });
 
 test("an amendment still records history, keeps saved guarantee amounts, and closes its task", () => {

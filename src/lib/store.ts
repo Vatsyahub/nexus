@@ -31,6 +31,7 @@ import {
   TASK_COMPLETED_VISIBLE_DAYS,
   BG_EXPIRY_LEAD_MONTHS,
   RETENTION_LEAD_DAYS,
+  omitCreateSchedulesRecords,
   SCHEDULE_KIND_LABELS,
   SCHEDULE_DATE_NA,
   isScheduleDateNa,
@@ -78,7 +79,6 @@ import {
   rateChangeCarries,
   remapDeliveryChallans,
   remapInstallation,
-  scheduleStopMessage,
   taxInvoiceQuantityIssues,
   undoRateChangeCarries,
 } from "@/lib/amendment-callback";
@@ -91,6 +91,7 @@ import {
 } from "@/lib/departments";
 import {
   canConfirmTaskVerification,
+  clearanceKey,
   completesImmediately,
   completionNeedsVerification,
   notificationVisibleTo,
@@ -497,13 +498,18 @@ function clearedNoticeState(raw: FlowhubData): Pick<
 }
 
 function normalizeData(raw: FlowhubData): FlowhubData {
+  const notices = clearedNoticeState(raw);
+  const cleaned = omitCreateSchedulesRecords(
+    (raw.tasks ?? []).map(normalizeTask),
+    notices.notifications
+  );
   const base: FlowhubData = {
     ...empty,
     ...raw,
     workspaceRevision:
       typeof raw.workspaceRevision === "number" ? raw.workspaceRevision : 0,
     contracts: (raw.contracts ?? []).map(normalizeContract),
-    tasks: (raw.tasks ?? []).map(normalizeTask),
+    tasks: cleaned.tasks,
     itemCatalog: raw.itemCatalog ?? [],
     invoices: (raw.invoices ?? []).map(normalizeInvoice),
     payments: (raw.payments ?? []).map((p) =>
@@ -517,7 +523,8 @@ function normalizeData(raw: FlowhubData): FlowhubData {
     // Unread notices last 21 days. A read notice lasts 24 hours from that read.
     // A cleared notice stays hidden for that person. The row remains while
     // anyone else can still see it.
-    ...clearedNoticeState(raw),
+    ...notices,
+    notifications: cleaned.notifications,
     ...departmentCatalogFields(raw),
     expenseCategories: raw.expenseCategories ?? [],
     deliveryChallans: (raw.deliveryChallans ?? []).map(normalizeDeliveryChallan),
@@ -963,26 +970,6 @@ export function contractScheduleCoverage(
   };
 }
 
-function completeCreateSchedulesTasks(
-  tasks: Task[],
-  contractId: string,
-  data: FlowhubData
-): Task[] {
-  if (!isContractScheduleComplete(contractId, data)) return tasks;
-  return tasks.map((t) =>
-    t.contractId === contractId &&
-    t.catalogKey === "create_schedules" &&
-    t.status !== "completed" &&
-    t.status !== "not_required"
-      ? {
-          ...t,
-          status: "completed" as const,
-          completedAt: t.completedAt || new Date().toISOString(),
-        }
-      : t
-  );
-}
-
 export type ScheduleWindowInput = {
   startDate: string;
   endDate: string;
@@ -1325,14 +1312,9 @@ export function saveContractSchedulePlan(
   const schedules = [...kept, ...merged];
   const nextDataBase: FlowhubData = { ...data, schedules };
   const complete = isContractScheduleComplete(contract.id, nextDataBase);
-  const tasks = completeCreateSchedulesTasks(
-    data.tasks,
-    contract.id,
-    nextDataBase
-  );
 
   const nextData = appendScheduleLog(
-    { ...nextDataBase, tasks },
+    nextDataBase,
     {
       by,
       contractId: contract.id,
@@ -1362,19 +1344,10 @@ export function deleteContractSchedule(
   if (!cleared) return { ok: false, error: "No schedule lines for this contract." };
   const projectNo =
     data.contracts.find((c) => c.id === contractId)?.projectNo ?? contractId;
-  // Reopen create_schedules
-  const tasks = data.tasks.map((t) =>
-    t.contractId === contractId &&
-    t.catalogKey === "create_schedules" &&
-    (t.status === "completed" || t.status === "not_required")
-      ? { ...t, status: "pending" as const, completedAt: null }
-      : t
-  );
   const nextData = appendScheduleLog(
     {
       ...data,
       schedules: data.schedules.filter((s) => s.contractId !== contractId),
-      tasks,
     },
     {
       by: opts?.by ?? "Master",
@@ -2859,8 +2832,9 @@ export function computeBoqLineDiffs(
 
 /**
  * Blocking problems with a proposed amended BOQ.
- * A schedule on the contract stops the save. Supplied, installed, and
- * invoiced quantities do not. The rate on an existing line cannot change.
+ * A schedule does not stop the save, and schedule rows are not rewritten.
+ * Supplied, installed, and invoiced quantities do not stop it either.
+ * The rate on an existing line cannot change.
  */
 export function boqAmendmentIssues(
   contractId: string,
@@ -2870,8 +2844,6 @@ export function boqAmendmentIssues(
   const d = data ?? read();
   const contract = d.contracts.find((c) => c.id === contractId);
   if (!contract) return ["Contract not found."];
-  const schedule = scheduleStopMessage(contract, d.schedules);
-  if (schedule) return [schedule];
   const issues: string[] = [];
   if (proposed.length === 0) issues.push("BOQ needs at least one line.");
   const seenRates: { key: string; rate: number }[] = [];
@@ -3097,7 +3069,8 @@ export type EditAmendmentDataResult =
 
 /**
  * Replace the latest amendment. Does not append one.
- * The same schedule, billing, supply, and installation stops as delete apply.
+ * The same billing, supply, and installation stops as delete apply.
+ * A schedule does not stop the edit, and schedule rows are not rewritten.
  * Supplied and installed quantities move when a removed name is added back.
  */
 export function editLatestAmendmentIn(
@@ -3235,9 +3208,12 @@ export function editLatestAmendment(
   return { ok: true, amendment: result.amendment, contract: result.contract };
 }
 
-export type BoqLineUseKind = "invoice" | "schedule" | "delivery challan";
+export type BoqLineUseKind = "invoice" | "delivery challan";
 
-/** Where this BOQ line is already used. Installation alone does not count. */
+/**
+ * Where this BOQ line is already used. A schedule does not count, and
+ * neither does installation on its own.
+ */
 export function boqLineUseKinds(
   contractId: string,
   boqItemId: string,
@@ -3253,13 +3229,6 @@ export function boqLineUseKinds(
     )
   ) {
     kinds.push("invoice");
-  }
-  if (
-    d.schedules.some(
-      (s) => s.contractId === contractId && s.boqItemId === boqItemId
-    )
-  ) {
-    kinds.push("schedule");
   }
   if (
     d.deliveryChallans.some(
@@ -3283,11 +3252,7 @@ export function boqLineIsUsed(
 
 function boqUsePhrase(kinds: BoqLineUseKind[]): string {
   const parts = kinds.map((k) =>
-    k === "invoice"
-      ? "an invoice"
-      : k === "schedule"
-        ? "a schedule"
-        : "a delivery challan"
+    k === "invoice" ? "an invoice" : "a delivery challan"
   );
   if (parts.length <= 1) return parts[0] ?? "a record";
   if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
@@ -3340,10 +3305,11 @@ function boqLinesDiffer(previous: BoqItem[], next: BoqItem[]): boolean {
 }
 
 /**
- * Problems with a plain BOQ edit. Used lines (invoice, schedule, or delivery
- * challan) cannot be deleted and keep their name and unit. Quantity and rate
- * may change, including a quantity below what is already billed, scheduled,
- * or delivered.
+ * Problems with a plain BOQ edit. A line on an invoice or a delivery challan
+ * cannot be deleted, and its name and unit stay locked. A schedule does not
+ * lock the line. Quantity and rate may change, including a quantity below
+ * what is already billed, scheduled, or delivered. Schedule rows are not
+ * rewritten.
  */
 export function boqPlainEditIssues(
   contractId: string,
@@ -5197,6 +5163,30 @@ export function updateTaskStatus(
     if (status === "completed" && notesSame && reasonSame) {
       return { status: "completed", sideEffects: false, alreadyWaiting: false };
     }
+    if (
+      status === "in_progress" &&
+      notesSame &&
+      reasonSame &&
+      opts?.actor &&
+      clearanceKey(opts.actor.clearance) === "master" &&
+      canUpdateTask(opts.actor, current)
+    ) {
+      const next = applyStatusFields(current, "in_progress");
+      const nextData: FlowhubData = {
+        ...data,
+        tasks: data.tasks.map((t) => (t.id === id ? next : t)),
+      };
+      write(
+        applyTaskSaveLog(
+          nextData,
+          data.tasks,
+          nextData.tasks,
+          [],
+          opts.actor.name
+        )
+      );
+      return { status: "in_progress", sideEffects: false, alreadyWaiting: false };
+    }
     return null;
   }
   if (!opts?.actor || !canUpdateTask(opts.actor, current)) return null;
@@ -5812,8 +5802,8 @@ export function afterKickoffCompleted(
 }
 
 /**
- * After Finalise GAD is completed:
- * always create Create schedules; optionally Finalise BOQ amendment.
+ * After Finalise GAD is completed, optionally create Finalise BOQ amendment.
+ * The hub does not create a Create schedules task.
  */
 export function afterGadCompleted(
   contractId: string,
@@ -5824,25 +5814,6 @@ export function afterGadCompleted(
   if (!contract) return [];
   const created: Task[] = [];
   let tasks = data.tasks;
-
-  if (!hasOpenCatalogTask(tasks, contractId, "create_schedules")) {
-    const exists = tasks.some(
-      (t) =>
-        t.contractId === contractId &&
-        t.catalogKey === "create_schedules" &&
-        !t.parentId
-    );
-    if (!exists) {
-      const schedulesTask = makeSystemTask({
-        title: `Create schedules — ${contract.projectNo}`,
-        contractId,
-        catalogKey: "create_schedules",
-        department: currentSeedDepartment(data, "Contracts Department"),
-      });
-      tasks = [...tasks, schedulesTask];
-      created.push(schedulesTask);
-    }
-  }
 
   if (opts.boqChanged && opts.amendmentNeeded) {
     if (
@@ -6118,16 +6089,8 @@ export function addSchedule(
   });
 
   const schedules = [...data.schedules, full];
-  const provisional: FlowhubData = { ...data, schedules };
   const nextData = appendScheduleLog(
-    {
-      ...provisional,
-      tasks: completeCreateSchedulesTasks(
-        data.tasks,
-        full.contractId,
-        provisional
-      ),
-    },
+    { ...data, schedules },
     {
       by,
       contractId: full.contractId,
@@ -6493,7 +6456,7 @@ export function deleteSchedule(
 
 /**
  * Master-only restart of the Schedules slice: clears lines + change log.
- * Contracts/tasks/BOQ stay. Create-schedules tasks are reopened when absent open.
+ * Contracts, tasks, and the BOQ stay as they are.
  */
 export function resetSchedulesSlice(opts?: { by?: string }): {
   cleared: number;
@@ -6501,23 +6464,11 @@ export function resetSchedulesSlice(opts?: { by?: string }): {
   const data = read();
   const cleared = data.schedules.length;
   const by = opts?.by ?? "Master";
-  // Reopen create_schedules if contract has no schedules after reset
-  const tasks = data.tasks.map((t) =>
-    t.catalogKey === "create_schedules" &&
-    (t.status === "completed" || t.status === "not_required")
-      ? {
-          ...t,
-          status: "pending" as const,
-          completedAt: null,
-        }
-      : t
-  );
   const nextData = appendScheduleLog(
     {
       ...data,
       schedules: [],
       scheduleChangeLog: [],
-      tasks,
     },
     {
       by,

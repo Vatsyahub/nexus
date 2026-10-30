@@ -18,6 +18,7 @@ import { normalizeTaskDeadlineChangeLog } from "@/lib/task-deadline-log";
 import { departmentCatalogFields } from "@/lib/departments";
 import {
   EMPTY_NEXUS_COSTS,
+  omitCreateSchedulesRecords,
   withoutTaskPriority,
   type FlowhubData,
 } from "@/lib/types";
@@ -112,13 +113,22 @@ function asFlowhubData(
   if (!raw || typeof raw !== "object") return empty;
   const parsed = { ...empty, ...(raw as FlowhubData) };
   const clearedNotices = pruneClearedNotices(parsed.clearedNotices);
+  const notifications = purgeExpiredNotifications(
+    stampClearedNotices(parsed.notifications, clearedNotices),
+    Date.now(),
+    members
+  );
+  const cleaned = omitCreateSchedulesRecords(
+    (parsed.tasks ?? []).map(withoutTaskPriority),
+    notifications
+  );
   return {
     workspaceRevision:
       typeof parsed.workspaceRevision === "number"
         ? parsed.workspaceRevision
         : 0,
     contracts: parsed.contracts ?? [],
-    tasks: (parsed.tasks ?? []).map(withoutTaskPriority),
+    tasks: cleaned.tasks,
     itemCatalog: parsed.itemCatalog ?? [],
     invoices: parsed.invoices ?? [],
     payments: parsed.payments ?? [],
@@ -129,11 +139,7 @@ function asFlowhubData(
     ),
     // Unread: 21 days from creation. Read: 24 hours from that read.
     // Department rows stay until every recipient's case is spent.
-    notifications: purgeExpiredNotifications(
-      stampClearedNotices(parsed.notifications, clearedNotices),
-      Date.now(),
-      members
-    ),
+    notifications: cleaned.notifications,
     clearedNotices,
     ...departmentCatalogFields(parsed),
     expenseCategories: parsed.expenseCategories ?? [],

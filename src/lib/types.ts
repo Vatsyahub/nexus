@@ -261,7 +261,6 @@ export const TASK_CATALOG: {
   { key: "gad", title: "Finalise Drawings/GAD", system: true },
   { key: "create_abg", title: "Create ABG", system: true },
   { key: "create_pbg", title: "Create PBG", system: true },
-  { key: "create_schedules", title: "Create schedules", system: true },
   { key: "boq_amendment", title: "Finalise BOQ amendment", system: true },
   { key: "bg_expiry_abg", title: "Chase ABG expiry", system: true },
   { key: "bg_expiry_pbg", title: "Chase PBG expiry", system: true },
@@ -628,6 +627,31 @@ export type HubNotification = {
    */
   clearedByUserIds?: string[];
 };
+
+/**
+ * Drop Create schedules tasks, their subtasks, and notices that point at
+ * those rows. Other tasks stay. A schedule save does not bring the task back.
+ */
+export function omitCreateSchedulesRecords(
+  tasks: Task[],
+  notifications: HubNotification[]
+): { tasks: Task[]; notifications: HubNotification[] } {
+  const parentIds = new Set<string>();
+  for (const task of tasks) {
+    if (task?.catalogKey === "create_schedules" && task.id) parentIds.add(task.id);
+  }
+  if (parentIds.size === 0) return { tasks, notifications };
+  const gone = new Set(parentIds);
+  for (const task of tasks) {
+    if (task?.parentId && parentIds.has(task.parentId)) gone.add(task.id);
+  }
+  return {
+    tasks: tasks.filter((task) => !gone.has(task.id)),
+    notifications: notifications.filter(
+      (notice) => !notice?.taskId || !gone.has(notice.taskId)
+    ),
+  };
+}
 
 export type FlowhubData = {
   /**

@@ -10,7 +10,8 @@ import type {
 /**
  * Master replaces the item on one BOQ line with an item that already exists.
  * The line keeps its id, rate, quantity, and unit. The shared catalog entry
- * is not written. Dispatch, installations, and schedules keep the line id.
+ * is not written. Dispatch and installations keep the line id. A schedule
+ * is not a use, and a schedule row is not rewritten.
  */
 
 export type SwapBoqItemResult =
@@ -43,13 +44,6 @@ function lineInUse(
       (invoice) =>
         invoice.contractId === contractId &&
         (invoice.lines ?? []).some((line) => line.boqItemId === boqItemId)
-    )
-  ) {
-    return true;
-  }
-  if (
-    (data.schedules ?? []).some(
-      (line) => line.contractId === contractId && line.boqItemId === boqItemId
     )
   ) {
     return true;

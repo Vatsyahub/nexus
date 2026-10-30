@@ -468,10 +468,11 @@ export function BoqSection({
             <p className="text-sm font-medium text-[var(--fh-steel)]">Edit BOQ</p>
             <p className="text-xs text-[var(--fh-muted)]">
               Add lines, or change a line that is not used yet. A line already
-              on an invoice, a schedule, or a delivery challan cannot be
-              deleted, and its name and unit stay locked. Its quantity and rate
-              can still change, including a quantity below what is already
-              billed, scheduled, or delivered. Saving sets the contract value
+              on an invoice or a delivery challan cannot be deleted, and its
+              name and unit stay locked. A schedule does not lock the line.
+              Quantity and rate can still change, including a quantity below
+              what is already billed, scheduled, or delivered. Saving sets the
+              contract value
               to this total. It does not create an amendment, and bank
               guarantee amounts stay as saved.
               {canReplaceLockedName
@@ -713,8 +714,8 @@ export function BoqSection({
               Change quantities, add lines, or remove lines. Rates on existing
               lines stay as contracted. To change a rate, remove the item and
               add it again at the new rate. Supplied and installed quantities
-              move onto that new line. A schedule on this contract must be
-              deleted first. Nothing is saved until you confirm.
+              move onto that new line. A schedule stays as it was saved.
+              Nothing is saved until you confirm.
             </p>
           </div>
 

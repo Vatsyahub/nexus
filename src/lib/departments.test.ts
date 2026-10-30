@@ -12,16 +12,20 @@ import {
   addManualTask,
   afterGadCompleted,
   afterKickoffCompleted,
+  deleteContractSchedule,
   deleteDepartment,
   getData,
   listDepartments,
   renameDepartment,
+  saveContractSchedulePlan,
   updateContract,
 } from "@/lib/store";
 import {
   canAmendBoq,
+  omitCreateSchedulesRecords,
   SEED_DEPARTMENTS,
   type FlowhubData,
+  type HubNotification,
   type Task,
 } from "@/lib/types";
 import { mergeWorkspaceSave } from "@/lib/workspace-guard";
@@ -305,8 +309,12 @@ describe("department rename and delete", { concurrency: false }, () => {
         amendmentNeeded: true,
       });
       assert.equal(
-        created.find((row) => row.catalogKey === "create_schedules")?.department,
-        "Commercial Department"
+        created.some((row) => row.catalogKey === "create_schedules"),
+        false
+      );
+      assert.equal(
+        getData().tasks.some((row) => row.catalogKey === "create_schedules"),
+        false
       );
       assert.equal(
         created.find((row) => row.catalogKey === "boq_amendment")?.department,
@@ -459,5 +467,129 @@ describe("department rename and delete", { concurrency: false }, () => {
     );
     assert.equal(customRename.tasks[0]?.department, "Quality Department");
     assert.deepEqual(customRename.customDepartments, ["Quality Department"]);
+  });
+
+  test("a schedule does not create a Create schedules task, and stored ones are dropped", () => {
+    const { contract } = makeContract("DEPT-SCHED");
+    const other = addManualTask({
+      title: "Keep this task",
+      contractId: contract.id,
+      department: "Contracts Department",
+    });
+    const created = afterGadCompleted(contract.id, {
+      boqChanged: false,
+      amendmentNeeded: false,
+    });
+    assert.deepEqual(created, []);
+    const plan = saveContractSchedulePlan({
+      contractId: contract.id,
+      committed: false,
+      testingDate: "2026-11-01",
+      testingEdited: true,
+      handoverDate: "",
+      items: [
+        {
+          boqItemId: `boq-DEPT-SCHED`,
+          supplies: [
+            { startDate: "2026-10-02", endDate: "2026-10-03", quantity: 1 },
+          ],
+          installations: [],
+        },
+      ],
+    });
+    assert.equal(plan.ok, true);
+    assert.equal(
+      getData().tasks.some((row) => row.catalogKey === "create_schedules"),
+      false
+    );
+    const keptStatus = getData().tasks.find((row) => row.id === other.id)?.status;
+    assert.equal(getData().tasks.find((row) => row.id === other.id)?.title, "Keep this task");
+    const cleared = deleteContractSchedule(contract.id);
+    assert.equal(cleared.ok, true);
+    assert.equal(
+      getData().tasks.find((row) => row.id === other.id)?.status,
+      keptStatus
+    );
+    assert.equal(
+      getData().tasks.some((row) => row.catalogKey === "create_schedules"),
+      false
+    );
+
+    const schedulesTask = {
+      id: "sched-task",
+      title: "Create schedules — DEPT-SCHED",
+      contractId: contract.id,
+      department: "Contracts Department",
+      assignees: [],
+      status: "completed",
+      dueDate: null,
+      parentId: null,
+      source: "system",
+      catalogKey: "create_schedules",
+      notes: "",
+      notesUpdatedAt: null,
+      completedAt: "2026-10-02T00:00:00.000Z",
+      notRequiredReason: null,
+      deletedAt: null,
+      createdAt: "2026-10-01T00:00:00.000Z",
+    } as Task;
+    const child = {
+      ...schedulesTask,
+      id: "sched-sub",
+      title: "Schedule subtask",
+      parentId: "sched-task",
+      catalogKey: "custom",
+      source: "manual",
+    } as Task;
+    const kept = {
+      ...schedulesTask,
+      id: "kept-task",
+      title: "Kick off",
+      catalogKey: "kickoff",
+      status: "pending",
+      completedAt: null,
+    } as Task;
+    const notice = {
+      id: "notice-sched",
+      taskId: "sched-task",
+      title: "Create schedules",
+    } as HubNotification;
+    const otherNotice = {
+      id: "notice-kept",
+      taskId: "kept-task",
+      title: "Kick off",
+    } as HubNotification;
+    const stripped = omitCreateSchedulesRecords(
+      [schedulesTask, child, kept],
+      [notice, otherNotice]
+    );
+    assert.deepEqual(
+      stripped.tasks.map((row) => row.id),
+      ["kept-task"]
+    );
+    assert.deepEqual(
+      stripped.notifications.map((row) => row.id),
+      ["notice-kept"]
+    );
+    const merged = mergeWorkspaceSave(
+      blob({
+        tasks: [schedulesTask, child, kept],
+        notifications: [notice, otherNotice],
+      }),
+      blob({
+        tasks: [schedulesTask, child, kept],
+        notifications: [notice, otherNotice],
+      }),
+      { ...defaultAccess("master"), tasks: "edit" },
+      "master"
+    );
+    assert.deepEqual(
+      merged.tasks.map((row) => row.id),
+      ["kept-task"]
+    );
+    assert.deepEqual(
+      merged.notifications.map((row) => row.id),
+      ["notice-kept"]
+    );
   });
 });

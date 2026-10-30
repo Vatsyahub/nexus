@@ -2,6 +2,7 @@ import type { AccessLevel, AccessMap, DoorId } from "@/lib/access";
 import type { ClearanceRole } from "@/lib/clearance";
 import {
   EMPTY_NEXUS_COSTS,
+  omitCreateSchedulesRecords,
   type Contract,
   type FlowhubData,
   type ItemCatalogEntry,
@@ -503,13 +504,18 @@ export function mergeWorkspaceSave(
     master
   );
 
+  const cleanedTasks = omitCreateSchedulesRecords(
+    tasks.map(withoutTaskPriority),
+    notifications
+  );
+
   return {
     ...incoming,
     workspaceRevision: incoming.workspaceRevision,
     contracts,
     invoices,
     payments,
-    tasks: tasks.map(withoutTaskPriority),
+    tasks: cleanedTasks.tasks,
     schedules,
     scheduleChangeLog,
     taskDeadlineChangeLog,
@@ -522,7 +528,7 @@ export function mergeWorkspaceSave(
     itemCatalog,
     deliveryChallans,
     installationProgress,
-    notifications,
+    notifications: cleanedTasks.notifications,
     clearedNotices,
     nexusCosts,
   };

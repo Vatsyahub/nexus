@@ -10,10 +10,6 @@ export function taskNotificationHref(task: Task): string {
     case "create_pbg":
     case "bg_expiry_pbg":
       return contractId ? `/contracts/${contractId}#pbg` : "/contracts";
-    case "create_schedules":
-      return contractId
-        ? `/schedules/plan/${contractId}?mode=plan`
-        : "/schedules/new";
     case "collect_retention":
       return contractId ? `/contracts/${contractId}#retention` : "/payments";
     default: {
