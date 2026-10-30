@@ -1464,3 +1464,90 @@ test("completing a parent completes open subtasks, then those rows stay frozen",
   assert.equal(waiting.find((row) => row.id === "s3")?.status, "in_progress");
   assert.equal(waiting.find((row) => row.id === "s3")?.notes, "live");
 });
+
+test("only master can reopen one completed row back to in progress", () => {
+  const master = { name: "Master", clearance: "master" as const };
+  const director = { name: "Deepa", clearance: "director" as const };
+  const manager = {
+    name: "Priya Manager",
+    clearance: "manager" as const,
+    department: "Contracts Department",
+  };
+  const parent = task({
+    id: "parent",
+    status: "completed",
+    notes: "saved",
+    completedAt: "2026-10-01T00:00:00.000Z",
+    department: "Contracts Department",
+    assignees: ["Anil User"],
+  });
+  const child = task({
+    id: "child",
+    parentId: "parent",
+    title: "Done alone",
+    status: "completed",
+    notes: "child note",
+    completedAt: "2026-09-01T00:00:00.000Z",
+    department: "Installation Department",
+  });
+  const skipped = task({
+    id: "skipped",
+    parentId: "parent",
+    title: "Skipped",
+    status: "not_required",
+    notRequiredReason: "out of scope",
+    notes: "leave me",
+    department: "Installation Department",
+  });
+  const rows = [parent, child, skipped];
+  const directorTry = applyTaskEditPolicy(
+    rows,
+    [{ ...parent, status: "in_progress", notes: "no" }, child, skipped],
+    director,
+    people
+  );
+  assert.equal(directorTry.find((row) => row.id === "parent")?.status, "completed");
+  assert.equal(directorTry.find((row) => row.id === "parent")?.notes, "saved");
+  assert.equal(directorTry.find((row) => row.id === "child")?.status, "completed");
+  const managerTry = applyTaskEditPolicy(
+    rows,
+    [{ ...parent, status: "in_progress" }, child, skipped],
+    manager,
+    people
+  );
+  assert.equal(managerTry.find((row) => row.id === "parent")?.status, "completed");
+
+  const reopened = applyTaskEditPolicy(
+    rows,
+    [{ ...parent, status: "in_progress", notes: "sneak", department: "Accounts Department" }, child, skipped],
+    master,
+    people
+  );
+  const parentRow = reopened.find((row) => row.id === "parent");
+  assert.equal(parentRow?.status, "in_progress");
+  assert.equal(parentRow?.completedAt, null);
+  assert.equal(parentRow?.notes, "saved");
+  assert.equal(parentRow?.department, "Contracts Department");
+  assert.equal(reopened.find((row) => row.id === "child")?.status, "completed");
+  assert.equal(
+    reopened.find((row) => row.id === "child")?.completedAt,
+    "2026-09-01T00:00:00.000Z"
+  );
+  assert.equal(reopened.find((row) => row.id === "skipped")?.status, "not_required");
+  assert.equal(reopened.find((row) => row.id === "skipped")?.notes, "leave me");
+
+  const childOnly = applyTaskEditPolicy(
+    rows,
+    [parent, { ...child, status: "in_progress", notes: "sneak" }, skipped],
+    master,
+    people
+  );
+  assert.equal(childOnly.find((row) => row.id === "parent")?.status, "completed");
+  assert.equal(
+    childOnly.find((row) => row.id === "parent")?.completedAt,
+    "2026-10-01T00:00:00.000Z"
+  );
+  assert.equal(childOnly.find((row) => row.id === "child")?.status, "in_progress");
+  assert.equal(childOnly.find((row) => row.id === "child")?.notes, "child note");
+  assert.equal(childOnly.find((row) => row.id === "skipped")?.status, "not_required");
+});

@@ -245,14 +245,20 @@ const WORK_STATUSES: TaskStatus[] = [
 
 function statusChoices(
   selected: TaskStatus,
-  includeNotRequired = false
+  includeNotRequired = false,
+  reopenCompleted = false
 ): TaskStatus[] {
+  if (reopenCompleted) return ["completed", "in_progress"];
   const list: TaskStatus[] = [...WORK_STATUSES];
   if (includeNotRequired) list.push("not_required");
   if (selected === "awaiting_verification") {
     return ["awaiting_verification", ...list];
   }
   return list;
+}
+
+function actorIsMaster(actor: TaskActor): boolean {
+  return (actor.clearance || "").trim().toLowerCase() === "master";
 }
 
 function waitingForCopy(task: Task): string {
@@ -1266,15 +1272,26 @@ export function TaskEditor({
       const { nextDepartment, nextAssignees } = parentAssignees();
       const nextDue = deadlineLocked ? task.dueDate : dueDate || null;
       const nextTitle = title.trim() || task.title;
-      const parentChanged =
+      const otherParentChanged =
         nextTitle !== task.title ||
         (nextDepartment || "") !== (task.department || "").trim() ||
         !sameNames(nextAssignees, task.assignees) ||
         (nextDue || null) !== (task.dueDate || null) ||
-        status !== task.status ||
         notes.trim() !== (task.notes || "");
+      const parentChanged = otherParentChanged || status !== task.status;
       if (task.status === "completed") {
-        if (parentChanged) errors.push(TASK_COMPLETED_LOCKED);
+        const reopening =
+          actorIsMaster(actor) && status === "in_progress" && !otherParentChanged;
+        if (reopening) {
+          const result = updateTaskStatus(task.id, "in_progress", { actor });
+          if (!result) errors.push(TASK_COMPLETED_LOCKED);
+          else {
+            wrote = true;
+            statusResult = result;
+          }
+        } else if (parentChanged) {
+          errors.push(TASK_COMPLETED_LOCKED);
+        }
       } else {
         const saved = assignTask(
           task.id,
@@ -1473,8 +1490,8 @@ export function TaskEditor({
       void flushWorkspace();
       setFollowUpMsg(
         created.length
-          ? "Create schedules was added to the task list."
-          : "Create schedules already on the list (or already done)."
+          ? `Added: ${created.map((row) => row.title).join("; ")}.`
+          : "No follow-up task was added."
       );
       return;
     }
@@ -1698,8 +1715,8 @@ export function TaskEditor({
                   Any changes in the BOQ?
                 </h3>
                 <p className="text-sm text-[var(--fh-muted)]">
-                  GAD is finalised. Create schedules will be added either way. If
-                  the BOQ changed, we will ask about a formal amendment next.
+                  GAD is finalised. If the BOQ changed, we will ask about a
+                  formal amendment next.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <Button
@@ -1930,9 +1947,17 @@ export function TaskEditor({
               className="flex h-9 w-full rounded-lg border border-input bg-white px-2 text-sm"
               value={status}
               onChange={(e) => setStatus(e.target.value as TaskStatus)}
-              disabled={!taskIsOpen(task) && task.status !== "on_hold"}
+              disabled={
+                !taskIsOpen(task) &&
+                task.status !== "on_hold" &&
+                !(actorIsMaster(actor) && task.status === "completed")
+              }
             >
-              {statusChoices(status).map((s) => (
+              {statusChoices(
+                status,
+                false,
+                actorIsMaster(actor) && task.status === "completed"
+              ).map((s) => (
                 <option key={s} value={s}>
                   {TASK_STATUS_LABELS[s]}
                 </option>
@@ -2178,14 +2203,26 @@ function SubtaskEditor({
                   );
                 return inDepartment || alreadyNamed;
               });
-        const changed =
+        const otherChanged =
           (nextDepartment || "") !== (task.department || "").trim() ||
           !sameNames(nextAssignees, task.assignees) ||
           (nextDue || null) !== (task.dueDate || null) ||
-          status !== task.status ||
           notes.trim() !== (task.notes || "") ||
           (reason.trim() || null) !== (task.notRequiredReason || null);
+        const changed = otherChanged || status !== task.status;
         if (!changed) return { ok: true, status: task.status, wrote: false };
+        if (
+          actorIsMaster(actor) &&
+          status === "in_progress" &&
+          !otherChanged
+        ) {
+          const result = updateTaskStatus(task.id, "in_progress", { actor });
+          if (!result) {
+            return { ok: false, error: TASK_COMPLETED_LOCKED, wrote: false };
+          }
+          setErr(null);
+          return { ok: true, status: result.status, wrote: true };
+        }
         return { ok: false, error: TASK_COMPLETED_LOCKED, wrote: false };
       }
       if (!canUpdate) {
@@ -2332,8 +2369,13 @@ function SubtaskEditor({
           className="flex h-9 rounded-lg border border-input bg-white px-2 text-sm"
           value={status}
           onChange={(e) => setStatus(e.target.value as TaskStatus)}
+          disabled={task.status === "completed" && !actorIsMaster(actor)}
         >
-          {statusChoices(status, true).map((s) => (
+          {statusChoices(
+            status,
+            task.status !== "completed",
+            actorIsMaster(actor) && task.status === "completed"
+          ).map((s) => (
             <option key={s} value={s}>
               {TASK_STATUS_LABELS[s]}
             </option>

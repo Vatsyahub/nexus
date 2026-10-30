@@ -358,7 +358,7 @@ test("worked example carries supply, leaves invoices, and lists the callback mis
   assert.deepEqual(offerText(contract.id), []);
 });
 
-test("a schedule stops the amendment and is not moved onto the new line", () => {
+test("an amendment saves while a schedule stays on the old line", () => {
   const kept = item("sch-a", "Scheduled item", 100, 10);
   const contract = makeContract("C-AMD-SCH", [kept]);
   const plan = saveContractSchedulePlan({
@@ -385,13 +385,17 @@ test("a schedule stops the amendment and is not moved onto the new line", () => 
     date: "2026-10-04",
     number: "A1",
   });
-  assert.equal(amended.ok, false);
-  if (amended.ok) return;
-  assert.match(amended.error, /Scheduled item: delete the schedule first/);
+  assert.equal(amended.ok, true);
+  if (!amended.ok) return;
   const after = getData().schedules.filter((row) => row.contractId === contract.id);
-  assert.deepEqual(after, before);
-  assert.equal(savedContract(contract.id).boq[0]?.id, kept.id);
-  assert.equal(savedContract(contract.id).amendments.length, 0);
+  assert.deepEqual(
+    after.map((row) => ({ id: row.id, boqItemId: row.boqItemId, quantity: row.quantity })),
+    before.map((row) => ({ id: row.id, boqItemId: row.boqItemId, quantity: row.quantity }))
+  );
+  assert.equal(after[0]?.boqItemId, kept.id);
+  assert.equal(after[0]?.quantity, 4);
+  assert.equal(savedContract(contract.id).boq[0]?.id, "sch-a-new");
+  assert.equal(savedContract(contract.id).amendments.length, 1);
 
   const testingOnly = makeContract("C-AMD-TEST", [item("test-a", "Plain item", 50, 2)]);
   const testing = saveContractSchedulePlan({
@@ -403,16 +407,83 @@ test("a schedule stops the amendment and is not moved onto the new line", () => 
     items: [],
   });
   assert.equal(testing.ok, true);
-  const stopped = amendContractBoq({
+  const testingBefore = getData().schedules.filter(
+    (row) => row.contractId === testingOnly.id
+  );
+  const saved = amendContractBoq({
     contractId: testingOnly.id,
     boq: [item("test-a", "Plain item", 50, 1)],
     newOrderValue: 50,
     date: "2026-10-05",
     number: "A1",
   });
-  assert.equal(stopped.ok, false);
-  if (stopped.ok) return;
-  assert.equal(stopped.error, "Delete the schedule first.");
+  assert.equal(saved.ok, true);
+  const testingAfter = getData().schedules.filter(
+    (row) => row.contractId === testingOnly.id
+  );
+  assert.deepEqual(testingAfter, testingBefore);
+  assert.equal(testingAfter[0]?.kind, "testing");
+  assert.equal(testingAfter[0]?.startDate, "2026-11-01");
+  assert.equal(savedContract(testingOnly.id).boq[0]?.quantity, 1);
+});
+
+test("the latest amendment can be edited and deleted while a schedule stays", () => {
+  const row = item("live-sch", "Live item", 100, 10);
+  const contract = makeContract("C-AMD-SCH-LIVE", [row]);
+  const plan = saveContractSchedulePlan({
+    contractId: contract.id,
+    committed: false,
+    testingDate: "",
+    handoverDate: "",
+    items: [
+      {
+        boqItemId: row.id,
+        supplies: [
+          { startDate: "2026-10-02", endDate: "2026-10-03", quantity: 4 },
+        ],
+        installations: [],
+      },
+    ],
+  });
+  assert.equal(plan.ok, true);
+  const amended = amendContractBoq({
+    contractId: contract.id,
+    boq: [{ ...row, quantity: 12 }],
+    newOrderValue: 1200,
+    date: "2026-10-04",
+    number: "A1",
+  });
+  assert.equal(amended.ok, true);
+  const before = getData()
+    .schedules.filter((line) => line.contractId === contract.id)
+    .map((line) => ({ id: line.id, boqItemId: line.boqItemId, quantity: line.quantity }));
+  const edited = editLatestAmendment({
+    contractId: contract.id,
+    boq: [{ ...row, quantity: 8 }],
+    newOrderValue: 800,
+    date: "2026-10-05",
+    number: "A1",
+  });
+  assert.equal(edited.ok, true);
+  if (!edited.ok) return;
+  assert.equal(edited.contract.amendments.length, 1);
+  assert.equal(edited.contract.boq[0]?.quantity, 8);
+  assert.deepEqual(
+    getData()
+      .schedules.filter((line) => line.contractId === contract.id)
+      .map((line) => ({ id: line.id, boqItemId: line.boqItemId, quantity: line.quantity })),
+    before
+  );
+  const deleted = deleteLatestAmendment(contract.id);
+  assert.equal(deleted.ok, true);
+  assert.equal(savedContract(contract.id).amendments.length, 0);
+  assert.equal(savedContract(contract.id).boq[0]?.quantity, 10);
+  assert.deepEqual(
+    getData()
+      .schedules.filter((line) => line.contractId === contract.id)
+      .map((line) => ({ id: line.id, boqItemId: line.boqItemId, quantity: line.quantity })),
+    before
+  );
 });
 
 test("quantity can fall below supply and installation, and a removed invoice line can go", () => {
@@ -655,11 +726,21 @@ test("delete is blocked by a new rate, extra quantity, supply, and a schedule", 
     ],
   });
   assert.equal(schedule.ok, true);
+  const scheduleBefore = getData().schedules.filter(
+    (row) => row.contractId === contract.id
+  );
   const scheduled = deleteLatestAmendment(contract.id);
   assert.equal(scheduled.ok, false);
   if (scheduled.ok) return;
-  assert.match(scheduled.error, /Blocked item: delete the schedule first/);
+  assert.match(
+    scheduled.error,
+    /supplied quantity 15 is above the previous BOQ quantity 10/
+  );
   assert.equal(savedContract(contract.id).amendments[0]?.number, "A1");
+  assert.deepEqual(
+    getData().schedules.filter((row) => row.contractId === contract.id),
+    scheduleBefore
+  );
 });
 
 test("billing above the previous quantity blocks delete until that quantity is reversed", () => {
@@ -891,12 +972,22 @@ test("edit is blocked by the same schedule, billing, supply, and installation ru
     ],
   });
   assert.equal(schedule.ok, true);
+  const scheduleBefore = getData().schedules.filter(
+    (row) => row.contractId === contract.id
+  );
   const scheduled = attempt();
   assert.equal(scheduled.ok, false);
   if (scheduled.ok) return;
-  assert.match(scheduled.error, /Edit blocked: delete the schedule first/);
+  assert.match(
+    scheduled.error,
+    /supplied quantity 15 is above the previous BOQ quantity 10/
+  );
   assert.equal(savedContract(contract.id).amendments[0]?.number, "A1");
   assert.equal(savedContract(contract.id).boq[0]?.rate, 1000);
+  assert.deepEqual(
+    getData().schedules.filter((row) => row.contractId === contract.id),
+    scheduleBefore
+  );
 
   const current = getData();
   const installBlock = editLatestAmendmentIn(

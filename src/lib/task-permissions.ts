@@ -376,6 +376,34 @@ function freezeCompletedRecord(prev: Task, next: Task): Task {
   };
 }
 
+/**
+ * Master puts one completed row back to in progress. Every other field stays
+ * as saved. Other rows, including completed and not-required subtasks, are
+ * left to their own checks.
+ */
+function reopenCompletedRecord(prev: Task): Task {
+  return {
+    ...prev,
+    status: "in_progress",
+    completedAt: null,
+    notRequiredReason: null,
+    verificationDepartment: null,
+    verificationRequestedBy: null,
+  };
+}
+
+function masterReopensCompleted(
+  prev: Task,
+  next: Task,
+  actor: TaskActor
+): boolean {
+  return (
+    taskIsCompleted(prev) &&
+    clearanceKey(actor.clearance) === "master" &&
+    next.status === "in_progress"
+  );
+}
+
 function acceptedDepartment(
   prev: Task,
   next: Task,
@@ -618,8 +646,12 @@ function closeOpenSubtasksOfNewlyCompletedParents(
  * A subtask can be added, and its department set or switched, only by
  * someone who can update the parent. They may pick any department.
  * Someone who cannot update the subtask itself cannot change its other fields.
- * A completed task or subtask accepts no further field changes, including
- * from Master. Completing a parent also completes its still-open subtasks.
+ * A completed task or subtask accepts no further field changes.
+ * Master can put that one row back to in progress. Other fields on that
+ * save stay as they were. A Director or a department manager cannot.
+ * Reopening a parent does not reopen a completed subtask, and reopening a
+ * subtask does not reopen the parent. Not required is left as saved.
+ * Completing a parent also completes its still-open subtasks.
  * Due-notice markers can still move on a row the person cannot edit,
  * except on a completed row, which stays as saved.
  */
@@ -644,7 +676,12 @@ export function applyTaskEditPolicy(
         }
         return [sanitizeNewTask(next, actor, people)];
       }
-      if (taskIsCompleted(prev)) return [freezeCompletedRecord(prev, next)];
+      if (taskIsCompleted(prev)) {
+        if (masterReopensCompleted(prev, next, actor)) {
+          return [reopenCompletedRecord(prev)];
+        }
+        return [freezeCompletedRecord(prev, next)];
+      }
       const parent = prev.parentId
         ? (currentById.get(prev.parentId) ?? null)
         : null;

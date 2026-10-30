@@ -1272,3 +1272,102 @@ test("completing a parent closes open subtasks on one log line and then freezes 
   assert.equal(savedTask(userParent.id).status, "awaiting_verification");
   assert.equal(savedTask(child.id).status, "in_progress");
 });
+
+test("master reopens a completed task to in progress on one log line", () => {
+  resetWorkspaceClientForTests();
+  const parent = freshTask({ title: "Reopen parent", dueDate: "2026-11-15" });
+  const doneOnItsOwn = addSubtask(
+    parent.id,
+    { title: "Done alone", department: "Installation Department" },
+    { actor: manager }
+  );
+  const skipped = addSubtask(
+    parent.id,
+    { title: "Not needed", department: "Installation Department" },
+    { actor: manager }
+  );
+  assert.ok(doneOnItsOwn);
+  assert.ok(skipped);
+  assert.equal(
+    updateTaskStatus(doneOnItsOwn.id, "completed", { actor: installManager })?.status,
+    "completed"
+  );
+  assert.equal(
+    updateTaskStatus(skipped.id, "not_required", {
+      actor: installManager,
+      notRequiredReason: "out of scope",
+    })?.status,
+    "not_required"
+  );
+  assert.equal(
+    updateTaskStatus(parent.id, "completed", { actor: director })?.status,
+    "completed"
+  );
+  const parentCompletedAt = savedTask(parent.id).completedAt;
+  const childCompletedAt = savedTask(doneOnItsOwn.id).completedAt;
+  assert.ok(parentCompletedAt);
+  assert.ok(childCompletedAt);
+  const logBefore = (getData().taskDeadlineChangeLog ?? []).length;
+
+  assert.equal(
+    updateTaskStatus(parent.id, "in_progress", { actor: director }),
+    null
+  );
+  assert.equal(
+    updateTaskStatus(parent.id, "in_progress", { actor: manager }),
+    null
+  );
+  assert.equal(
+    updateTaskStatus(parent.id, "in_progress", { actor: master, notes: "later" }),
+    null
+  );
+  assert.equal(savedTask(parent.id).status, "completed");
+  assert.equal(savedTask(parent.id).notes, "");
+  assert.equal(savedTask(parent.id).completedAt, parentCompletedAt);
+  assert.equal(
+    updateTaskStatus(parent.id, "pending", { actor: master }),
+    null
+  );
+  assert.equal(savedTask(parent.id).status, "completed");
+  assert.equal((getData().taskDeadlineChangeLog ?? []).length, logBefore);
+
+  const reopened = updateTaskStatus(parent.id, "in_progress", { actor: master });
+  assert.equal(reopened?.status, "in_progress");
+  assert.equal(savedTask(parent.id).status, "in_progress");
+  assert.equal(savedTask(parent.id).completedAt, null);
+  assert.equal(savedTask(parent.id).notes, "");
+  assert.equal(savedTask(doneOnItsOwn.id).status, "completed");
+  assert.equal(savedTask(doneOnItsOwn.id).completedAt, childCompletedAt);
+  assert.equal(savedTask(skipped.id).status, "not_required");
+  assert.equal(savedTask(skipped.id).notRequiredReason, "out of scope");
+  assert.equal((getData().taskDeadlineChangeLog ?? []).length, logBefore + 1);
+  assert.deepEqual(describeTaskChangeLog(rowsFor(parent.id).at(-1)!), [
+    "Status: Completed → In progress",
+  ]);
+
+  const noted = updateTask(
+    parent.id,
+    { notes: "open again" },
+    { actor: master, people }
+  );
+  assert.equal(noted?.notes, "open again");
+
+  assert.equal(
+    updateTaskStatus(parent.id, "completed", { actor: master })?.status,
+    "completed"
+  );
+  const childLogBefore = rowsFor(doneOnItsOwn.id).length;
+  const parentLogBefore = rowsFor(parent.id).length;
+  const childReopened = updateTaskStatus(doneOnItsOwn.id, "in_progress", {
+    actor: master,
+  });
+  assert.equal(childReopened?.status, "in_progress");
+  assert.equal(savedTask(parent.id).status, "completed");
+  assert.equal(savedTask(doneOnItsOwn.id).status, "in_progress");
+  assert.equal(savedTask(skipped.id).status, "not_required");
+  assert.equal(rowsFor(parent.id).length, parentLogBefore);
+  assert.deepEqual(describeTaskChangeLog(rowsFor(doneOnItsOwn.id).at(-1)!), [
+    "Status: Completed → In progress",
+  ]);
+  assert.equal(rowsFor(doneOnItsOwn.id).length, childLogBefore + 1);
+});

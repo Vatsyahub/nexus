@@ -520,13 +520,6 @@ function boqLineInUse(
     return true;
   }
   if (
-    (data.schedules ?? []).some(
-      (line) => line.contractId === contractId && line.boqItemId === boqItemId
-    )
-  ) {
-    return true;
-  }
-  if (
     (data.deliveryChallans ?? []).some(
       (challan) =>
         challan.contractId === contractId &&
@@ -540,8 +533,8 @@ function boqLineInUse(
 
 /**
  * A non-Master save cannot rename an item, or change its unit, when that
- * line is already on an invoice, schedule, or delivery challan. Quantity
- * and rate still follow the save. Unused lines can still be edited in the BOQ.
+ * line is already on an invoice or a delivery challan. A schedule does not
+ * lock the name or unit. Quantity and rate still follow the save.
  */
 export function keepInUseItemNames(
   current: FlowhubData,

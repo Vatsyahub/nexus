@@ -302,39 +302,6 @@ export function taxInvoiceQuantityIssues(input: {
   return issues;
 }
 
-/**
- * Any schedule on the contract blocks an amendment save or delete.
- * The message names the scheduled item when the schedule has one.
- */
-function scheduleItemName(contract: Contract, boqItemId: string): string {
-  const onBoq = contract.boq.find((row) => row.id === boqItemId);
-  if (onBoq?.name.trim()) return onBoq.name.trim();
-  for (const amendment of contract.amendments ?? []) {
-    const snap = amendment.boqSnapshot.find((row) => row.id === boqItemId);
-    if (snap?.name.trim()) return snap.name.trim();
-    const diff = amendment.lineDiffs.find((row) => row.boqItemId === boqItemId);
-    if (diff?.name.trim()) return diff.name.trim();
-  }
-  return "";
-}
-
-export function scheduleStopMessage(
-  contract: Contract,
-  schedules: readonly ScheduleLine[]
-): string | null {
-  const mine = schedules.filter((line) => line.contractId === contract.id);
-  if (!mine.length) return null;
-  const names = new Set<string>();
-  for (const line of mine) {
-    if (!line.boqItemId) continue;
-    const name = scheduleItemName(contract, line.boqItemId);
-    if (name) names.add(name);
-  }
-  const label = [...names].sort((a, b) => a.localeCompare(b)).join(", ");
-  if (label) return `${label}: delete the schedule first.`;
-  return "Delete the schedule first.";
-}
-
 export function existingLineRateIssues(
   previous: readonly BoqItem[],
   proposed: readonly BoqItem[]
@@ -498,7 +465,8 @@ function olderQtyAtRate(
 
 /**
  * Why the latest amendment cannot be deleted, or null when it can.
- * Schedule quantities are not part of the billed, supplied, or installed totals.
+ * A schedule does not block the delete. Billed, supplied, and installed
+ * quantities still do. Schedule rows are left as they were saved.
  */
 export function amendmentDeleteError(input: {
   contract: Contract;
@@ -512,8 +480,6 @@ export function amendmentDeleteError(input: {
   );
   const latest = amendments[amendments.length - 1];
   if (!latest) return "No amendment to delete.";
-  const schedule = scheduleStopMessage(input.contract, input.schedules);
-  if (schedule) return schedule;
 
   const older = boqBeforeAmendment(input.contract, latest);
   const buckets = billedBuckets(input.invoices, input.contract).sort(
