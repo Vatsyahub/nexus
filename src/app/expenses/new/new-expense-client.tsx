@@ -83,7 +83,7 @@ export function NewExpenseClient({ actorName }: { actorName: string }) {
     }
     const saved = await confirmWorkspaceSave();
     if (!saved) return;
-    router.push("/expenses");
+    router.push("/operations?tab=expenses");
   }
 
   return (
@@ -93,7 +93,7 @@ export function NewExpenseClient({ actorName }: { actorName: string }) {
           Add expense
         </h1>
         <HubReturnLink
-          href="/expenses"
+          href="/operations?tab=expenses"
           className={cn(buttonVariants({ variant: "outline" }))}
         >
           Back to expenses
@@ -180,7 +180,7 @@ export function NewExpenseClient({ actorName }: { actorName: string }) {
               Add expense
             </Button>
             <HubReturnLink
-              href="/expenses"
+              href="/operations?tab=expenses"
               className={cn(buttonVariants({ variant: "outline" }))}
             >
               Cancel

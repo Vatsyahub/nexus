@@ -26,12 +26,22 @@ const LIVE_REPORTS = [
   },
   {
     href: "/reports/execution",
-    label: "Operations",
+    label: "Site Records",
   },
   {
     href: "/reports/other",
     label: "Other reports",
   },
+] as const;
+
+/** Reports home order. The pill row above an open report keeps LIVE_REPORTS. */
+export const REPORT_HOME_HREFS = [
+  "/reports/outstanding",
+  "/reports/sales",
+  "/reports/accounts",
+  "/reports/execution",
+  "/reports/reconciliation",
+  "/reports/other",
 ] as const;
 
 export function ReportsNav() {

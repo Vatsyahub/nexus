@@ -46,7 +46,7 @@ export const DOORS: {
   { id: "payments", label: "Payments", group: "Hub" },
   { id: "tasks", label: "Tasks", group: "Hub" },
   { id: "schedules", label: "Schedules", group: "Hub" },
-  { id: "expenses", label: "Expenses", group: "Hub" },
+  { id: "expenses", label: "Operations", group: "Hub" },
   { id: "settings", label: "Settings", group: "Hub", floor: "view" },
   { id: "users", label: "User management", group: "Hub" },
   { id: "nexus_core", label: "Nexus Core", group: "Hub" },
@@ -58,7 +58,7 @@ export const DOORS: {
   { id: "reports_sales", label: "Sales", group: "Reports" },
   { id: "reports_accounts", label: "Accounts", group: "Reports" },
   { id: "reports_reconciliation", label: "Reconciliation", group: "Reports" },
-  { id: "reports_operations", label: "Operations", group: "Reports" },
+  { id: "reports_operations", label: "Site Records", group: "Reports" },
   { id: "reports_other", label: "Other reports", group: "Reports" },
 ];
 
@@ -250,6 +250,7 @@ export function doorForPath(pathname: string): DoorId | null {
   if (pathname.startsWith("/payments")) return "payments";
   if (pathname.startsWith("/tasks")) return "tasks";
   if (pathname.startsWith("/schedules")) return "schedules";
+  if (pathname.startsWith("/operations")) return "expenses";
   if (pathname.startsWith("/expenses")) return "expenses";
   if (pathname.startsWith("/settings")) return "settings";
   if (pathname.startsWith("/users")) return "users";
@@ -266,11 +267,28 @@ export function doorForPath(pathname: string): DoorId | null {
   return null;
 }
 
+/**
+ * A saved DC opened from Site Records. Operations (the expenses door) still
+ * decides edit. A Site Records login that cannot open Operations may look,
+ * and cannot save.
+ */
+export function isDispatchRecordPath(pathname: string): boolean {
+  if (!pathname.startsWith("/operations/dispatch/")) return false;
+  return !pathname.startsWith("/operations/dispatch/new");
+}
+
 export function levelForPath(pathname: string, map: AccessMap): AccessLevel {
   if (pathname.startsWith("/settings/password")) return "edit";
   if (pathname === "/reports") {
     const any = REPORT_DOORS.some((id) => map[id] !== "block");
     return any ? "view" : "block";
+  }
+  if (isDispatchRecordPath(pathname)) {
+    const expenses = map.expenses ?? "block";
+    if (expenses !== "block") return expenses;
+    const report = map.reports_operations ?? "block";
+    if (report !== "block") return "view";
+    return "block";
   }
   const door = doorForPath(pathname);
   if (!door) return "edit";

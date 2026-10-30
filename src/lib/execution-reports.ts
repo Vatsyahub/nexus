@@ -20,6 +20,7 @@ import {
 import {
   installedQty,
   invoiceOutstanding,
+  leftToInstallQty,
   suppliedQty,
   taskIsOpen,
 } from "@/lib/store";
@@ -603,27 +604,210 @@ export function buildSupplyDetailRows(
   );
 }
 
-/** Excel / PDF columns for Operations → DC records. City stays off this sheet. */
+/** One delivery challan, with every line kept on that same record. Display only. */
+export type DispatchListItem = {
+  boqItemId: string;
+  itemName: string;
+  qty: number;
+};
+
+export type DispatchListRow = {
+  dcId: string;
+  contractId: string;
+  projectNo: string;
+  projectName: string;
+  dcNo: string;
+  dcDate: string;
+  createdAt: string;
+  items: DispatchListItem[];
+};
+
+export function buildDispatchListRows(data: FlowhubData): DispatchListRow[] {
+  const contracts = new Map(data.contracts.map((c) => [c.id, c]));
+  return data.deliveryChallans
+    .map((dc) => {
+      const contract = contracts.get(dc.contractId);
+      return {
+        dcId: dc.id,
+        contractId: dc.contractId,
+        projectNo: contract?.projectNo ?? "—",
+        projectName: contract?.projectName ?? "Deleted contract",
+        dcNo: dc.dcNo,
+        dcDate: dc.date,
+        createdAt: dc.createdAt,
+        items: dc.lines.map((line) => {
+          const item = contract?.boq.find((b) => b.id === line.boqItemId);
+          return {
+            boqItemId: line.boqItemId,
+            itemName: item?.name ?? boqItemName(contract, line.boqItemId),
+            qty: Number(line.qty) || 0,
+          };
+        }),
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.dcDate.localeCompare(a.dcDate) ||
+        (b.createdAt ?? "").localeCompare(a.createdAt ?? "") ||
+        a.dcNo.localeCompare(b.dcNo)
+    );
+}
+
+/**
+ * Operations → Dispatch search. Project, item name, and DC number only.
+ * City, qty, rate, contractor, order value, and contract status are not fields.
+ */
+export function filterDispatchListRows(
+  rows: readonly DispatchListRow[],
+  q: string
+): DispatchListRow[] {
+  const needle = q.trim();
+  if (!needle) return [...rows];
+  return rows.filter((row) =>
+    matchesAny(needle, [
+      row.projectNo,
+      row.projectName,
+      row.dcNo,
+      ...row.items.map((item) => item.itemName),
+    ])
+  );
+}
+
+export function formatDispatchItems(items: readonly DispatchListItem[]): string {
+  if (items.length === 0) return "—";
+  return items
+    .map((item) => `${item.itemName} × ${formatQty(item.qty)}`)
+    .join(", ");
+}
+
+/** Excel / PDF columns for Site Records → DC records. City stays off this sheet. */
 export const DC_RECORDS_EXPORT_HEADERS = [
   "Project",
   "Project no.",
   "DC no.",
   "DC date",
-  "Item",
-  "Qty supplied",
+  "Items",
 ] as const;
 
-export function supplyDetailExportRow(
-  row: SupplyDetailRow
+export function dispatchListExportRow(
+  row: DispatchListRow
 ): (string | number)[] {
   return [
     row.projectName,
     row.projectNo,
     row.dcNo,
     formatDisplayDate(row.dcDate),
-    row.itemName,
-    row.qty,
+    formatDispatchItems(row.items),
   ];
+}
+
+export type InstallationListItem = {
+  historyId: string;
+  progressId: string;
+  boqItemId: string;
+  itemName: string;
+  qtyBefore: number;
+  qtyNow: number;
+  recordedAt: string;
+};
+
+export type InstallationPending = {
+  boqItemId: string;
+  itemName: string;
+  left: number;
+};
+
+/** One project on one update date. Several items that day stay on this row. */
+export type InstallationListRow = {
+  key: string;
+  contractId: string;
+  projectNo: string;
+  projectName: string;
+  date: string;
+  recordedAt: string;
+  items: InstallationListItem[];
+  pending: InstallationPending[];
+};
+
+export function buildInstallationListRows(
+  data: FlowhubData
+): InstallationListRow[] {
+  const contracts = new Map(data.contracts.map((c) => [c.id, c]));
+  const groups = new Map<string, InstallationListRow>();
+  for (const progress of data.installationProgress) {
+    const contract = contracts.get(progress.contractId);
+    for (const entry of progress.history ?? []) {
+      const date = String(entry.at ?? "").slice(0, 10);
+      const key = `${progress.contractId}|${date}`;
+      let row = groups.get(key);
+      if (!row) {
+        row = {
+          key,
+          contractId: progress.contractId,
+          projectNo: contract?.projectNo ?? "—",
+          projectName: contract?.projectName ?? "Deleted contract",
+          date,
+          recordedAt: entry.recordedAt ?? "",
+          items: [],
+          pending: [],
+        };
+        groups.set(key, row);
+      }
+      if ((entry.recordedAt ?? "") > row.recordedAt) {
+        row.recordedAt = entry.recordedAt ?? "";
+      }
+      const item = contract?.boq.find((b) => b.id === progress.boqItemId);
+      const now = Number(entry.totalAfter) || 0;
+      const delta = Number(entry.delta) || 0;
+      row.items.push({
+        historyId: entry.id,
+        progressId: progress.id,
+        boqItemId: progress.boqItemId,
+        itemName: item?.name ?? boqItemName(contract, progress.boqItemId),
+        qtyBefore: now - delta,
+        qtyNow: now,
+        recordedAt: entry.recordedAt ?? "",
+      });
+    }
+  }
+  for (const row of groups.values()) {
+    const contract = contracts.get(row.contractId);
+    row.items.sort(
+      (a, b) =>
+        a.recordedAt.localeCompare(b.recordedAt) ||
+        a.itemName.localeCompare(b.itemName)
+    );
+    row.pending = (contract?.boq ?? [])
+      .map((item) => ({
+        boqItemId: item.id,
+        itemName: item.name,
+        left: leftToInstallQty(row.contractId, item.id, data),
+      }))
+      .filter((item) => item.left > 1e-9);
+  }
+  return [...groups.values()].sort(
+    (a, b) =>
+      b.date.localeCompare(a.date) ||
+      b.recordedAt.localeCompare(a.recordedAt) ||
+      a.projectNo.localeCompare(b.projectNo)
+  );
+}
+
+/** Operations → Installations search. Project and item name only. */
+export function filterInstallationListRows(
+  rows: readonly InstallationListRow[],
+  q: string
+): InstallationListRow[] {
+  const needle = q.trim();
+  if (!needle) return [...rows];
+  return rows.filter((row) =>
+    matchesAny(needle, [
+      row.projectNo,
+      row.projectName,
+      ...row.items.map((item) => item.itemName),
+      ...row.pending.map((item) => item.itemName),
+    ])
+  );
 }
 
 /** DC date is inclusive. Text search is AND with that range. */
