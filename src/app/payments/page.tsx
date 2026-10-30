@@ -2,6 +2,7 @@
 
 import { Suspense, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useListFilters } from "@/lib/use-view-query";
 import {
   paymentAccounted,
@@ -40,6 +41,7 @@ export default function PaymentsPage() {
 
 function PaymentsPageInner() {
   const data = useFlowhubData();
+  const router = useRouter();
   const { q, from: filterFrom, to: filterTo, setQ, setFrom: setFilterFrom, setTo: setFilterTo } = useListFilters();
 
   const filtered = listIsFiltered({
@@ -159,10 +161,15 @@ function PaymentsPageInner() {
                     ? data.invoices.find((i) => i.id === p.invoiceId)
                     : null;
                   return (
-                    <tr key={p.id} className="hover:bg-[var(--fh-bg)]/60">
+                    <tr
+                      key={p.id}
+                      className="cursor-pointer hover:bg-[var(--fh-bg)]/60"
+                      onClick={() => router.push(`/payments/${p.id}`)}
+                    >
                       <td className="px-3 py-2 font-medium">
                         <Link
                           href={`/payments/${p.id}`}
+                          onClick={(e) => e.stopPropagation()}
                           className="text-[var(--fh-steel)] hover:underline"
                         >
                           {c?.projectName ?? "—"}
@@ -192,20 +199,36 @@ function PaymentsPageInner() {
                       <td className="px-3 py-2">
                         <Link
                           href={`/payments/${p.id}`}
+                          onClick={(e) => e.stopPropagation()}
                           className="tabular-nums hover:underline"
                         >
                           {formatDisplayDate(p.date)}
                         </Link>
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums font-medium">
-                        <Link href={`/payments/${p.id}`} className="hover:underline">
+                        <Link
+                          href={`/payments/${p.id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="hover:underline"
+                        >
                           {formatMoney(paymentCash(p))}
                         </Link>
                       </td>
-                      <td className="px-3 py-2">
+                      <td
+                        className="px-3 py-2"
+                        onClick={
+                          inv
+                            ? (e) => {
+                                e.stopPropagation();
+                                router.push(`/billing/${inv.id}`);
+                              }
+                            : undefined
+                        }
+                      >
                         {inv ? (
                           <Link
                             href={`/billing/${inv.id}`}
+                            onClick={(e) => e.stopPropagation()}
                             className="text-[var(--fh-steel)] hover:underline"
                           >
                             {inv.type} {inv.number}

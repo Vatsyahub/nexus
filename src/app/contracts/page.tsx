@@ -2,6 +2,7 @@
 
 import { Suspense, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useListFilters } from "@/lib/use-view-query";
 import {
   closureDateNeedsAttention,
@@ -44,6 +45,7 @@ export default function ContractsPage() {
 
 function ContractsPageInner() {
   const data = useFlowhubData();
+  const router = useRouter();
   const { q, setQ } = useListFilters();
   const today = todayIso();
 
@@ -118,10 +120,15 @@ function ContractsPageInner() {
                   (t) => t.contractId === c.id && !t.parentId && taskIsOpen(t)
                 ).length;
                 return (
-                  <TableRow key={c.id}>
+                  <TableRow
+                    key={c.id}
+                    className="cursor-pointer"
+                    onClick={() => router.push(`/contracts/${c.id}`)}
+                  >
                     <TableCell>
                       <Link
                         href={`/contracts/${c.id}`}
+                        onClick={(e) => e.stopPropagation()}
                         className="text-sm font-bold text-[var(--fh-steel)] hover:underline"
                       >
                         {c.projectName}
@@ -161,6 +168,7 @@ function ContractsPageInner() {
                     <TableCell>
                       <Link
                         href={`/tasks?contractId=${c.id}&filter=pending`}
+                        onClick={(e) => e.stopPropagation()}
                         className="text-sm font-medium text-[var(--fh-steel)] hover:underline"
                       >
                         {pending} pending

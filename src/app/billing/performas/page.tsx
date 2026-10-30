@@ -2,6 +2,7 @@
 
 import { Suspense, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useListFilters } from "@/lib/use-view-query";
 import { useFlowhubData } from "@/lib/store";
 import { buttonVariants } from "@/components/ui/button";
@@ -37,6 +38,7 @@ export default function OpenPerformasPage() {
 
 function OpenPerformasInner() {
   const data = useFlowhubData();
+  const router = useRouter();
   const { q, setQ } = useListFilters();
 
   const openPis = useMemo(() => {
@@ -96,11 +98,13 @@ function OpenPerformasInner() {
             return (
               <li
                 key={pi.id}
-                className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm"
+                className="flex cursor-pointer flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm hover:bg-[var(--fh-bg)]/80"
+                onClick={() => router.push(`/billing/${pi.id}`)}
               >
                 <div>
                   <Link
                     href={`/billing/${pi.id}`}
+                    onClick={(e) => e.stopPropagation()}
                     className="font-medium text-[var(--fh-steel)] hover:underline"
                   >
                     {pi.number}

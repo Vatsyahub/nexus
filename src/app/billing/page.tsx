@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Suspense, useMemo } from "react";
 import { useViewQuery } from "@/lib/use-view-query";
 import {
@@ -40,6 +41,7 @@ export default function BillingHomePage() {
 
 function BillingHomeInner() {
   const data = useFlowhubData();
+  const router = useRouter();
   const { get, commit } = useViewQuery();
   const q = get("q");
   const typeRaw = get("type");
@@ -185,7 +187,11 @@ function BillingHomeInner() {
                   const dueDate = inv.type === "TI" ? invoiceDueDate(inv, data) : "—";
                   const due = inv.type === "TI" ? invoiceOutstanding(inv, data) : null;
                   return (
-                    <tr key={inv.id}>
+                    <tr
+                      key={inv.id}
+                      className="cursor-pointer hover:bg-[var(--fh-bg)]/80"
+                      onClick={() => router.push(`/billing/${inv.id}`)}
+                    >
                       <td className="px-3 py-2">
                         {c ? (
                           <>
@@ -201,6 +207,7 @@ function BillingHomeInner() {
                       <td className="px-3 py-2">
                         <Link
                           href={`/billing/${inv.id}`}
+                          onClick={(e) => e.stopPropagation()}
                           className="font-medium text-[var(--fh-steel)] hover:underline"
                         >
                           {inv.type} {inv.number}
