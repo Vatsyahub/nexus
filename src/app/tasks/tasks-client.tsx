@@ -469,7 +469,8 @@ function TasksPageInner({
     return {
       my: myView.counted.length,
       dept: deptView.counted.length,
-      active: subtaskViews.active.counted.length,
+      active: subtaskViews.active.counted.filter((task) => !task.parentId)
+        .length,
       unassigned: subtaskViews.unassigned.counted.length,
       overdue: subtaskViews.overdue.counted.length,
       completed: subtaskViews.completed.counted.length,
@@ -489,19 +490,13 @@ function TasksPageInner({
         task: line.task,
         parent: line.parent,
       }))
-    : listView === "active"
-      ? visibleRows.flatMap((row) => {
-          if (taskMatchesHubView(row.parent, "active", today)) {
-            return [{ task: row.parent, parent: null as Task | null }];
-          }
-          // A parent that is not in progress or on hold stays off Active.
-          // Its matching subtask is listed in that parent's place.
-          return row.subtasks.map((task) => ({
-            task,
-            parent: row.parent,
-          }));
-        })
-      : visibleRows.map((row) => ({
+    : visibleRows
+        .filter(
+          (row) =>
+            listView !== "active" ||
+            taskMatchesHubView(row.parent, "active", today)
+        )
+        .map((row) => ({
           task: row.parent,
           parent: null as Task | null,
         }));

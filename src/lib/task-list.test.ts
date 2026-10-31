@@ -110,7 +110,7 @@ test("open, overdue, no deadline, unassigned, and done keep a parent for a match
   assert.deepEqual(done.rows[0]?.subtasks.map((row) => row.id), ["done-sub"]);
 });
 
-test("active lists in-progress and on-hold tasks and leaves finished ones off", () => {
+test("active lists in-progress, on-hold, and waiting tasks, including subtasks", () => {
   const parent = task({
     id: "parent",
     title: "Finished parent",
@@ -129,6 +129,18 @@ test("active lists in-progress and on-hold tasks and leaves finished ones off", 
     status: "on_hold",
   });
   const pending = task({ id: "pending", title: "Pending", status: "pending" });
+  const pendingSub = task({
+    id: "pending-sub",
+    title: "Pending sub",
+    parentId: "held",
+    status: "pending",
+  });
+  const waitingSub = task({
+    id: "waiting-sub",
+    title: "Waiting sub",
+    parentId: "pending",
+    status: "awaiting_verification",
+  });
   const finished = task({
     id: "finished",
     title: "Finished",
@@ -150,21 +162,36 @@ test("active lists in-progress and on-hold tasks and leaves finished ones off", 
     stillGoing,
     held,
     pending,
+    pendingSub,
+    waitingSub,
     finished,
     skipped,
     waiting,
   ]);
   assert.deepEqual(
     view.counted.map((row) => row.id).sort(),
-    ["going", "held"]
+    ["going", "held", "waiting", "waiting-sub"]
+  );
+  assert.deepEqual(
+    view.counted.filter((row) => !row.parentId).map((row) => row.id).sort(),
+    ["held", "waiting"]
   );
   const kept = view.rows.find((row) => row.parent.id === "parent");
   assert.deepEqual(
     kept?.subtasks.map((row) => row.id),
     ["going"]
   );
+  assert.deepEqual(
+    view.rows.find((row) => row.parent.id === "pending")?.subtasks.map((row) => row.id),
+    ["waiting-sub"]
+  );
   assert.equal(
-    view.counted.some((row) => row.status === "completed" || row.status === "not_required"),
+    view.counted.some(
+      (row) =>
+        row.status === "pending" ||
+        row.status === "completed" ||
+        row.status === "not_required"
+    ),
     false
   );
 });

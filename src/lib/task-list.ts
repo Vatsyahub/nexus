@@ -17,9 +17,16 @@ function isOpen(task: Pick<Task, "status" | "deletedAt">): boolean {
   return task.status !== "completed" && task.status !== "not_required";
 }
 
-function isActive(task: Pick<Task, "status" | "deletedAt">): boolean {
+/** In progress, on hold, or waiting for manager. Pending stays off. */
+export function taskIsOnActiveList(
+  task: Pick<Task, "status" | "deletedAt">
+): boolean {
   if (task.deletedAt) return false;
-  return task.status === "in_progress" || task.status === "on_hold";
+  return (
+    task.status === "in_progress" ||
+    task.status === "on_hold" ||
+    task.status === "awaiting_verification"
+  );
 }
 
 function isOverdueOpen(
@@ -57,7 +64,7 @@ export function taskMatchesHubView(
     );
   }
   if (view === "open") return isOpen(task);
-  if (view === "active") return isActive(task);
+  if (view === "active") return taskIsOnActiveList(task);
   if (view === "overdue") {
     return isOpen(task) && !!task.dueDate && task.dueDate < today;
   }
