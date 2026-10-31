@@ -254,7 +254,7 @@ function NexusCoreInner() {
           <BillingChart bars={bars} />
         </ChartCard>
 
-        <ChartCard title="Outstanding Overview">
+        <ChartCard title="Receivables Overview">
           <OutstandingChart overview={outstanding} />
         </ChartCard>
 
@@ -681,14 +681,14 @@ function OutstandingChart({
   return (
     <div
       role="img"
-      aria-label="Outstanding Overview: tax invoices by days until due, with overdue included in the total. Due in days is under 0.00L"
+      aria-label="Receivables Overview: tax invoices by days until due, with overdue included in the total. Due in days is under 0.00L"
       className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
     >
       <p className="mb-1 flex shrink-0 items-center gap-2.5">
-        <span className="text-lg leading-5 text-[var(--fh-ink)]">
+        <span className="text-sm leading-4 text-[var(--fh-ink)]">
           Total outstanding
         </span>
-        <span className="shrink-0 text-xl font-bold tabular-nums leading-5 text-[var(--fh-ink)]">
+        <span className="shrink-0 text-sm tabular-nums leading-4 text-[var(--fh-ink)]">
           {formatCoreMoney(overview.total)}
         </span>
       </p>
@@ -758,7 +758,7 @@ function DepartmentChart({
       ariaLabel="Open tasks: one upright bar per department, gold up to the overdue count. Departments is under 0"
       axisLabel="Departments"
       legend={[
-        { color: STEEL, label: "Open, not overdue" },
+        { color: STEEL, label: "Ongoing" },
         { color: GOLD, label: "Overdue" },
       ]}
       maxLabel={formatCountTick(max)}
