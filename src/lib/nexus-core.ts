@@ -375,18 +375,45 @@ export type CostCentreRow = {
   profitPercent: number | null;
 };
 
+/** Active, then On hold, then Handed over (Completed). */
+const CORE_LIST_STATUS_RANK: Record<ContractStatusLabel, number> = {
+  Active: 0,
+  "On hold": 1,
+  Completed: 2,
+};
+
+/**
+ * Shared order for the Cost centre list and the Core report.
+ * Status group first, then yet to spend smallest first.
+ * Equal yet-to-spend values break the tie on project number.
+ */
+export function compareCoreContractRows(
+  a: Pick<
+    CostCentreRow,
+    "status" | "yetToSpend" | "projectNo" | "projectName" | "contractId"
+  >,
+  b: Pick<
+    CostCentreRow,
+    "status" | "yetToSpend" | "projectNo" | "projectName" | "contractId"
+  >
+): number {
+  const byStatus =
+    CORE_LIST_STATUS_RANK[a.status] - CORE_LIST_STATUS_RANK[b.status];
+  if (byStatus) return byStatus;
+  if (a.yetToSpend !== b.yetToSpend) return a.yetToSpend - b.yetToSpend;
+  return (
+    a.projectNo.localeCompare(b.projectNo) ||
+    a.projectName.localeCompare(b.projectName) ||
+    a.contractId.localeCompare(b.contractId)
+  );
+}
+
 export function buildCostCentreRows(
   data: FlowhubData,
   today: string
 ): CostCentreRow[] {
   const costs = normalizeNexusCosts(data.nexusCosts);
   return data.contracts
-    .slice()
-    .sort(
-      (a, b) =>
-        a.projectNo.localeCompare(b.projectNo) ||
-        a.projectName.localeCompare(b.projectName)
-    )
     .map((c) => {
       const spend = contractSpend(c.id, costs);
       const expenses = contractExpenseTotal(c);
@@ -409,7 +436,8 @@ export function buildCostCentreRows(
         profit,
         profitPercent: profitPercentOf(profit, comparison),
       };
-    });
+    })
+    .sort(compareCoreContractRows);
 }
 
 export type CostSellingParts = {
@@ -652,12 +680,6 @@ export function buildCoreReportRows(
 ): CoreReportRow[] {
   const costs = normalizeNexusCosts(data.nexusCosts);
   return data.contracts
-    .slice()
-    .sort(
-      (a, b) =>
-        a.projectNo.localeCompare(b.projectNo) ||
-        a.projectName.localeCompare(b.projectName)
-    )
     .map((contract) => {
       const spend = contractSpend(contract.id, costs);
       const expenses = contractExpenseTotal(contract);
@@ -683,5 +705,6 @@ export function buildCoreReportRows(
         profitPercent: profitPercentOf(profit, selling),
         selling,
       };
-    });
+    })
+    .sort(compareCoreContractRows);
 }

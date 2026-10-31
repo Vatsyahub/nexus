@@ -46,6 +46,8 @@ const STEEL = "var(--fh-steel)";
 const GOLD = "var(--fh-accent)";
 const MUTED = "var(--fh-muted)";
 const LOSS = "var(--destructive)";
+const PIE_PROFIT = "var(--fh-pie-profit)";
+const PIE_COST = "var(--fh-pie-cost)";
 const TRACK = "var(--fh-line)";
 const PANEL = "var(--fh-panel)";
 
@@ -207,7 +209,7 @@ function NexusCoreInner() {
           }}
         >
         <ChartCard
-          title="Profit Overview"
+          title="Profits Overview"
           controls={
             <div className="flex min-w-0 max-w-full flex-wrap rounded border border-[var(--fh-line)] p-0.5">
               <Toggle
@@ -381,9 +383,9 @@ function CostPie({
         {
           label: withRetention ? "Cost" : "Cost incl. retention held",
           value: Math.max(0, pie.cost),
-          color: STEEL,
+          color: PIE_COST,
         },
-        { label: "Profit", value: Math.max(0, pie.profit), color: GOLD },
+        { label: "Profit", value: Math.max(0, pie.profit), color: PIE_PROFIT },
       ];
   const total = slices.reduce((sum, slice) => sum + slice.value, 0);
   const percents = piePercents(slices.map((slice) => slice.value));
@@ -426,11 +428,15 @@ function CostPie({
             y={label.y.toFixed(2)}
             textAnchor="middle"
             dominantBaseline="central"
-            className={label.color === GOLD ? undefined : "core-pie-percent"}
-            fill={label.color === GOLD ? "var(--fh-figure-on-accent, #14232e)" : undefined}
+            className={label.color === PIE_PROFIT ? undefined : "core-pie-percent"}
+            fill={
+              label.color === PIE_PROFIT
+                ? "var(--fh-figure-on-profit, #14232e)"
+                : undefined
+            }
             stroke={
-              label.color === GOLD
-                ? "var(--fh-figure-on-accent-edge, #ffffff)"
+              label.color === PIE_PROFIT
+                ? "var(--fh-figure-on-profit-edge, #ffffff)"
                 : undefined
             }
             strokeWidth="0.55"

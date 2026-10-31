@@ -72,6 +72,11 @@
   /* Pie percent sitting on the accent slice. Dark type, light edge. */
   --fh-figure-on-accent: #14232e;
   --fh-figure-on-accent-edge: #ffffff;
+  /* Profits Overview ring. Profit is light green, cost is blue. Loss stays red. */
+  --fh-pie-profit: #86efac;
+  --fh-pie-cost: #1d4ed8;
+  --fh-figure-on-profit: #14232e;
+  --fh-figure-on-profit-edge: #ffffff;
 
   --background: #eef1f4;
   --foreground: #14232e;
