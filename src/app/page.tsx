@@ -11,6 +11,7 @@ import {
 } from "@/lib/store";
 import { HUB_NAME, HUB_TAGLINE } from "@/lib/types";
 import { contractDisplayStatus, todayIso as statusToday } from "@/lib/nexus-core";
+import { taskIsOnActiveList } from "@/lib/task-list";
 import { formatDisplayDate } from "@/lib/dates";
 import { recentContracts } from "@/lib/recent-contracts";
 import { Badge } from "@/components/ui/badge";
@@ -90,7 +91,7 @@ export default function HomePage() {
     (c) => contractDisplayStatus(data, c, todayKey) === "Active"
   ).length;
   const pendingTasks = data.tasks.filter(
-    (t) => !t.parentId && taskIsOpen(t)
+    (t) => !t.parentId && taskIsOnActiveList(t)
   ).length;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -156,7 +157,7 @@ export default function HomePage() {
         <StatCard
           label="CURRENT TASKS"
           value={ready ? pendingTasks : "…"}
-          href="/tasks?filter=pending"
+          href="/tasks?view=active"
         />
         <StatCard
           label="TASKS OVERDUE"

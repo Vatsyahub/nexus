@@ -6,6 +6,7 @@ export const TASK_VIEWS_WITH_SUBTASKS = [
   "open",
   "overdue",
   "no_deadline",
+  "active",
   "completed",
 ] as const;
 
@@ -14,6 +15,18 @@ export type SubtaskListView = (typeof TASK_VIEWS_WITH_SUBTASKS)[number];
 function isOpen(task: Pick<Task, "status" | "deletedAt">): boolean {
   if (task.deletedAt) return false;
   return task.status !== "completed" && task.status !== "not_required";
+}
+
+/** In progress, on hold, or waiting for manager. Pending stays off. */
+export function taskIsOnActiveList(
+  task: Pick<Task, "status" | "deletedAt">
+): boolean {
+  if (task.deletedAt) return false;
+  return (
+    task.status === "in_progress" ||
+    task.status === "on_hold" ||
+    task.status === "awaiting_verification"
+  );
 }
 
 function isOverdueOpen(
@@ -51,6 +64,7 @@ export function taskMatchesHubView(
     );
   }
   if (view === "open") return isOpen(task);
+  if (view === "active") return taskIsOnActiveList(task);
   if (view === "overdue") {
     return isOpen(task) && !!task.dueDate && task.dueDate < today;
   }
@@ -61,8 +75,8 @@ export function taskMatchesHubView(
 export type TaskListRow = { parent: Task; subtasks: Task[] };
 
 /**
- * Open, Overdue, No deadline, Unassigned, and Done keep a parent when a
- * subtask matches. The matching subtask is shown and counted.
+ * Active, Open, Overdue, No deadline, Unassigned, and Done keep a parent
+ * when a subtask matches. The matching subtask is shown and counted.
  */
 export function assembleSubtaskView(input: {
   tasks: Task[];
