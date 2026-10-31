@@ -154,7 +154,7 @@ export default function HomePage() {
           href="/reports/outstanding?tab=outstandings&dueWithin=7"
         />
         <StatCard
-          label="Pending tasks"
+          label="CURRENT TASKS"
           value={ready ? pendingTasks : "…"}
           href="/tasks?filter=pending"
         />
