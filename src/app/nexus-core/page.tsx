@@ -46,8 +46,6 @@ const STEEL = "var(--fh-steel)";
 const GOLD = "var(--fh-accent)";
 const MUTED = "var(--fh-muted)";
 const LOSS = "var(--destructive)";
-const PIE_PROFIT = "var(--fh-pie-profit)";
-const PIE_COST = "var(--fh-pie-cost)";
 const TRACK = "var(--fh-line)";
 const PANEL = "var(--fh-panel)";
 
@@ -383,9 +381,9 @@ function CostPie({
         {
           label: withRetention ? "Cost" : "Cost incl. retention held",
           value: Math.max(0, pie.cost),
-          color: PIE_COST,
+          color: STEEL,
         },
-        { label: "Profit", value: Math.max(0, pie.profit), color: PIE_PROFIT },
+        { label: "Profit", value: Math.max(0, pie.profit), color: GOLD },
       ];
   const total = slices.reduce((sum, slice) => sum + slice.value, 0);
   const percents = piePercents(slices.map((slice) => slice.value));
@@ -428,15 +426,11 @@ function CostPie({
             y={label.y.toFixed(2)}
             textAnchor="middle"
             dominantBaseline="central"
-            className={label.color === PIE_PROFIT ? undefined : "core-pie-percent"}
-            fill={
-              label.color === PIE_PROFIT
-                ? "var(--fh-figure-on-profit, #14232e)"
-                : undefined
-            }
+            className={label.color === GOLD ? undefined : "core-pie-percent"}
+            fill={label.color === GOLD ? "var(--fh-figure-on-accent, #14232e)" : undefined}
             stroke={
-              label.color === PIE_PROFIT
-                ? "var(--fh-figure-on-profit-edge, #ffffff)"
+              label.color === GOLD
+                ? "var(--fh-figure-on-accent-edge, #ffffff)"
                 : undefined
             }
             strokeWidth="0.55"
