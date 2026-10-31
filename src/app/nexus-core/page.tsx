@@ -207,7 +207,7 @@ function NexusCoreInner() {
           }}
         >
         <ChartCard
-          title="Profit Overview"
+          title="Profits Overview"
           controls={
             <div className="flex min-w-0 max-w-full flex-wrap rounded border border-[var(--fh-line)] p-0.5">
               <Toggle

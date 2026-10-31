@@ -229,7 +229,7 @@ test("yet to collect uses a saved GST percent and leaves a not-applicable contra
   );
 });
 
-test("core report profit matches the project card and rows follow project number", () => {
+test("core report profit matches the project card", () => {
   const data = hub({
     contracts: [
       contract({
@@ -270,16 +270,102 @@ test("core report profit matches the project card and rows follow project number
   const today = "2026-10-21";
   const report = buildCoreReportRows(data, today);
   const cards = buildCostCentreRows(data, today);
+  const rowA = report.find((row) => row.contractId === "a");
+  const rowB = report.find((row) => row.contractId === "b");
+  assert.equal(rowA?.yetToBill, 75000);
+  assert.equal(
+    rowA?.yetToCollect,
+    yetToCollectAmount(data.contracts[1], data.payments)
+  );
+  assert.equal(rowA?.profit, cards.find((row) => row.contractId === "a")?.profit);
+  assert.equal(rowB?.spent, 0);
+  assert.equal(rowB?.yetToSpend, 50000);
+  assert.equal(rowB?.city, "Pune");
   assert.deepEqual(
     report.map((row) => row.projectNo),
-    ["P-1", "P-2"]
+    cards.map((row) => row.projectNo)
   );
-  assert.equal(report[0]?.yetToBill, 75000);
-  assert.equal(report[0]?.yetToCollect, yetToCollectAmount(data.contracts[1], data.payments));
-  assert.equal(report[0]?.profit, cards.find((row) => row.contractId === "a")?.profit);
-  assert.equal(report[1]?.spent, 0);
-  assert.equal(report[1]?.yetToSpend, 50000);
-  assert.equal(report[1]?.city, "Pune");
+});
+
+test("cost centre and core report sort by status, then yet to spend, then project number", () => {
+  const today = "2026-10-21";
+  const data = hub({
+    contracts: [
+      contract({
+        id: "hold-late",
+        projectNo: "H-2",
+        projectName: "Hold late",
+        status: "on_hold",
+      }),
+      contract({
+        id: "active-big",
+        projectNo: "A-9",
+        projectName: "Active big",
+        status: "active",
+      }),
+      contract({
+        id: "handed",
+        projectNo: "D-1",
+        projectName: "Handed",
+        status: "active",
+        handoverDate: "2026-10-01",
+      }),
+      contract({
+        id: "active-tie-b",
+        projectNo: "A-2",
+        projectName: "Active tie b",
+        status: "active",
+      }),
+      contract({
+        id: "active-tie-a",
+        projectNo: "A-1",
+        projectName: "Active tie a",
+        status: "active",
+      }),
+      contract({
+        id: "hold-early",
+        projectNo: "H-1",
+        projectName: "Hold early",
+        status: "on_hold",
+      }),
+      contract({
+        id: "word-only",
+        projectNo: "W-1",
+        projectName: "Stored complete",
+        status: "complete",
+        handoverDate: null,
+      }),
+    ],
+    nexusCosts: {
+      contracts: {
+        "hold-late": { spent: 0, yetToSpend: 80 },
+        "active-big": { spent: 0, yetToSpend: 500 },
+        handed: { spent: 0, yetToSpend: 1 },
+        "active-tie-b": { spent: 0, yetToSpend: 100 },
+        "active-tie-a": { spent: 0, yetToSpend: 100 },
+        "hold-early": { spent: 0, yetToSpend: 10 },
+        "word-only": { spent: 0, yetToSpend: 5 },
+      },
+    },
+  });
+  const expected = ["W-1", "A-1", "A-2", "A-9", "H-1", "H-2", "D-1"];
+  const cards = buildCostCentreRows(data, today);
+  const report = buildCoreReportRows(data, today);
+  assert.deepEqual(
+    cards.map((row) => row.projectNo),
+    expected
+  );
+  assert.deepEqual(
+    report.map((row) => row.projectNo),
+    expected
+  );
+  assert.deepEqual(
+    cards.map((row) => row.yetToSpend),
+    [5, 100, 100, 500, 10, 80, 1]
+  );
+  assert.equal(cards.find((row) => row.projectNo === "D-1")?.status, "Completed");
+  assert.equal(cards.find((row) => row.projectNo === "W-1")?.status, "Active");
+  assert.equal(report.find((row) => row.projectNo === "H-1")?.yetToSpend, 10);
 });
 
 test("outstanding windows include both ends and the total includes overdue", () => {

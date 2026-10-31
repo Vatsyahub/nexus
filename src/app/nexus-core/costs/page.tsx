@@ -28,6 +28,7 @@ import {
 } from "@/components/report-export-icons";
 import { buttonVariants } from "@/components/ui/button";
 import { HubDataScroll, HubPage } from "@/components/hub-scroll";
+import { CoreReportBody } from "@/app/nexus-core/report/core-report-body";
 import { cn } from "@/lib/utils";
 
 export default function CostCentrePage() {
@@ -48,6 +49,7 @@ function CostCentreInner() {
   const { get, commit } = useViewQuery();
   const q = get("q");
   const lossesOnly = get("losses") === "1";
+  const showReport = get("tab") === "report";
 
   function setQ(value: string) {
     commit({ q: value || null });
@@ -55,6 +57,10 @@ function CostCentreInner() {
 
   function setLossesOnly(next: boolean) {
     commit({ losses: next ? "1" : null });
+  }
+
+  function setShowReport(next: boolean) {
+    commit({ tab: next ? "report" : null });
   }
   const today = todayIso();
 
@@ -122,8 +128,8 @@ function CostCentreInner() {
   }
 
   return (
-    <HubPage>
-      <div className="flex shrink-0 flex-wrap items-end justify-between gap-4">
+    <HubPage className={showReport ? "max-w-none" : undefined}>
+      <div className="flex shrink-0 flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs uppercase tracking-wide text-[var(--fh-muted)]">
             Nexus Core
@@ -132,16 +138,44 @@ function CostCentreInner() {
             Cost centre
           </h1>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Link
-            href="/nexus-core/costs/add"
-            className={cn(
-              buttonVariants({ size: "sm" }),
-              "bg-[var(--fh-accent)] text-[var(--fh-ink)] hover:bg-[#f0b01a]"
-            )}
+        <div className="flex flex-col items-end gap-2">
+          <div
+            role="tablist"
+            aria-label="Cost centre"
+            className="flex flex-wrap justify-end gap-2"
           >
-            Add costs
-          </Link>
+            <Link
+              href="/nexus-core/costs/add"
+              role="tab"
+              aria-selected={!showReport}
+              className={cn(
+                buttonVariants({ size: "sm" }),
+                showReport
+                  ? "border border-[var(--fh-line)] bg-white text-[var(--fh-steel)] hover:bg-[var(--fh-bg)]"
+                  : "bg-[var(--fh-accent)] text-[var(--fh-ink)] hover:bg-[#f0b01a]"
+              )}
+            >
+              Add costs
+            </Link>
+            <button
+              type="button"
+              role="tab"
+              id="core-report-tab"
+              aria-selected={showReport}
+              aria-controls={showReport ? "core-report-panel" : undefined}
+              onClick={() => setShowReport(!showReport)}
+              className={cn(
+                buttonVariants({
+                  size: "sm",
+                  variant: showReport ? "default" : "outline",
+                }),
+                showReport &&
+                  "bg-[var(--fh-steel)] text-white hover:bg-[var(--fh-steel)]/90"
+              )}
+            >
+              Core report
+            </button>
+          </div>
           <HubReturnLink
             href="/nexus-core"
             className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
@@ -151,6 +185,57 @@ function CostCentreInner() {
         </div>
       </div>
 
+      {showReport ? (
+        <CoreReportBody tabPanel />
+      ) : (
+        <CostCentreList
+          ready={ready}
+          allRows={allRows}
+          rows={rows}
+          totals={totals}
+          exportRows={exportRows}
+          q={q}
+          setQ={setQ}
+          lossesOnly={lossesOnly}
+          setLossesOnly={setLossesOnly}
+        />
+      )}
+    </HubPage>
+  );
+}
+
+function CostCentreList({
+  ready,
+  allRows,
+  rows,
+  totals,
+  exportRows,
+  q,
+  setQ,
+  lossesOnly,
+  setLossesOnly,
+}: {
+  ready: boolean;
+  allRows: CostCentreRow[];
+  rows: CostCentreRow[];
+  totals: {
+    workOrder: number;
+    spent: number;
+    yetToSpend: number;
+    expenses: number;
+    cumulative: number;
+    selling: number;
+    profit: number;
+    profitPercent: number | null;
+  };
+  exportRows: (string | number)[][];
+  q: string;
+  setQ: (value: string) => void;
+  lossesOnly: boolean;
+  setLossesOnly: (next: boolean) => void;
+}) {
+  return (
+    <>
       <div className="flex shrink-0 flex-wrap items-start gap-3">
         <ListSearchBar
           value={q}
@@ -268,7 +353,7 @@ function CostCentreInner() {
           />
         </>
       )}
-    </HubPage>
+    </>
   );
 }
 
