@@ -156,7 +156,7 @@ export default function HomePage() {
         <StatCard
           label="CURRENT TASKS"
           value={ready ? pendingTasks : "…"}
-          href="/tasks?filter=pending"
+          href="/tasks?view=active"
         />
         <StatCard
           label="TASKS OVERDUE"

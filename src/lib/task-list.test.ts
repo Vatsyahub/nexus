@@ -30,7 +30,10 @@ function task(partial: Partial<Task> & Pick<Task, "id" | "title">): Task {
 
 const today = "2026-10-17";
 
-function listed(view: "open" | "overdue" | "no_deadline" | "unassigned" | "completed", rows: Task[]) {
+function listed(
+  view: "open" | "overdue" | "no_deadline" | "unassigned" | "active" | "completed",
+  rows: Task[]
+) {
   return assembleSubtaskView({
     tasks: rows,
     view,
@@ -105,6 +108,65 @@ test("open, overdue, no deadline, unassigned, and done keep a parent for a match
     ["parent", "done-sub"]
   );
   assert.deepEqual(done.rows[0]?.subtasks.map((row) => row.id), ["done-sub"]);
+});
+
+test("active lists in-progress and on-hold tasks and leaves finished ones off", () => {
+  const parent = task({
+    id: "parent",
+    title: "Finished parent",
+    status: "completed",
+    completedAt: "2026-10-01T00:00:00.000Z",
+  });
+  const stillGoing = task({
+    id: "going",
+    title: "Still going",
+    parentId: "parent",
+    status: "in_progress",
+  });
+  const held = task({
+    id: "held",
+    title: "Held",
+    status: "on_hold",
+  });
+  const pending = task({ id: "pending", title: "Pending", status: "pending" });
+  const finished = task({
+    id: "finished",
+    title: "Finished",
+    status: "completed",
+    completedAt: "2026-10-02T00:00:00.000Z",
+  });
+  const skipped = task({
+    id: "skipped",
+    title: "Skipped",
+    status: "not_required",
+  });
+  const waiting = task({
+    id: "waiting",
+    title: "Waiting",
+    status: "awaiting_verification",
+  });
+  const view = listed("active", [
+    parent,
+    stillGoing,
+    held,
+    pending,
+    finished,
+    skipped,
+    waiting,
+  ]);
+  assert.deepEqual(
+    view.counted.map((row) => row.id).sort(),
+    ["going", "held"]
+  );
+  const kept = view.rows.find((row) => row.parent.id === "parent");
+  assert.deepEqual(
+    kept?.subtasks.map((row) => row.id),
+    ["going"]
+  );
+  assert.equal(
+    view.counted.some((row) => row.status === "completed" || row.status === "not_required"),
+    false
+  );
 });
 
 test("a parent that matches is counted with its matching subtask", () => {

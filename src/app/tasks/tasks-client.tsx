@@ -87,6 +87,7 @@ import {
   assembleSubtaskView,
   compareTasks,
   subtasksOnlyLines,
+  taskMatchesHubView,
   type TaskListRow,
 } from "@/lib/task-list";
 import { samePerson } from "@/lib/task-responsible";
@@ -114,7 +115,7 @@ export type AssignablePerson = {
 type ViewFilter =
   | "my"
   | "dept"
-  | "all"
+  | "active"
   | "unassigned"
   | "overdue"
   | "completed";
@@ -125,11 +126,12 @@ function parseTaskView(raw: string): ViewFilter {
   if (raw === "overdue") return "overdue";
   if (raw === "completed") return "completed";
   if (raw === "unassigned") return "unassigned";
-  return "all";
+  if (raw === "active" || raw === "all") return "active";
+  return "active";
 }
 
 function taskFilterParam(view: ViewFilter): string | null {
-  if (view === "all") return null;
+  if (view === "active") return null;
   return view;
 }
 
@@ -314,13 +316,13 @@ function TasksPageInner({
   const q = get("q");
   const urlFilter = get("filter");
   const homeFilter =
-    urlFilter && parseTaskView(urlFilter) !== "all" ? urlFilter : null;
+    urlFilter && parseTaskView(urlFilter) !== "active" ? urlFilter : null;
   const showDept = role === "user" || role === "manager";
   const requestedView = focusTaskId
-    ? "all"
+    ? "active"
     : parseTaskView(get("view") || urlFilter);
   const view: ViewFilter =
-    requestedView === "dept" && !showDept ? "all" : requestedView;
+    requestedView === "dept" && !showDept ? "active" : requestedView;
   const showLog = get("log") === "1";
   const subtasksOnly = get("subs") === "1";
 
@@ -377,43 +379,6 @@ function TasksPageInner({
     );
   }, [focusTaskId, data.tasks, router]);
 
-  const scoped = useMemo(() => {
-    const needle = q.trim();
-    return data.tasks.filter((t) => {
-      if (!taskVisibleInLists(t)) return false;
-      if (contractId && t.contractId !== contractId) return false;
-      if (!needle) return true;
-      const c = t.contractId ? contractById.get(t.contractId) ?? null : null;
-      if (taskMatchesQuery(t, c, q)) return true;
-      if (!t.parentId) {
-        return data.tasks.some((s) => {
-          if (s.parentId !== t.id || !taskVisibleInLists(s)) return false;
-          const sc = s.contractId
-            ? contractById.get(s.contractId) ?? null
-            : null;
-          return taskMatchesQuery(s, sc, q);
-        });
-      }
-      const parent = data.tasks.find((p) => p.id === t.parentId);
-      if (!parent) return false;
-      const pc = parent.contractId
-        ? contractById.get(parent.contractId) ?? null
-        : null;
-      return taskMatchesQuery(parent, pc, q);
-    });
-  }, [
-    data.tasks,
-    contractById,
-    q,
-    contractId,
-  ]);
-
-  const roots = useMemo(
-    () => scoped.filter((t) => !t.parentId),
-    [scoped]
-  );
-  const childrenOf = (id: string) => scoped.filter((t) => t.parentId === id);
-
   const matchesHubRow = useMemo(() => {
     const needle = q.trim();
     return (t: Task) => {
@@ -442,7 +407,7 @@ function TasksPageInner({
   }, [data.tasks]);
 
   const subtaskViews = useMemo(() => {
-    const ids = ["unassigned", "overdue", "completed"] as const;
+    const ids = ["active", "unassigned", "overdue", "completed"] as const;
     const compare = (a: Task, b: Task) => compareTasks(a, b, today);
     const tasks = data.tasks.filter(
       (t) => !t.deletedAt && (!contractId || t.contractId === contractId)
@@ -459,7 +424,7 @@ function TasksPageInner({
         }),
       ])
     ) as Record<
-      "unassigned" | "overdue" | "completed",
+      "active" | "unassigned" | "overdue" | "completed",
       ReturnType<typeof assembleSubtaskView>
     >;
   }, [data.tasks, today, contractId, matchesHubRow]);
@@ -504,45 +469,42 @@ function TasksPageInner({
     return {
       my: myView.counted.length,
       dept: deptView.counted.length,
-      all: roots.length,
+      active: subtaskViews.active.counted.length,
       unassigned: subtaskViews.unassigned.counted.length,
       overdue: subtaskViews.overdue.counted.length,
       completed: subtaskViews.completed.counted.length,
     };
-  }, [roots, myView, deptView, subtaskViews]);
-
-  const visibleRoots = useMemo(() => {
-    return roots.slice().sort((a, b) => compareTasks(a, b, today));
-  }, [roots, today]);
+  }, [myView, deptView, subtaskViews]);
 
   const listView: ViewFilter =
-    view === "unassigned" && counts.unassigned === 0 ? "all" : view;
-  const activeSubtaskView =
-    listView === "unassigned" ||
-    listView === "overdue" ||
-    listView === "completed"
-      ? listView
-      : null;
+    view === "unassigned" && counts.unassigned === 0 ? "active" : view;
   const visibleRows: TaskListRow[] =
     listView === "dept"
       ? deptView.rows
       : listView === "my"
         ? myView.rows
-        : activeSubtaskView
-          ? subtaskViews[activeSubtaskView].rows
-          : visibleRoots.map((parent) => ({
-              parent,
-              subtasks: childrenOf(parent.id),
-            }));
+        : subtaskViews[listView].rows;
   const displayLines = subtasksOnly
     ? subtasksOnlyLines(visibleRows).map((line) => ({
         task: line.task,
         parent: line.parent,
       }))
-    : visibleRows.map((row) => ({
-        task: row.parent,
-        parent: null as Task | null,
-      }));
+    : listView === "active"
+      ? visibleRows.flatMap((row) => {
+          if (taskMatchesHubView(row.parent, "active", today)) {
+            return [{ task: row.parent, parent: null as Task | null }];
+          }
+          // A parent that is not in progress or on hold stays off Active.
+          // Its matching subtask is listed in that parent's place.
+          return row.subtasks.map((task) => ({
+            task,
+            parent: row.parent,
+          }));
+        })
+      : visibleRows.map((row) => ({
+          task: row.parent,
+          parent: null as Task | null,
+        }));
 
   function listPath() {
     const params = new URLSearchParams();
@@ -608,7 +570,7 @@ function TasksPageInner({
   }
 
   const views: { id: ViewFilter; label: string; count: number }[] = [
-    { id: "all", label: "All", count: counts.all },
+    { id: "active", label: "Active", count: counts.active },
     ...(counts.unassigned > 0
       ? [
           {
@@ -619,7 +581,7 @@ function TasksPageInner({
         ]
       : []),
     { id: "overdue", label: "Overdue", count: counts.overdue },
-    { id: "completed", label: "Done", count: counts.completed },
+    { id: "completed", label: "Completed", count: counts.completed },
     { id: "my", label: "My tasks", count: counts.my },
     ...(showDept
       ? [{ id: "dept" as const, label: "Dept tasks", count: counts.dept }]
@@ -734,7 +696,7 @@ function TasksPageInner({
           checked={subtasksOnly}
           onChange={(e) => setSubtasksOnly(e.target.checked)}
         />
-        Subtasks only
+        Subtasks
       </label>
       </div>
 
